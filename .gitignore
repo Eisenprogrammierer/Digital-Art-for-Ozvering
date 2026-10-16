@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated assets (reproducible from the code + seeds: python cli.py demo)
+out/
+
+# Local worktrees
+.worktrees/
