@@ -128,7 +128,30 @@ def _back_locks(st, p: dict, rng, turn: float) -> tuple:
     return far, near
 
 
-def _bangs(st, p: dict, rng, turn: float) -> list:
+def _strand(spine, tip_w: float, top: float) -> tuple:
+    """A line drawn *inside* a clump, and the height it has to fade out at.
+
+    A clump's boundary is inked, and the clump in front covers most of it, so what
+    survives of the ink is a few millimetres of edge near the hem: the fringe reads
+    as a smooth sheet with a sawtooth bottom.  What is missing is the strand -- the
+    line an artist draws *down* a lock, not around it.
+
+    It is built from the clump's *own* spine on purpose.  A line laid beside the
+    spine from its own endpoints can bulge out past the hem and draw on the skin,
+    and that is the one thing ink must never do; sharing the spine and asking for
+    less width makes the strand a strict subset of its clump, by construction.
+
+    It is thin at the top and wider at the hem, because the edge of a lock gathers
+    ink where the lock ends, and it fades out at ``top`` -- the middle of the clump,
+    which is roughly where the clump behind has crept far enough forward to be on
+    top of it, so the line disappears into the mass instead of crossing it.
+    """
+    w = max(float(tip_w), 1e-3)
+    return (S.lock(spine, w0=w * 0.30, w1=w * 0.62, bulge=0.0,
+                   per_segment=7, resample=30), float(top))
+
+
+def _bangs(st, p: dict, rng, turn: float) -> tuple:
     """The fringe: many clumps of *different* lengths, with cut ends.
 
     The length is not a style parameter, it is a measurement.  A fringe that hangs
@@ -137,6 +160,10 @@ def _bangs(st, p: dict, rng, turn: float) -> list:
     to land between the brow and the upper lid and the *style's* own landmarks
     decide where that is.  The style only biases the result (``blen``), says how
     many clumps there are, and how far they sway.
+
+    The roots come back beside the clumps because the ink needs them: a clump's
+    strand line has to fade out as it approaches *its own* root, and only the
+    builder knows where that is.  The strands come back with them.
     """
     n = int(p["bangs"])
     bw, vol = float(p["bw"]), float(p["vol"])
@@ -148,7 +175,7 @@ def _bangs(st, p: dict, rng, turn: float) -> list:
     # more than any amount of extra clumps: an even curtain of hair across the
     # forehead is the single strongest "generated" tell a portrait can have.
     part = 0.0 if straight else float(rng.uniform(-0.45, 0.45))
-    out = []
+    out, roots, strands = [], [], []
     for i in range(n):
         u = (i + 0.5) / n
         th = np.pi * (0.17 + 0.66 * u)
@@ -174,10 +201,12 @@ def _bangs(st, p: dict, rng, turn: float) -> list:
                         root[1] - length * 0.50])
         out.append(S.lock([root, mid, tip], w0=bw * float(rng.uniform(0.70, 1.30)),
                           w1=tip_w, bulge=bw * 0.16, per_segment=7, resample=32))
-    return out
+        roots.append(float(root[1]))
+        strands.append(_strand([root, mid, tip], tip_w, mid[1] + 0.03))
+    return out, roots, strands
 
 
-def _sidelocks(st, p: dict, rng, turn: float) -> list:
+def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
     """The curtains: wide locks that hang in front of the temple and the cheek.
 
     These are the locks that cover the *sides* of the head, and they have to be
@@ -190,7 +219,7 @@ def _sidelocks(st, p: dict, rng, turn: float) -> list:
     n = int(p["sides"])
     sw, drop, vol = float(p["sw"]), float(p["sdrop"]), float(p["vol"])
     straight = bool(p.get("straight", False))
-    out = []
+    out, roots, strands = [], [], []
     for sign in (+1, -1):
         if turn != 0.0 and (sign * turn) < 0.0:
             continue  # the receding side's locks are behind the jaw
@@ -207,7 +236,9 @@ def _sidelocks(st, p: dict, rng, turn: float) -> list:
                               w0=sw * (1.0 - 0.32 * k) * float(rng.uniform(0.90, 1.06)),
                               w1=sw * (0.30 - 0.06 * k), bulge=sw * 0.13,
                               per_segment=7, resample=34))
-    return out
+            roots.append(float(root[1]))
+            strands.append(_strand([root, mid, tip], sw * (0.30 - 0.06 * k), mid[1] + 0.03))
+    return out, roots, strands
 
 
 def _crest(st, p: dict, rng, turn: float) -> list:
@@ -297,19 +328,33 @@ class Hair:
     ``back_locks`` are the locks that hang behind the head and ``near_locks`` the
     ones rooted at the temples, which hang beside the jaw and over the shoulder
     and so have to be painted *after* the body.  See :func:`_back_locks`.
+
+    ``bang_roots`` and ``side_roots`` are the root heights of the fringe's clumps,
+    aligned with ``bangs`` and ``sides``: the ink on a clump has to fade out at
+    its own root, and nothing else in the frame knows where that is.
+
+    ``front_strands`` are the lines drawn inside the fringe's clumps, each paired
+    with the height it fades out at.  They are a second pass over the same spines
+    rather than part of the clumps because the clumps ink each other out: a strand
+    has to be painted after the last clump has had its say.
     """
 
-    __slots__ = ("name", "p", "cap", "back_locks", "near_locks", "bangs", "sides",
-                 "crest", "shine", "back_mass", "front_mass", "mass")
+    __slots__ = ("name", "p", "cap", "back_locks", "near_locks", "bangs", "bang_roots",
+                 "sides", "side_roots", "front_strands", "crest", "shine", "back_mass",
+                 "front_mass", "mass")
 
-    def __init__(self, name, p, cap, back_locks, near_locks, bangs, sides, crest, shine):
+    def __init__(self, name, p, cap, back_locks, near_locks, bangs, bang_roots, sides,
+                 side_roots, front_strands, crest, shine):
         self.name = name
         self.p = p
         self.cap = cap
         self.back_locks = back_locks
         self.near_locks = near_locks
         self.bangs = bangs
+        self.bang_roots = bang_roots
         self.sides = sides
+        self.side_roots = side_roots
+        self.front_strands = front_strands
         self.crest = crest
         self.shine = shine
         self.back_mass = union_all([cap] + back_locks + crest)
@@ -351,14 +396,19 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     p = _params(name, st, genes)
     hairline = head.hairline_y(st) - 0.02
     back, near = _back_locks(st, p, rng, turn)
+    bangs, bang_roots, bang_strands = _bangs(st, p, rng, turn)
+    sides, side_roots, side_strands = _sidelocks(st, p, rng, turn)
     return Hair(
         name=name,
         p=p,
         cap=_cap(st, p, turn, hairline, skull),
         back_locks=back,
         near_locks=near,
-        bangs=_bangs(st, p, rng, turn),
-        sides=_sidelocks(st, p, rng, turn),
+        bangs=bangs,
+        bang_roots=bang_roots,
+        sides=sides,
+        side_roots=side_roots,
+        front_strands=bang_strands + side_strands,
         crest=_crest(st, p, rng, turn),
         shine=_shine(st, p, rng, turn),
     )
@@ -442,14 +492,23 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
     strand line of the one behind it: only visible boundaries get inked, which is
     the whole difference between strands and a wire mesh.
 
-    The ink is faded out above the hairline.  A clump's outline runs right around
-    it, so its *root* -- a straight cut lying inside the crown -- is inked along
-    with its sides, and a row of those reads as teeth.  The clumps do get painted
-    over the cap's own shading, but that is invisible: the two passes differ only
-    by a constant offset to the *height*, and a constant offset does not change a
-    gradient, so both quantise to the same band to the last bit.  Give a clump a
-    bevel of its own and its whole interior lands a band away from the crown it
-    lies on, which shows up as pale patches and steps right across the head.
+    The ink is faded out at each clump's *own* root, and the ruler matters.  A
+    clump's outline runs right around it, so its root -- a straight cut lying
+    inside the crown -- is inked along with its sides, and a row of those reads as
+    teeth.  Fading the ink against the *hairline* instead is the obvious thing and
+    it is wrong: the hairline is a landmark of the face, the roots are landmarks of
+    the hair, and on a style where the hem falls above the hairline the whole
+    fringe ends up with no ink in it at all -- a bare coloured sheet on the front
+    of the head.  Fading against the root, each clump carries its strand line from
+    its hem up to just short of where it is rooted, whatever the style's
+    proportions are.
+
+    The clumps do get painted over the cap's own shading, but that is invisible:
+    the two passes differ only by a constant offset to the *height*, and a constant
+    offset does not change a gradient, so both quantise to the same band to the
+    last bit.  Give a clump a bevel of its own and its whole interior lands a band
+    away from the crown it lies on, which shows up as pale patches and steps right
+    across the head.
     """
     lw = float(st.ink_w) * float(st.line) * 0.78
     dome = _hair_dome(st, h, turn)
@@ -460,10 +519,7 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
     cap.stroke(canvas, lw, hues.line_hair, inset=lw * 0.42)
 
     _, Yg = canvas.grid()
-    fade = np.clip((float(head.hairline_y(st)) + 0.045 - Yg) / 0.07, 0.0, 1.0)
-    if clip is not None:
-        fade = fade * clip
-    for clump in h.bangs + h.sides:
+    for clump, root_y in zip(h.bangs + h.sides, h.bang_roots + h.side_roots):
         s = brush.Surface(canvas, clump, pad=2.6 * lw)
         s.paint(canvas, hues.hair)
         s.bands(canvas, [hues.hair_shadow, hues.hair_deep], (0.44, 0.15),
@@ -471,8 +527,19 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         if not s.empty:
             rows = slice(s.rows, s.rows + s.d.shape[0])
             cols = slice(s.cols, s.cols + s.d.shape[1])
+            amt = np.clip((root_y - 0.025 - Yg[rows, cols]) / 0.15, 0.0, 1.0)
             s.stroke(canvas, lw * 0.50, hues.line_hair, inset=lw * 0.20,
-                     mask=fade[rows, cols], alpha=0.92, soft=0.4)
+                     mask=amt, alpha=0.92, soft=0.4)
+    for strand, top in h.front_strands:
+        s = brush.Surface(canvas, strand, pad=2.6 * lw)
+        if s.empty:
+            continue
+        rows = slice(s.rows, s.rows + s.d.shape[0])
+        cols = slice(s.cols, s.cols + s.d.shape[1])
+        amt = np.clip((top - Yg[rows, cols]) / 0.10, 0.0, 1.0)
+        if clip is not None:
+            amt = amt * clip[rows, cols]
+        s.paint(canvas, hues.line_hair, mask=amt, alpha=0.55, soft=0.7)
     for lock in h.shine:
         brush.paint(canvas, lock, hues.hair_hi, clip=clip, alpha=0.86, soft=0.8)
 

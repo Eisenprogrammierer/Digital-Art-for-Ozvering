@@ -51,7 +51,7 @@ python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py credits    --manifest out         # what we owe, and what we made
 python tests/test_core.py                       # 50 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
-python tests/test_portraits.py                  # 23 tests
+python tests/test_portraits.py                  # 25 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -203,6 +203,25 @@ quantises to the same cel band to the last bit -- shade a lock with a bevel of i
 own and its interior lands a band away from the hair it lies on, which shows up as
 pale steps and triangles right across the head.
 
+The strand line is the surviving half of that outline, so it fades out before it
+reaches the clamp's *root* -- a straight cut lying inside the crown, which inked
+along with the sides reads as a row of teeth. Fading it against the *hairline*
+instead is the obvious move and it is wrong: the hairline is a landmark of the
+face, the roots belong to the hair, and on a style whose hem falls above the
+hairline the entire fringe ends up with no ink in it at all, a bare coloured sheet
+on the front of the head. Faded against its own root, every clump carries a strand
+from its hem up to just short of where it is attached, whatever the style's
+proportions are.
+
+An outline is still only an outline, and a clump in front covers most of the one
+behind it, so what survives of the ink is a few millimetres of edge at the hem --
+a smooth sheet with a sawtooth bottom. The line an artist actually draws runs
+*down* a lock, not around it, so each clump gets one: the same spine, less width.
+Sharing the spine is the point. A line laid beside it from its own endpoints can
+bulge past the hem and draw on the skin, and that is the one thing ink must never
+do; asking for less width on the same spine makes the strand a strict subset of
+its clump, which a test then checks rather than trusts.
+
 The parameterisation is deliberately *not* a wall of independent sliders -- those
 produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
 the genome may only push a preset around inside limits a `_clamp_params` pass then
@@ -246,6 +265,16 @@ each has a test:
 * the skull stays in frame with the chin about two thirds down;
 * every style × hairstyle × expression builds, and the ones that are rendered
   render something.
+
+One more is structural rather than compositional: every fringe clump carries its
+own root height, because that is what the strand ink fades against, and a clump
+missing from that list would not fail loudly -- it would just lose its ink on one
+style at some sizes. `zip` truncates in silence, so the pairing is asserted.
+
+The strands that lie inside the clumps get a test of their own, and it is a
+containment test: a strand is built from its clump's spine with less width, and
+"built to be inside" survives two resamplings and a bulge term only if someone
+checks. Ink that leaves the silhouette draws on skin.
 
 ## Roadmap
 

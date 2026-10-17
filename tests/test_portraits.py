@@ -267,6 +267,50 @@ def test_the_crown_is_painted_hair_and_not_skin():
             f"{name}: the cheek is painted hair, not skin")
 
 
+def test_every_fringe_clump_carries_its_own_root():
+    """The ink on a clump fades at *its* root, so the two lists have to stay aligned.
+
+    The root is not decoration: it is the only thing in the frame that knows how
+    far up a clump's strand line is allowed to run, and the painter reads it back
+    through ``zip``.  Zip truncates silently, so a clump added to one list and not
+    the other would not fail -- it would just lose its ink, on one style, at some
+    sizes.  Checking the pairing directly is cheaper than noticing the picture.
+    """
+    for name in dna.HAIR_STYLES:
+        g = _genes(11, hair_style=name)
+        _, h = _hair(g)
+        assert len(h.bang_roots) == len(h.bangs), name
+        assert len(h.side_roots) == len(h.sides), name
+        paired = list(zip(h.bangs, h.bang_roots)) + list(zip(h.sides, h.side_roots))
+        assert paired, name
+        for clump, root_y in paired:
+            # A root sits above the hem it feeds, and the clump has real length:
+            # a root at or below the tip would smother the whole strand line.
+            assert clump.bbox[3] >= root_y - 1e-9, name
+            assert root_y - clump.bbox[1] > 0.02, name
+
+
+def test_a_strand_never_escapes_the_clump_it_is_drawn_on():
+    """The strand inside a clump is ink, and ink that leaves the silhouette draws on skin.
+
+    It is *built* to stay inside -- same spine, less width -- but "same spine"
+    goes through two different resamplings and a bulge term, and the clump it
+    belongs to is the least forgiving thing to get this wrong on.  So the
+    containment is checked rather than reasoned about, clump by clump.
+    """
+    for name in dna.HAIR_STYLES:
+        g = _genes(17, hair_style=name)
+        _, h = _hair(g)
+        assert len(h.front_strands) == len(h.bangs) + len(h.sides), name
+        for (strand, top), clump in zip(h.front_strands, h.bangs + h.sides):
+            x0, y0, x1, y1 = clump.bbox
+            sx0, sy0, sx1, sy1 = strand.bbox
+            assert sx0 >= x0 - 1e-9 and sx1 <= x1 + 1e-9, name
+            assert sy0 >= y0 - 1e-9 and sy1 <= y1 + 1e-9, name
+            # The fade has to start below the root, or the strand is invisible.
+            assert top < y1, name
+
+
 # -------------------------------------------------------------- the picture
 def test_render_is_deterministic():
     g = dna.random_genes(5)
