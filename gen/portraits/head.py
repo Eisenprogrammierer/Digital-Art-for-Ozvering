@@ -170,3 +170,30 @@ def shoulders(st) -> Shape:
         (w, bottom),
     ]
     return S.poly(S.smooth_loop(pts, per_segment=8, resample=52))
+
+
+def neckline(st, kind: str = "v", w: float = 0.020) -> Shape:
+    """The collar: where the cloth opens.  One stroke is the whole outfit.
+
+    The trapezius on its own reads as a body under a coloured sheet -- the line
+    where the shoulders meet the neck is anatomy, not tailoring.  A line across
+    the cloth at the right depth turns the same silhouette into a garment, and the
+    depth is what says *which* garment, so the three kinds are the same two
+    endpoints with a different point between them.
+
+    The endpoints are placed *on* the trapezius by interpolating it, not at a
+    fixed height: a collar that stops short of the shoulder line floats on the
+    chest, and one that runs past it crosses the arm.
+    """
+    nw = max(float(st.neck_w) * 1.22, 0.16)
+    top = float(st.neck_y)
+    x0, x1 = nw * 1.55, float(st.shoulder_w) * 0.66
+    edge = (top + 0.075) + (x0 - nw) / max(x1 - nw, 1e-6) * (top - (top + 0.075))
+    if kind == "crew":
+        spine, bulge = [(-x0, top - 0.085), (0.0, top - 0.096), (x0, top - 0.085)], 0.008
+    elif kind == "scoop":
+        spine, bulge = [(-x0, edge), (0.0, top - 0.150), (x0, edge)], 0.044
+    else:
+        spine, bulge = [(-x0, edge), (0.0, top - 0.205), (x0, edge)], 0.012
+    return S.lock([np.array(p) for p in spine], w0=w, w1=w,
+                  bulge=bulge, per_segment=6, resample=26)
