@@ -289,6 +289,7 @@ def test_every_style_and_hairstyle_builds():
                 inner, _ = face.mouth_interior(st, turn, expr)
                 if inner is not None:
                     shapes["mouth"] = inner
+                probes = np.array([[-0.20, 0.0, 0.20, 0.0], [0.20, -0.10, -0.30, 0.05]])
                 for key, shape in shapes.items():
                     x0, y0, x1, y1 = shape.bbox
                     where = f"{name}/{hairstyle}/{expr_name}:{key}"
@@ -296,6 +297,13 @@ def test_every_style_and_hairstyle_builds():
                     assert x1 > x0 and y1 > y0, f"{where}: empty bounding box"
                     assert -2.6 < x0 < x1 < 2.6 and -2.6 < y0 < y1 < 1.1, \
                         f"{where}: the shape has left the frame"
+                    # A NaN is a divide by zero wearing a shape's clothes and it
+                    # renders as a hole.  A union is allowed to report +inf outside
+                    # every part's box -- a documented, safe over-estimate -- but
+                    # nothing else non-finite is acceptable.
+                    values = np.asarray(shape.f(probes[0], probes[1]), dtype=np.float64)
+                    assert not np.isnan(values).any(), f"{where}: the field has a NaN"
+                    assert (values == -np.inf).sum() == 0, f"{where}: the field has -inf"
     for name in dna.EXPRESSIONS:
         assert set(expression.get(name)) == set(expression.neutral()), \
             f"{name}: an expression key is missing"
