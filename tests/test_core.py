@@ -505,6 +505,55 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         assert listed == images
 
 
+# ------------------------------------------------------- the credits screen
+def test_the_wrapped_credits_screen_keeps_every_word_of_the_attribution():
+    """A credit line broken by the edge of a texture is a credit line that is gone.
+
+    This is the failure mode a screen has and a text file does not: the words are
+    all present in ``credits()``, and the renderer wraps them, and somewhere in
+    between a line can run off the width and vanish without anything failing.  The
+    wrapping is therefore its own function, and this reads it back.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.json").write_text(
+            '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        for cols in (24, 48, 96):
+            rows = credits.screen_lines(d, cols=cols)
+            words = " ".join(text for _, text in rows).split()
+            for s in credits.sources():
+                for word in s["attribution"].split():
+                    assert word in words, f"{cols} columns lost {word!r}"
+            # The manifest has to survive the wrap too, or the screen credits the
+            # music and quietly drops the assets.
+            assert "a.png" in [w for text in (t for _, t in rows) for w in text.split()]
+            assert all(len(text) <= cols for _, text in rows), "a row overran the width"
+
+
+def test_the_credits_screen_is_sized_by_its_text_and_is_deterministic():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.json").write_text(
+            '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        one = credits.screen(d, scale=2)
+        two = credits.screen(d, scale=2)
+        assert one.size == two.size
+        assert one.tobytes() == two.tobytes(), "the same credits must draw the same screen"
+        assert len(set(one.tobytes())) > 1, "the screen is not blank"
+
+        # The geometry is the text's: every scale is the same drawing, bigger.
+        small, large = credits.screen(d, scale=1), credits.screen(d, scale=4)
+        assert large.size == (small.size[0] * 4, small.size[1] * 4)
+
+        # The height follows the words: one more asset, one more line.
+        (d / "b.json").write_text(
+            '{"seed": 6, "source": "procedural:y", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        assert credits.screen(d, scale=2).size[1] > one.size[1]
+
+
 if __name__ == "__main__":
     import traceback
 

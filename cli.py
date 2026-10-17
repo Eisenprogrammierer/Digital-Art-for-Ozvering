@@ -19,6 +19,7 @@ Usage
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
     python cli.py credits    --out out --manifest out
+    python cli.py credits    --manifest out --png out/credits.png
 """
 from __future__ import annotations
 
@@ -645,6 +646,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     _report(creditslib.write(out))
+    _report(creditslib.write_screen(out))
     print("done.")
 
 
@@ -730,6 +732,12 @@ def build_parser() -> argparse.ArgumentParser:
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
                     help="write credits.txt here (default: print it)")
+    cr.add_argument("--png", default=None, type=Path,
+                    help="also draw the credits screen to this PNG")
+    cr.add_argument("--scale", type=int, default=3,
+                    help="screen pixel size relative to the built-in font")
+    cr.add_argument("--cols", type=int, default=48,
+                    help="characters per line on the screen")
     cr.add_argument("--manifest", default="out", type=Path,
                     help="directory whose sidecars list the generated assets")
 
@@ -769,6 +777,9 @@ def main(argv=None) -> int:
             print(creditslib.credits(args.manifest), end="")
         else:
             _report(creditslib.write(args.manifest, args.out))
+        if args.png is not None:
+            _report(creditslib.write_screen(args.manifest, args.png,
+                                            scale=args.scale, cols=args.cols))
     return 0
 
 

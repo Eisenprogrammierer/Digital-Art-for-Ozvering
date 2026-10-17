@@ -31,8 +31,10 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png` and
 `out/lineage.png`, each with a `.json` sidecar recording the seed, the spec, the
-blazon and -- for portraits -- the genome of every tile, plus `out/credits.txt`,
-which is built from those sidecars.
+blazon and -- for portraits -- the genome of every tile, plus `out/credits.txt`
+and `out/credits.png`, which are built from those sidecars. The credits are not a
+seeded asset and carry no sidecar of their own: they are what the sidecars are
+*for*.
 
 ## Usage
 
@@ -49,7 +51,8 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py credits    --manifest out         # what we owe, and what we made
-python tests/test_core.py                       # 50 tests, no pytest needed
+python cli.py credits    --manifest out --png out/credits.png   # and the screen
+python tests/test_core.py                       # 52 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 25 tests
 ```
@@ -64,7 +67,7 @@ python tests/test_portraits.py                  # 25 tests
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient, separable blur, drop shadows, contact sheets. |
-| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes. |
+| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. |
 | `export` | PNG writer (SVG/atlases to come). |
 
 ### The three ideas worth remembering
@@ -304,10 +307,10 @@ Generators to sit on top of the core, in the order they become useful:
   registry carrying `source/license/attribution/seed` for every asset~~
   *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
   YAML parser is a dependency this project does not take)*. The registry also
-  generates the credits block, which matters because the Kevin MacLeod tracks are
-  CC-BY and *require* attribution; next, render it as a screen (Pillow's built-in
-  bitmap font is enough) and use the same manifest to check a build before it
-  ships.
+  generates the credits block ~~and the screen~~ *(done: `credits.screen`, a
+  scroll drawn with the built-in font)*, which matters because the Kevin MacLeod
+  tracks are CC-BY and *require* attribution; next, use the same manifest to check
+  a build before it ships.
 
 ## Licensing notes
 
@@ -316,8 +319,9 @@ Generators to sit on top of the core, in the order they become useful:
   registry and the asset can always be rebuilt.
 * Watch these three, they are the usual ways third-party rights leak in:
   **fonts** (use OFL/Apache, or draw glyphs procedurally -- Pillow's built-in
-  bitmap font is used here for dev previews only), **external textures/brushes**
-  (don't), and **CC-BY music** (attribution is mandatory).
+  bitmap font is the only one used here, and only for the credits screen and dev
+  previews), **external textures/brushes** (don't), and **CC-BY music**
+  (attribution is mandatory).
 
 ### Attribution
 
@@ -331,8 +335,19 @@ generator is covered the day it writes one.
 ```bash
 python cli.py credits --manifest out            # print the credits block
 python cli.py credits --manifest out --out out  # ...or write out/credits.txt
+python cli.py credits --manifest out --png out/credits.png   # ...or draw the screen
 ```
 
-A test asserts that every sheet the demos write has a sidecar, which is what
-makes the manifest worth trusting: not that the entries are right, but that none
-are missing.
+A text file is not what a game ships. `screen` draws the same block with Pillow's
+built-in bitmap font and scales it up with nearest-neighbour -- the one font this
+project is allowed to ship, and at least the right kind of ugly -- and the size
+follows the text in both directions, because a credits list is a *scroll*: page it
+and the one line the licence actually demands ends up on page four. What is fixed
+instead is the line *length*, in characters rather than pixels, so the wrap cannot
+move when the output size does. A credit line that fits at 960 and is clipped at
+480 is a credit line that is not there, and the wrapping is therefore a function
+that returns rows rather than pixels, so a test can read the words back out.
+
+The manifest is worth trusting for the same kind of reason: a test asserts that
+every sheet the demos write has a sidecar. Not that the entries are right -- that
+none of them are missing.
