@@ -1,0 +1,354 @@
+"""DNA: a portrait as a short heritable string.
+
+For a strategy game the interesting object is not a pretty face, it is a face
+that can be *inherited*.  So a portrait is not an image with a seed; it is a
+dictionary of genes -- four base colours, a style, a handful of shape modifiers in
+``[-1, 1]`` -- which renders to an image, round-trips through a one-line string,
+and can be crossed with another portrait's genes to produce a child.  A dynasty
+is then a family tree of strings, and a save file stores a face as 300 bytes
+instead of a PNG.
+
+Two conventions make it robust:
+
+* **Every float gene is quantised to four decimals** as it is created, so
+  ``decode(encode(g)) == g`` exactly, not approximately.
+* **Colours cross in OKLab and categorical genes pick a parent**, which is what
+  keeps a child's skin between its parents' rather than beside them.
+
+Shape genes are *deltas on the style preset*, not absolute measurements: a chibi
+and a seinen heir of the same parents will both have their father's jaw, each in
+its own proportions.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from core import palette
+
+from . import style as style_mod
+
+__all__ = [
+    "GENES", "CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
+    "random_genes", "quantise", "encode", "decode", "breed", "mutate",
+    "apply_to", "describe", "EXPRESSIONS", "HAIR_STYLES",
+]
+
+#: Expressions the feature pass knows how to build.
+EXPRESSIONS = ("neutral", "smile", "grin", "surprised", "sad", "angry", "smug", "wink")
+#: Hairstyles the hair pass knows how to build.
+HAIR_STYLES = ("short", "bob", "long", "hime", "twin", "pony", "spiky", "wild")
+
+CATEGORICAL = ("style", "hair_style", "expression")
+COLOUR_GENES = ("skin", "hair", "iris", "cloth")
+SHAPE_GENES = (
+    "turn", "head_w", "head_len", "jaw", "eye_w", "eye_h", "eye_gap", "eye_tilt",
+    "eye_y", "brow_thick", "brow_arch", "nose", "mouth_w", "mouth_smile", "blush",
+    "lash", "hair_len", "bang_n",
+)
+GENES = CATEGORICAL + COLOUR_GENES + SHAPE_GENES
+
+#: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
+_SHAPE_MODS = {
+    "head_w": [("head_w", 0.038), ("cheek_w", 0.038), ("top_w", 0.030), ("neck_w", 0.012)],
+    "head_len": [("jaw_y", -0.028), ("chin_w", 0.026), ("top_y", 0.012)],
+    "jaw": [("jaw_w", 0.046), ("jaw_y", 0.022), ("chin_w", -0.020)],
+    "eye_w": [("eye_w", 0.028), ("iris_r", 0.013), ("hl_r", 0.005)],
+    "eye_h": [("eye_up", 0.021), ("eye_down", 0.017), ("iris_squash", 0.11), ("pupil_r", 0.005)],
+    "eye_gap": [("eye_dx", 0.017), ("brow_dx", 0.019)],
+    "eye_tilt": [("eye_tilt", 4.0)],
+    "eye_y": [("eye_y", 0.026)],
+    "brow_thick": [("brow_thick", 0.011)],
+    "brow_arch": [("brow_arch", 0.016), ("brow_gap", 0.006)],
+    "nose": [("nose_w", 0.017), ("nose_h", 0.020), ("nose_gap", 0.007)],
+    "mouth_w": [("mouth_w", 0.028)],
+    "mouth_smile": [("mouth_curve", 0.013), ("mouth_w", 0.008)],
+    "blush": [("blush", 0.24)],
+    "lash": [("lash", 0.010), ("line", 0.16), ("ink_w", 0.004)],
+}
+
+_SKIN_SETS = (
+    # (hue, chroma, lightness) of a plausible human range: warm, never green.
+    # Weighted towards the light end, because that is what the visual language of
+    # this style assumes -- cel shading needs headroom to be visible, and a deep
+    # base has none to spare.  The range is still whole: the last two rows are deep
+    # tones and they generate, just rarely, the way a population is.
+    (0.170, 0.050, 0.905), (0.170, 0.050, 0.885), (0.170, 0.051, 0.868),
+    (0.169, 0.053, 0.850), (0.168, 0.056, 0.832), (0.166, 0.059, 0.812),
+    (0.164, 0.062, 0.790), (0.162, 0.066, 0.766), (0.159, 0.070, 0.740),
+    (0.156, 0.074, 0.712), (0.152, 0.078, 0.682), (0.148, 0.081, 0.648),
+    (0.143, 0.083, 0.612), (0.137, 0.082, 0.572), (0.129, 0.079, 0.528),
+    (0.118, 0.073, 0.474), (0.105, 0.066, 0.425),
+)
+
+
+# --------------------------------------------------------------------------
+# generation
+# --------------------------------------------------------------------------
+def quantise(v: float) -> float:
+    """Round a float gene to four decimals -- the round-trip invariant."""
+    return float(round(float(v), 4))
+
+
+def _rng(seed) -> np.random.Generator:
+    return seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+
+
+def _skin(rng) -> str:
+    hue, chroma, light = _SKIN_SETS[int(rng.integers(0, len(_SKIN_SETS)))]
+    lch = (
+        float(np.clip(light + rng.uniform(-0.025, 0.025), 0.28, 0.95)),
+        float(np.clip(chroma * rng.uniform(0.90, 1.10), 0.02, 0.11)),
+        (hue + float(rng.uniform(-0.012, 0.012))) % 1.0,
+    )
+    return palette.oklch_to_hex(lch)
+
+
+def _hair(rng) -> str:
+    """A believable anime hair colour: neutral-dark, warm-natural, or deliberately vivid."""
+    roll = float(rng.random())
+    if roll < 0.30:  # black / silver / ash: a near-neutral at either end
+        light = float(rng.choice([rng.uniform(0.20, 0.36), rng.uniform(0.78, 0.94)]))
+        return palette.oklch_to_hex((light, float(rng.uniform(0.005, 0.028)), float(rng.random())))
+    if roll < 0.72:  # brown / auburn / blonde: a warm hue, moderate chroma
+        hue = float(rng.uniform(0.035, 0.135))
+        light = float(rng.uniform(0.34, 0.86))
+        chroma = float(rng.uniform(0.030, 0.095)) * (1.25 if light > 0.7 else 1.0)
+        return palette.oklch_to_hex((light, min(chroma, 0.11), hue))
+    hue = float(rng.random())
+    light = float(rng.uniform(0.52, 0.76))
+    return palette.oklch_to_hex((light, float(rng.uniform(0.10, 0.19)), hue))
+
+
+def _iris(rng, hair_hex: str) -> str:
+    """Iris: usually a relative of the hair, sometimes a deliberate contrast."""
+    hh = float(palette.srgb_to_oklch(palette.hex_to_srgb(hair_hex))[2])
+    offset = float(rng.choice([0.0, 0.02, -0.02, 0.06, -0.06, 0.5, 0.46]))
+    return palette.oklch_to_hex(
+        (float(rng.uniform(0.46, 0.74)), float(rng.uniform(0.085, 0.20)), (hh + offset) % 1.0)
+    )
+
+
+def _cloth(rng, hair_hex: str) -> str:
+    """Cloth: quieter than the hair, related to it, so it never fights the face."""
+    hh = float(palette.srgb_to_oklch(palette.hex_to_srgb(hair_hex))[2])
+    offset = float(rng.choice([0.03, -0.03, 0.08, -0.08, 0.5, -0.46, 0.0]))
+    return palette.oklch_to_hex(
+        (float(rng.uniform(0.28, 0.70)), float(rng.uniform(0.020, 0.115)), (hh + offset) % 1.0)
+    )
+
+
+def random_genes(seed=0) -> dict:
+    """A complete, valid portrait genome -- the only source of randomness there is."""
+    rng = _rng(seed)
+    hair = _hair(rng)
+    g = {
+        "style": str(rng.choice(style_mod.names())),
+        "hair_style": str(rng.choice(HAIR_STYLES)),
+        "expression": str(rng.choice(tuple(e for e in EXPRESSIONS if e != "wink"))
+                          if rng.random() < 0.85 else "wink"),
+        "skin": _skin(rng),
+        "hair": hair,
+        "iris": _iris(rng, hair),
+        "cloth": _cloth(rng, hair),
+    }
+    for key in SHAPE_GENES:
+        if key == "hair_len":
+            g[key] = quantise(rng.uniform(-1.0, 1.0))
+        elif key == "bang_n":
+            g[key] = quantise(rng.uniform(-1.0, 1.0))
+        elif key == "turn":
+            g[key] = quantise(rng.uniform(-0.55, 0.55))
+        else:
+            g[key] = quantise(rng.normal(0.0, 0.42))
+    return g
+
+
+# --------------------------------------------------------------------------
+# string form
+# --------------------------------------------------------------------------
+def encode(genes: dict) -> str:
+    """``"style=shoujo;skin=#e8bf9e;..."`` -- one line, genes in :data:`GENES` order."""
+    parts = []
+    for key in GENES:
+        value = genes[key]
+        parts.append(f"{key}={quantise(value):.4f}" if isinstance(value, float) else f"{key}={value}")
+    return ";".join(parts)
+
+
+def decode(text: str) -> dict:
+    """Parse :func:`encode`; every unknown or missing key is an error, not a guess."""
+    out = {}
+    for item in str(text).strip().split(";"):
+        if not item:
+            continue
+        key, _, value = item.partition("=")
+        key = key.strip()
+        if key not in GENES:
+            raise ValueError(f"unknown gene {key!r}")
+        if key in CATEGORICAL:
+            out[key] = value.strip()
+        elif key in COLOUR_GENES:
+            palette.hex_to_srgb(value.strip())  # validate
+            out[key] = value.strip()
+        else:
+            out[key] = quantise(float(value))
+    missing = [k for k in GENES if k not in out]
+    if missing:
+        raise ValueError(f"missing genes: {', '.join(missing)}")
+    if out["style"] not in style_mod.names():
+        raise ValueError(f"unknown style {out['style']!r}")
+    if out["hair_style"] not in HAIR_STYLES:
+        raise ValueError(f"unknown hair style {out['hair_style']!r}")
+    if out["expression"] not in EXPRESSIONS:
+        raise ValueError(f"unknown expression {out['expression']!r}")
+    return out
+
+
+# --------------------------------------------------------------------------
+# heredity
+# --------------------------------------------------------------------------
+def _cross_colour(a: str, b: str, rng: np.random.Generator) -> str:
+    ca, cb = palette.hex_to_srgb(a), palette.hex_to_srgb(b)
+    if rng.random() < 0.30:
+        return a if rng.random() < 0.5 else b
+    t = float(rng.uniform(0.35, 0.65))
+    lab = (1.0 - t) * palette.srgb_to_oklab(ca) + t * palette.srgb_to_oklab(cb)
+    return palette.srgb_to_hex(palette.oklab_to_srgb(lab))
+
+
+def breed(a: dict, b: dict, seed=0, mutation: float = 0.10) -> dict:
+    """A child genome: colours blend, shapes average and drift, categories are picked."""
+    rng = _rng(seed)
+    child = {}
+    for key in GENES:
+        if key in COLOUR_GENES:
+            child[key] = _cross_colour(a[key], b[key], rng)
+        elif key in CATEGORICAL:
+            child[key] = a[key] if rng.random() < 0.5 else b[key]
+        elif key == "turn":
+            child[key] = quantise(float(np.clip(rng.normal(0.0, 0.30), -0.55, 0.55)))
+        else:
+            mid = 0.5 * (float(a[key]) + float(b[key]))
+            child[key] = quantise(float(np.clip(mid + rng.normal(0.0, mutation), -1.0, 1.0)))
+    return child
+
+
+def mutate(genes: dict, seed=0, amount: float = 0.30, rate: float = 0.35) -> dict:
+    """A copy with a few genes nudged: drift for a population, not for a child."""
+    rng = _rng(seed)
+    out = dict(genes)
+    for key in GENES:
+        if rng.random() >= rate:
+            continue
+        if key in COLOUR_GENES:
+            base = palette.srgb_to_oklch(palette.hex_to_srgb(genes[key]))
+            out[key] = palette.oklch_to_hex((
+                float(np.clip(base[0] + rng.normal(0.0, 0.05 * amount * 3), 0.05, 0.97)),
+                max(float(base[1] + rng.normal(0.0, 0.02 * amount * 3)), 0.0),
+                (float(base[2]) + float(rng.normal(0.0, 0.05 * amount * 3))) % 1.0,
+            ))
+        elif key in CATEGORICAL:
+            pool = style_mod.names() if key == "style" else (
+                HAIR_STYLES if key == "hair_style" else EXPRESSIONS)
+            out[key] = str(rng.choice(pool))
+        elif key == "turn":
+            out[key] = quantise(float(np.clip(genes[key] + rng.normal(0.0, 0.2 * amount), -0.55, 0.55)))
+        else:
+            out[key] = quantise(float(np.clip(float(genes[key]) + rng.normal(0.0, amount), -1.0, 1.0)))
+    return out
+
+
+# --------------------------------------------------------------------------
+# genes -> a renderable style
+# --------------------------------------------------------------------------
+def _clamp_params(p: dict) -> dict:
+    """Restore the anatomy invariants the modifiers may have broken.
+
+    Independent sliders do not produce plausible faces -- a wide head with huge
+    eyes and a tiny jaw is not a person -- so this pass enforces the handful of
+    relationships that must hold: the eyes fit inside the skull, the jaw tapers,
+    the face's features stay in order.  The vertical layout is not enforced here
+    because :meth:`gen.portraits.style.Style` derives it from gaps; this pass only
+    keeps the *gaps* in a sensible band.
+    """
+    # The head may not be narrower than the features it has to contain.
+    reach = float(p["eye_dx"]) + float(p["eye_w"]) * 0.5 + 0.045
+    p["head_w"] = max(float(p["head_w"]), reach)
+    p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"])), reach - 0.02)
+    p["top_w"] = min(float(p["top_w"]), float(p["cheek_w"]))
+    p["jaw_w"] = min(max(float(p["jaw_w"]), 0.16), float(p["cheek_w"]) - 0.02)
+    p["jaw_y"] = min(float(p["jaw_y"]), -0.20)
+    p["chin_w"] = min(max(float(p["chin_w"]), 0.05), float(p["jaw_w"]) - 0.03)
+    p["chin_y"] = -0.500
+    p["top_y"] = min(float(p["top_y"]), 0.470)
+    p["wide_y"] = min(max(float(p["wide_y"]), -0.05), float(p["top_y"]) - 0.08)
+    p["cheek_y"] = min(float(p["cheek_y"]), float(p["wide_y"]) - 0.05)
+
+    # Feature sizes, and the features fitting inside the face.
+    p["eye_w"] = max(float(p["eye_w"]), 0.10)
+    p["eye_up"] = max(float(p["eye_up"]), 0.035)
+    p["eye_down"] = max(float(p["eye_down"]), 0.028)
+    p["iris_r"] = min(float(p["iris_r"]), float(p["eye_w"]) * 0.55)
+    p["pupil_r"] = min(float(p["pupil_r"]), float(p["iris_r"]) * 0.62)
+    p["hl_r"] = min(float(p["hl_r"]), float(p["iris_r"]) * 0.62)
+    p["brow_dx"] = max(float(p["brow_dx"]), float(p["eye_dx"]))
+    p["brow_w"] = min(float(p["brow_w"]), 2.0 * (float(p["head_w"]) - float(p["brow_dx"]) + 0.06))
+    p["brow_w"] = max(float(p["brow_w"]), 0.09)
+
+    # The face's vertical relationships, as gaps between features.
+    p["brow_gap"] = float(np.clip(p["brow_gap"], 0.018, 0.085))
+    p["nose_gap"] = float(np.clip(p["nose_gap"], 0.008, 0.050))
+    p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, 0.135))
+    p["blush_gap"] = float(np.clip(p["blush_gap"], 0.028, 0.115))
+    p["nose_w"] = min(float(p["nose_w"]), 0.10)
+    p["mouth_w"] = min(float(p["mouth_w"]), float(p["jaw_w"]) * 0.78)
+
+    # The bust hangs below the chin and is wider than the neck.
+    p["neck_w"] = min(max(float(p["neck_w"]), 0.09), float(p["jaw_w"]) * 0.72)
+    p["neck_y"] = min(float(p["neck_y"]), float(p["chin_y"]) - 0.14)
+    p["shoulder_w"] = max(float(p["shoulder_w"]), float(p["neck_w"]) + 0.24)
+    p["shoulder_y"] = min(float(p["shoulder_y"]), float(p["neck_y"]) - 0.30)
+    p["blush"] = float(np.clip(p["blush"], 0.0, 0.85))
+    p["ink_w"] = float(np.clip(p["ink_w"], 0.008, 0.045))
+    p["line"] = float(np.clip(p["line"], 0.5, 2.0))
+    p["lid_shadow"] = float(np.clip(p["lid_shadow"], 0.10, 0.75))
+    p["lid_shadow_alpha"] = float(np.clip(p["lid_shadow_alpha"], 0.10, 0.75))
+    return p
+
+
+def apply_to(st: style_mod.Style, genes: dict) -> style_mod.Style:
+    """Return the style preset with this genome's shape deltas applied.
+
+    The result is built as a new :class:`Style`, so the face's vertical layout is
+    re-derived from the (possibly modified) eye position -- a gene that moves the
+    eyes moves everything below them with them.
+    """
+    p = dict(st.p)
+    for gene, mods in _SHAPE_MODS.items():
+        amount = float(genes[gene])
+        for param, scale in mods:
+            p[param] = float(p[param]) + amount * scale
+    return style_mod.Style(st.name, _clamp_params(p))
+
+
+def describe(genes: dict) -> str:
+    """One human line summarising the genome, for contact-sheet captions."""
+    skin = palette.srgb_to_hex(palette.hex_to_srgb(genes["skin"]))
+    return (
+        f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
+        f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
+        f" \u00b7 {genes['expression']}"
+    )
+
+
+def seed_of(genes: dict) -> int:
+    """A 48-bit seed derived from the genome's own string.
+
+    This is what makes a portrait a pure function of its genes: the hair's random
+    variation is driven by a generator seeded here, so there is no hidden second
+    input and ``encode`` alone is enough to reproduce an image.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(encode(genes).encode("utf-8")).hexdigest()
+    return int(digest[:12], 16)

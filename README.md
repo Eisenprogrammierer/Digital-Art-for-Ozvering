@@ -29,8 +29,9 @@ python cli.py demo --out out --seed 7
 ```
 
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
-`out/palette.png`, `out/arms.png` and `out/flags.png`, each with a `.json`
-sidecar recording the seed, the spec and the blazon of every tile.
+`out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png` and
+`out/lineage.png`, each with a `.json` sidecar recording the seed, the spec, the
+blazon and -- for portraits -- the genome of every tile.
 
 ## Usage
 
@@ -43,8 +44,12 @@ python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
+python cli.py portrait   --seed 5 --size 384 --out out/one.png
+python cli.py portraits  --seed 7 --count 8 --size 256
+python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python tests/test_core.py                       # 46 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
+python tests/test_portraits.py                  # 22 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -139,6 +144,88 @@ tincture, falling back on a single charge at the centre, which always does. Over
 Flags are **textile, not armorial**: any two tinctures may touch (real flags do it
 constantly), so the rule is not enforced there and `validate` is advisory.
 
+## Portraits (`gen/portraits/`)
+
+A face is the hardest thing here to get away with, because the eye is unforgiving
+in one direction only: a blank icon can be wrong and still useful, a face that is
+wrong is *uncanny*. The way through is to lean into the medium instead of away from
+it -- draw an anime face, where form is carried by line art, shading is a handful
+of flat tones, and "simple" is a style rather than a compromise.
+
+| Module | What it provides |
+| --- | --- |
+| `style` | Four presets (chibi, shoujo, shounen, seinen) in one parameter table, with the face's vertical layout *derived* from the eye position rather than typed in beside it. |
+| `head` | Skull silhouette, neck, trapezius and hairline: control points → closed Catmull-Rom loop → distance field. |
+| `shape` | The vocabulary a face is written in -- `lock` (a variable-width tapered stroke), `lens`, `arc`, `poly`, `smooth_loop` -- over `core.sdf`. |
+| `brush` | Painting a *field* rather than a rectangle: `Surface` binds a shape to its window and its coverage, so a fill, a band or a stroke is one pass over the pixels that can see it. |
+| `ink` | Contour strokes that live on the field: `abs(d + inset) - w/2` is a band along the zero set, so an outline costs no new geometry. |
+| `cel` | The quantised Lambert term, the two colour rules, and the ellipsoid that stands in for a skull. |
+| `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
+| `eyes`, `face`, `hair`, `expression` | The features themselves. |
+| `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
+| `portrait` | Framing, layer order, `compose`/`render`/`render_seed`. |
+
+### Four decisions, in the order they matter
+
+1. **Line art carries the form.** Every silhouette is inked along its own contour,
+   with a taper that thins the stroke where the form turns away from the viewer.
+   Shading is secondary: if the ink is right, the face reads at 64 px.
+2. **Cel shading is a hybrid height.** A cheap ellipsoid gives the normals a real
+   head would, and a couple of pixels of bevel off the silhouette give the rim. The
+   Lambert term is then *quantised*, because a smooth gradient reads as CG and a
+   hard terminator reads as animation.
+3. **A shadow is a colour, not a darkness.** As lightness falls the chroma *rises*
+   and the hue rolls down through magenta towards violet. Rolling it the other way
+   -- towards yellow -- is the fastest way to make a face look ill; that is a
+   measurement, not a preference. The lightness drop is also scaled by how much
+   headroom the base skin has, so a deep tone gets a *richer* shadow rather than a
+   sootier one.
+4. **Features are symbols.** An anime eye is a lens, an arc, a ring and two
+   highlights; a nose is often one dot. Drawing the symbol instead of the organ is
+   what keeps the result on the right side of the uncanny line.
+
+The parameterisation is deliberately *not* a wall of independent sliders -- those
+produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
+the genome may only push a preset around inside limits a `_clamp_params` pass then
+re-checks.
+
+### A portrait is a genome
+
+The strategic asset is not the pixels, it is the string:
+
+```python
+from gen.portraits import dna, portrait
+
+genes = dna.random_genes(seed=5)
+text  = dna.encode(genes)          # 'style=shounen;hair_style=twin;...' -- the save file
+portrait.render(genes, size=384)   # a Canvas; same genes, same bytes
+
+child = dna.breed(dna.random_genes(5), dna.random_genes(1005), seed=12)
+dna.describe(child)                # 'chibi · long hair #cba18f · iris … · smile'
+```
+
+Colours blend in OKLab, shapes average and drift, categories are drawn from one
+parent or the other, and the result is still a genome. `cli.py lineage` renders two
+parents and six children for exactly that reason: a strategy game can populate a
+dynasty by crossing genomes instead of by inventing a face per character, and the
+roster it stores is a few kilobytes of text.
+
+### What the tests hold down
+
+`tests/test_portraits.py` checks that the genome round-trips through its own string,
+that bred and mutated children are still readable, that the derived anatomy stays
+plausible across hundreds of genomes (the eyes fit in the skull, the jaw tapers,
+the features stay in order down the face with the hairline above the brows), and
+four composition invariants -- each of which broke once in review, which is why
+each has a test:
+
+* the fringe never covers an eye;
+* the skull cap and the fringe overlap along the hairline, so no band of bare skull
+  shows between them (the artefact is a "crown of teeth");
+* the skull stays in frame with the chin about two thirds down;
+* every style × hairstyle × expression builds, and the ones that are rendered
+  render something.
+
 ## Roadmap
 
 Generators to sit on top of the core, in the order they become useful:
@@ -149,6 +236,11 @@ Generators to sit on top of the core, in the order they become useful:
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
   clipping~~ *(done: `gen/heraldry/flags.py`)*; next, cloth folds as sinusoidal
   normal displacement, so a flag hangs rather than sits.
+- **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
+  heredity~~ *(done: `gen/portraits/`)*; next, turn the head in depth (a proper 3-D
+  skull projected to 2-D, not a 2-D face that fakes a turn), expressions that move
+  the whole face rather than three features, and outfits built from the same
+  shoulder line.
 - **ui** -- 9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function, wood/stone textures via fBm + domain warping.
 - **maps** -- hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency

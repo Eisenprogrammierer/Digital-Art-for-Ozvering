@@ -15,6 +15,9 @@ Usage
     python cli.py arms    --out out/arms.png --seed 7 --count 12
     python cli.py flags   --out out/flags.png --seed 7 --count 12
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
+    python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
+    python cli.py portraits  --seed 7 --count 8 --size 256
+    python cli.py lineage    --seed 7 --children 6
 """
 from __future__ import annotations
 
@@ -34,6 +37,9 @@ from core.canvas import Canvas  # noqa: E402
 from export import png  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
+from gen.portraits import dna as portrait_dna  # noqa: E402
+from gen.portraits import portrait as portraitlib  # noqa: E402
+from gen.portraits import style as portrait_style  # noqa: E402
 
 # A single light direction for the whole project.  Consistency of lighting is
 # most of what makes individually generated assets read as one art set.
@@ -476,6 +482,132 @@ def demo_blazon(seed: int = 5, spec_path: Path | None = None, out: Path | None =
     return spec
 
 
+def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, cols: int = 4) -> Path:
+    """Contact sheet of generated portraits, captioned with their genome.
+
+    The sidecar ``.json`` is the point: every tile carries the one-line DNA
+    string that would reproduce it exactly, so a sheet of avatars is also a
+    browsable catalogue of the genomes that produced them.
+    """
+    genomes = [portrait_dna.random_genes(seed + i) for i in range(count)]
+    tiles = [portraitlib.render(g, size=size) for g in genomes]
+
+    gap = 24
+    sheet = render.sheet(tiles, cols=cols, gap=gap, background=(0.90, 0.90, 0.93))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, g in enumerate(genomes):
+        r, col = divmod(i, cols)
+        x = gap + col * (size + gap)
+        y = gap + r * (size + gap) + size + 3
+        _wrap_label(img, (x, y), f"{seed + i}: {portrait_dna.describe(g)}", width=size, lines=2)
+    img.save(out, "PNG", optimize=True)
+
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps(
+            {
+                "seed": seed,
+                "source": "procedural:gen.portraits.dna.random_genes",
+                "license": "MIT",
+                "portraits": [
+                    {
+                        "seed": seed + i,
+                        "dna": portrait_dna.encode(g),
+                        "description": portrait_dna.describe(g),
+                        "genes": g,
+                    }
+                    for i, g in enumerate(genomes)
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
+def demo_lineage(out: Path, seed: int = 7, size: int = 208, children: int = 6) -> Path:
+    """Two parents and their children: what a heritable genome buys.
+
+    Colours blend, shapes average and drift, and the categories are drawn -- so a
+    strategy game can populate a dynasty by crossing genomes instead of by
+    inventing a face per character.
+    """
+    a = portrait_dna.random_genes(seed)
+    b = portrait_dna.random_genes(seed + 1000)
+    kids = [portrait_dna.breed(a, b, seed=seed + 10 * k) for k in range(children)]
+
+    tiles = [portraitlib.render(g, size=size) for g in [a, b] + kids]
+    gap = 22
+    cols = 4
+    sheet = render.sheet(tiles, cols=cols, gap=gap, background=(0.90, 0.90, 0.93))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    captions = ["parent A", "parent B"] + [f"child {k + 1}" for k in range(children)]
+    for i, (g, cap) in enumerate(zip([a, b] + kids, captions)):
+        r, col = divmod(i, cols)
+        x = gap + col * (size + gap)
+        y = gap + r * (size + gap) + size + 3
+        _wrap_label(img, (x, y), f"{cap}: {portrait_dna.describe(g)}", width=size, lines=2)
+    img.save(out, "PNG", optimize=True)
+
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps(
+            {
+                "seed": seed,
+                "source": "procedural:gen.portraits.dna.breed",
+                "license": "MIT",
+                "parents": [portrait_dna.encode(a), portrait_dna.encode(b)],
+                "children": [portrait_dna.encode(g) for g in kids],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
+def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, size: int = 384,
+                 style: str | None = None, hair: str | None = None,
+                 expression: str | None = None) -> Path:
+    """Render one portrait, from a seed or from a DNA string, and print its genome."""
+    if dna is not None:
+        genes = portrait_dna.decode(dna)
+        if seed is None:
+            seed = portrait_dna.seed_of(genes)
+    else:
+        genes = portrait_dna.random_genes(0 if seed is None else seed)
+    # Explicit flags win over the genome, which is how a designer pins a style
+    # while keeping everything else random.
+    if style:
+        genes["style"] = style
+    if hair:
+        genes["hair_style"] = hair
+    if expression:
+        genes["expression"] = expression
+    genes = portrait_dna.decode(portrait_dna.encode(genes))  # re-clamp through the wire format
+
+    text = portrait_dna.encode(genes)
+    print(f"seed {seed}")
+    print(f"  {portrait_dna.describe(genes)}")
+    print(f"  {text}")
+    img = png.to_image(portraitlib.render(genes, size=size))
+    img.save(out, "PNG", optimize=True)
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps({"seed": seed, "dna": text, "genes": genes}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
 def demo(out: Path, seed: int = 7) -> None:
     """Render everything into ``out/`` -- the smoke test for the whole core."""
     print(f"ozart demo  (seed={seed}, out={out})")
@@ -485,6 +617,8 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_palette(out / "palette.png", seed=seed, count=6)
     demo_arms(out / "arms.png", seed=seed, count=12)
     demo_flags(out / "flags.png", seed=seed, count=12)
+    demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
+    demo_lineage(out / "lineage.png", seed=seed)
     print("done.")
 
 
@@ -545,6 +679,28 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--spec", default=None, type=Path, help="read a spec JSON instead of a seed")
     b.add_argument("--out", default=None, type=Path, help="also render to this PNG")
 
+    pr = sub.add_parser("portrait", help="render one portrait, from a seed or a DNA string")
+    pr.add_argument("--out", default="out/portrait.png", type=Path)
+    pr.add_argument("--seed", type=int, default=None)
+    pr.add_argument("--dna", default=None, help="a genome string, as printed by this command")
+    pr.add_argument("--size", type=int, default=384)
+    pr.add_argument("--style", default=None, choices=portrait_style.names())
+    pr.add_argument("--hair", default=None, choices=list(portrait_dna.HAIR_STYLES))
+    pr.add_argument("--expression", default=None, choices=list(portrait_dna.EXPRESSIONS))
+
+    ps = sub.add_parser("portraits", help="contact sheet of generated portraits")
+    ps.add_argument("--out", default="out/portraits.png", type=Path)
+    ps.add_argument("--seed", type=int, default=7)
+    ps.add_argument("--count", type=int, default=8)
+    ps.add_argument("--size", type=int, default=256)
+    ps.add_argument("--cols", type=int, default=4)
+
+    ln = sub.add_parser("lineage", help="two parents and their bred children")
+    ln.add_argument("--out", default="out/lineage.png", type=Path)
+    ln.add_argument("--seed", type=int, default=7)
+    ln.add_argument("--size", type=int, default=208)
+    ln.add_argument("--children", type=int, default=6)
+
     return p
 
 
@@ -569,6 +725,13 @@ def main(argv=None) -> int:
                    ratio=ratio, shape=args.shape)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
+    elif args.cmd == "portrait":
+        portrait_one(args.out, seed=args.seed, dna=args.dna, size=args.size, style=args.style,
+                     hair=args.hair, expression=args.expression)
+    elif args.cmd == "portraits":
+        demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols)
+    elif args.cmd == "lineage":
+        demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
     return 0
 
 
