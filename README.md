@@ -49,7 +49,7 @@ python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python tests/test_core.py                       # 46 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
-python tests/test_portraits.py                  # 22 tests
+python tests/test_portraits.py                  # 23 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -155,7 +155,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | Module | What it provides |
 | --- | --- |
 | `style` | Four presets (chibi, shoujo, shounen, seinen) in one parameter table, with the face's vertical layout *derived* from the eye position rather than typed in beside it. |
-| `head` | Skull silhouette, neck, trapezius and hairline: control points → closed Catmull-Rom loop → distance field. |
+| `head` | Skull silhouette, neck, trapezius, collar and hairline: control points → closed Catmull-Rom loop → distance field. |
 | `shape` | The vocabulary a face is written in -- `lock` (a variable-width tapered stroke), `lens`, `arc`, `poly`, `smooth_loop` -- over `core.sdf`. |
 | `brush` | Painting a *field* rather than a rectangle: `Surface` binds a shape to its window and its coverage, so a fill, a band or a stroke is one pass over the pixels that can see it. |
 | `ink` | Contour strokes that live on the field: `abs(d + inset) - w/2` is a band along the zero set, so an outline costs no new geometry. |
@@ -165,7 +165,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing, layer order, `compose`/`render`/`render_seed`. |
 
-### Four decisions, in the order they matter
+### Five decisions, in the order they matter
 
 1. **Line art carries the form.** Every silhouette is inked along its own contour,
    with a taper that thins the stroke where the form turns away from the viewer.
@@ -183,6 +183,22 @@ of flat tones, and "simple" is a style rather than a compromise.
 4. **Features are symbols.** An anime eye is a lens, an arc, a ring and two
    highlights; a nose is often one dot. Drawing the symbol instead of the organ is
    what keeps the result on the right side of the uncanny line.
+5. **The layer order is the drawing.** Hair behind the head, then the body, then the
+   locks that hang past the jaw, then the head, then the face, then the hair that
+   lies on it. Nearly every pass in that list is somewhere a working portrait
+   broke: the skull cap painted with the hair behind the head leaves the crown a
+   band of bare forehead, and the locks rooted at the temples painted there leave
+   long hair sliced off level with the collar. Order is also the one thing a test
+   can only hold down by sampling pixels.
+
+Hair is where the order shows most. Ten locks painted as one union and inked once
+along its contour are a sheet with a single terminator, so they are painted one
+over the next: a lock fills over the outline of the lock behind it, and what
+survives is strands. The fringe is the same pass, and both waves of it shade with
+the *same* volume and the same clamp on the height, so a lock lying on the crown
+quantises to the same cel band to the last bit -- shade a lock with a bevel of its
+own and its interior lands a band away from the hair it lies on, which shows up as
+pale steps and triangles right across the head.
 
 The parameterisation is deliberately *not* a wall of independent sliders -- those
 produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
@@ -216,12 +232,14 @@ roster it stores is a few kilobytes of text.
 that bred and mutated children are still readable, that the derived anatomy stays
 plausible across hundreds of genomes (the eyes fit in the skull, the jaw tapers,
 the features stay in order down the face with the hairline above the brows), and
-four composition invariants -- each of which broke once in review, which is why
+five composition invariants -- each of which broke once in review, which is why
 each has a test:
 
 * the fringe never covers an eye;
 * the skull cap and the fringe overlap along the hairline, so no band of bare skull
   shows between them (the artefact is a "crown of teeth");
+* the crown is *painted* hair and not skin, sampled from the pixels, because
+  geometry alone cannot catch a layer in the wrong place;
 * the skull stays in frame with the chin about two thirds down;
 * every style × hairstyle × expression builds, and the ones that are rendered
   render something.
@@ -237,10 +255,10 @@ Generators to sit on top of the core, in the order they become useful:
   clipping~~ *(done: `gen/heraldry/flags.py`)*; next, cloth folds as sinusoidal
   normal displacement, so a flag hangs rather than sits.
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
-  heredity~~ *(done: `gen/portraits/`)*; next, turn the head in depth (a proper 3-D
-  skull projected to 2-D, not a 2-D face that fakes a turn), expressions that move
-  the whole face rather than three features, and outfits built from the same
-  shoulder line.
+  heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
+  line~~ *(done: a collar stroke, three kinds, one per seed)*; next, turn the head
+  in depth (a proper 3-D skull projected to 2-D, not a 2-D face that fakes a turn),
+  and expressions that move the whole face rather than three features.
 - **ui** -- 9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function, wood/stone textures via fBm + domain warping.
 - **maps** -- hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
