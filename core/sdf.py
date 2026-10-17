@@ -20,6 +20,7 @@ from . import mat as _mat
 
 __all__ = [
     "circle",
+    "ellipse",
     "box",
     "segment",
     "ring",
@@ -50,6 +51,18 @@ __all__ = [
 def circle(x, y, r: float = 1.0, cx: float = 0.0, cy: float = 0.0):
     """Disc of radius ``r`` centred at ``(cx, cy)``."""
     return np.hypot(x - cx, y - cy) - r
+
+
+def ellipse(x, y, a: float = 1.0, b: float = 1.0, cx: float = 0.0, cy: float = 0.0):
+    """Axis-aligned ellipse, half-axes ``(a, b)``.
+
+    Uses the classical cheap ellipse bound ``(k - 1) * min(a, b)`` with
+    ``k = hypot(x/a, y/b)``: exact on both axes, and slightly underestimating
+    distance in between.  Cheap, smooth, and good enough for shading and
+    anti-aliasing.
+    """
+    k = np.hypot((x - cx) / a, (y - cy) / b)
+    return (k - 1.0) * min(abs(a), abs(b))
 
 
 def box(x, y, hw: float = 1.0, hh: float = 1.0, r: float = 0.0, cx: float = 0.0, cy: float = 0.0):

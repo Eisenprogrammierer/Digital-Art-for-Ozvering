@@ -8,6 +8,8 @@ sdf
     Signed distance fields: primitives, boolean operators, transforms.
 noise
     Deterministic lattice noise, fBm, domain warping, Worley cells.
+curve
+    Bezier, Catmull-Rom and Chaikin: control points -> sampled outlines.
 palette
     OKLab/OKLCH colour science, mixing, harmony, gamut fitting.
 canvas
@@ -15,6 +17,6 @@ canvas
 render
     Distance field -> pixels: coverage, bevel lighting, shadows, sheets.
 """
-from . import canvas, mat, noise, palette, render, sdf
+from . import canvas, curve, mat, noise, palette, render, sdf
 
-__all__ = ["canvas", "mat", "noise", "palette", "render", "sdf"]
+__all__ = ["canvas", "curve", "mat", "noise", "palette", "render", "sdf"]

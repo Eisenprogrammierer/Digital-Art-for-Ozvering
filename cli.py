@@ -12,6 +12,9 @@ Usage
     python cli.py texture --out out/texture.png --seed 3 --size 512
     python cli.py palette --out out/palette.png --seed 3 --count 6
     python cli.py shapes  --out out/shapes.png
+    python cli.py arms    --out out/arms.png --seed 7 --count 12
+    python cli.py flags   --out out/flags.png --seed 7 --count 12
+    python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
 """
 from __future__ import annotations
 
@@ -29,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import png  # noqa: E402
+from gen.heraldry import blazon as heraldry  # noqa: E402
+from gen.heraldry import flags as flaglib  # noqa: E402
 
 # A single light direction for the whole project.  Consistency of lighting is
 # most of what makes individually generated assets read as one art set.
@@ -64,6 +69,30 @@ def _label(img, xy, text, font=None, dark=(24, 24, 30, 235), plate=(255, 255, 25
     l, t, r, b = draw.textbbox((x, y), text, font=font)
     draw.rounded_rectangle([l - 6, t - 4, r + 6, b + 4], radius=5, fill=plate)
     draw.text((x, y), text, fill=dark, font=font)
+
+
+def _wrap_label(img, xy, text, width, font=None, lines=2, dark=(40, 40, 50, 255)):
+    """Draw wrapped caption text on a preview sheet, at most ``lines`` lines."""
+    draw = ImageDraw.Draw(img)
+    font = font or _font(11)
+    words = text.split()
+    rows, cur = [], ""
+    for w in words:
+        trial = f"{cur} {w}".strip()
+        if not cur or draw.textlength(trial, font=font) <= width:
+            cur = trial
+        else:
+            rows.append(cur)
+            cur = w
+            if len(rows) == lines:
+                break
+    if cur and len(rows) < lines:
+        rows.append(cur)
+    if rows and " ".join(rows) != text:
+        rows[-1] = rows[-1].rstrip(",.") + "\u2026"
+    x, y = xy
+    for k, row in enumerate(rows):
+        draw.text((x, y + k * 13), row, fill=dark, font=font)
 
 
 def _sha256(path: Path, n: int = 16) -> str:
@@ -319,6 +348,134 @@ def demo_palette(out: Path, seed: int = 3, count: int = 6, cell=(150, 96), cols:
     return _report(out)
 
 
+def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: int = 4,
+              shield: str | None = None) -> Path:
+    """Contact sheet of generated coats of arms, captioned with their blazons.
+
+    The sidecar ``.json`` records the seed, the spec and both blazon languages for
+    every tile: an arm is a data structure first and a picture second, and the
+    text is what makes a generated coat reviewable.
+    """
+    specs = [heraldry.random_arms(seed=seed + i, shield=shield) for i in range(count)]
+    tiles = [heraldry.render(spec, size=size) for spec in specs]
+
+    gap = 36
+    sheet = render.sheet(tiles, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, spec in enumerate(specs):
+        r, col = divmod(i, cols)
+        x = gap + col * (size + gap)
+        y = gap + r * (size + gap) + size + 4
+        _wrap_label(img, (x, y), heraldry.blazon_text(spec, "en"), width=size)
+    img.save(out, "PNG", optimize=True)
+
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps(
+            {
+                "seed": seed,
+                "source": "procedural:gen.heraldry.blazon.random_arms",
+                "license": "MIT",
+                "arms": [
+                    {
+                        "seed": seed + i,
+                        "blazon_en": heraldry.blazon_text(spec, "en"),
+                        "blazon_ru": heraldry.blazon_text(spec, "ru"),
+                        "warnings": heraldry.validate(spec),
+                        "spec": spec,
+                    }
+                    for i, spec in enumerate(specs)
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
+def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols: int = 4,
+               ratio=(3, 2), shape: str = "rectangle") -> Path:
+    """Contact sheet of generated flags, described vexillologically."""
+    specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape) for i in range(count)]
+    tiles = [flaglib.render(spec, size=size) for spec in specs]
+
+    gap = 36
+    # Flags are flat and argent is near-white, so the sheet back is a mid grey
+    # rather than the pale one the shields sit on.
+    sheet = render.sheet(tiles, cols=cols, gap=gap, background=(0.76, 0.78, 0.83))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, spec in enumerate(specs):
+        r, col = divmod(i, cols)
+        x = gap + col * (size + gap)
+        y = gap + r * (size + gap) + size + 4
+        _wrap_label(img, (x, y), flaglib.describe(spec, "en"), width=size)
+    img.save(out, "PNG", optimize=True)
+
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps(
+            {
+                "seed": seed,
+                "source": "procedural:gen.heraldry.flags.random_flag",
+                "license": "MIT",
+                "flags": [
+                    {
+                        "seed": seed + i,
+                        "description_en": flaglib.describe(spec, "en"),
+                        "description_ru": flaglib.describe(spec, "ru"),
+                        "spec": spec,
+                    }
+                    for i, spec in enumerate(specs)
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
+def demo_blazon(seed: int = 5, spec_path: Path | None = None, out: Path | None = None,
+                shield: str | None = None) -> dict:
+    """Print a coat's blazon in both languages, and optionally render and dump it.
+
+    This is the command that proves the round trip: the spec is the asset, the
+    blazon is a *view* of it, and either can be handed to a person.
+    """
+    if spec_path is not None:
+        spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+        seed = int(spec.get("seed", seed))
+    else:
+        spec = heraldry.random_arms(seed=seed, shield=shield)
+
+    print(f"seed {seed}")
+    print(f"  EN  {heraldry.blazon_text(spec, 'en')}")
+    print(f"  RU  {heraldry.blazon_text(spec, 'ru')}")
+    warnings = heraldry.validate(spec)
+    print(f"  rule of tincture: {'ok' if not warnings else '; '.join(warnings)}")
+
+    if out is not None:
+        img = png.to_image(heraldry.render(spec, size=384))
+        img.save(out, "PNG", optimize=True)
+        _report(out)
+        meta = out.with_suffix(".json")
+        meta.write_text(
+            json.dumps({"seed": seed, "spec": spec}, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        _report(meta)
+    return spec
+
+
 def demo(out: Path, seed: int = 7) -> None:
     """Render everything into ``out/`` -- the smoke test for the whole core."""
     print(f"ozart demo  (seed={seed}, out={out})")
@@ -326,6 +483,8 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_shapes(out / "shapes.png")
     demo_texture(out / "texture.png", seed=seed, size=256)
     demo_palette(out / "palette.png", seed=seed, count=6)
+    demo_arms(out / "arms.png", seed=seed, count=12)
+    demo_flags(out / "flags.png", seed=seed, count=12)
     print("done.")
 
 
@@ -362,6 +521,30 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--seed", type=int, default=3)
     a.add_argument("--count", type=int, default=6)
 
+    r = sub.add_parser("arms", help="contact sheet of generated coats of arms")
+    r.add_argument("--out", default="out/arms.png", type=Path)
+    r.add_argument("--seed", type=int, default=7)
+    r.add_argument("--count", type=int, default=12)
+    r.add_argument("--size", type=int, default=190)
+    r.add_argument("--cols", type=int, default=4)
+    r.add_argument("--shield", default=None, help="force one shield shape")
+
+    f = sub.add_parser("flags", help="contact sheet of generated flags")
+    f.add_argument("--out", default="out/flags.png", type=Path)
+    f.add_argument("--seed", type=int, default=7)
+    f.add_argument("--count", type=int, default=12)
+    f.add_argument("--size", type=int, default=200)
+    f.add_argument("--cols", type=int, default=4)
+    f.add_argument("--ratio", default="3:2", help="flag proportion, e.g. 3:2 or 5:8")
+    f.add_argument("--shape", default="rectangle",
+                   choices=["rectangle", "swallowtail", "pennant", "guidon"])
+
+    b = sub.add_parser("blazon", help="print the blazon of a coat (and render it)")
+    b.add_argument("--seed", type=int, default=5)
+    b.add_argument("--shield", default=None)
+    b.add_argument("--spec", default=None, type=Path, help="read a spec JSON instead of a seed")
+    b.add_argument("--out", default=None, type=Path, help="also render to this PNG")
+
     return p
 
 
@@ -377,6 +560,15 @@ def main(argv=None) -> int:
         demo_texture(args.out, seed=args.seed, size=args.size)
     elif args.cmd == "palette":
         demo_palette(args.out, seed=args.seed, count=args.count)
+    elif args.cmd == "arms":
+        demo_arms(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
+                  shield=args.shield)
+    elif args.cmd == "flags":
+        ratio = tuple(int(v) for v in str(args.ratio).replace(":", "x").split("x"))
+        demo_flags(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
+                   ratio=ratio, shape=args.shape)
+    elif args.cmd == "blazon":
+        demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     return 0
 
 

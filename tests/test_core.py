@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import mat, noise, palette, render, sdf  # noqa: E402
+from core import curve, mat, noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 
 
@@ -351,6 +351,68 @@ def test_to_uint8_roundtrip_of_flat_colour():
     arr = c.to_uint8()
     assert arr.dtype == np.uint8 and arr.shape == (2, 2, 4)
     assert np.array_equal(arr[0, 0, :3], np.round(np.array(col) * 255).astype(np.uint8))
+
+
+# ------------------------------------------------------------------ curves
+def test_bezier_hits_its_endpoints_and_degree_two_midpoint():
+    p = curve.bezier_quadratic((0.0, 0.0), (1.0, 1.0), (2.0, 0.0), n=9)
+    assert p.shape == (9, 2)
+    assert np.allclose(p[0], (0.0, 0.0)) and np.allclose(p[-1], (2.0, 0.0))
+    # At t = 1/2 a quadratic Bezier is the control polygon weighted (1, 2, 1)/4:
+    # (0 + 2*1 + 2, 0 + 2*1 + 0)/4.
+    assert np.allclose(p[4], (1.0, 0.5))
+
+
+def test_bezier_cubic_is_flat_when_control_points_are_collinear():
+    p = curve.bezier_cubic((0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), n=17)
+    assert np.allclose(p[:, 1], 0.0)
+    assert np.all(np.diff(p[:, 0]) > 0.0)  # monotone in x
+
+
+def test_bezier_rejects_a_single_point():
+    try:
+        curve.bezier([(0.0, 0.0)])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a one-point Bezier must be refused")
+
+
+def test_catmull_rom_passes_through_its_control_points():
+    pts = [(0.0, 0.0), (1.0, 2.0), (3.0, 1.0), (4.0, 0.0)]
+    c = curve.catmull_rom(pts, per_segment=6)
+    assert c.shape[0] == 3 * 6 + 1
+    for ctrl in pts:
+        assert np.min(np.linalg.norm(c - np.asarray(ctrl), axis=1)) < 1e-9
+    assert np.allclose(c[0], pts[0]) and np.allclose(c[-1], pts[-1])
+
+
+def test_chaikin_keeps_closed_shapes_inside_their_convex_hull():
+    square = np.array([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+    c = curve.chaikin(square, iterations=3, closed=True)
+    assert c.shape == (4 * 2**3, 2)
+    assert c.min() >= -1e-12 and c.max() <= 1.0 + 1e-12
+    # Corner cutting cannot introduce mass: the centroid is preserved.
+    assert np.allclose(c.mean(axis=0), square.mean(axis=0))
+
+
+def test_chaikin_open_curve_keeps_its_ends():
+    line = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)])
+    c = curve.chaikin(line, iterations=2, closed=False)
+    assert np.allclose(c[0], line[0]) and np.allclose(c[-1], line[-1])
+    assert np.all(c[:, 1] == 0.0)
+
+
+def test_arc_length_and_resample():
+    square = np.array([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+    s = curve.arc_length(square, closed=True)
+    assert np.allclose(s, [0.0, 1.0, 2.0, 3.0, 4.0])
+    r = curve.resample_closed(square, n=8)
+    assert r.shape == (8, 2)
+    # Even spacing by arc length: every step of the resampled loop is equal.
+    step = np.linalg.norm(np.roll(r, -1, axis=0) - r, axis=1)
+    assert np.allclose(step, step[0], atol=1e-9)
+    assert np.isclose(step[0], 0.5)
 
 
 # -------------------------------------------------------------- end to end
