@@ -290,25 +290,44 @@ def test_every_fringe_clump_carries_its_own_root():
             assert root_y - clump.bbox[1] > 0.02, name
 
 
+def _probe(shape, n: int = 41):
+    """A grid of points that are *inside* ``shape``, for asking who else claims them."""
+    x0, y0, x1, y1 = shape.bbox
+    X, Y = np.meshgrid(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+    keep = shape.f(X, Y) <= 0.0
+    return X[keep], Y[keep]
+
+
 def test_a_strand_never_escapes_the_clump_it_is_drawn_on():
     """The strand inside a clump is ink, and ink that leaves the silhouette draws on skin.
 
-    It is *built* to stay inside -- same spine, less width -- but "same spine"
-    goes through two different resamplings and a bulge term, and the clump it
-    belongs to is the least forgiving thing to get this wrong on.  So the
-    containment is checked rather than reasoned about, clump by clump.
+    It is *built* to stay inside -- the clump's own spine, less width -- and the
+    construction is exact only because the two polygons share their spine points
+    and their resampling; a strand resampled differently from its clump can put a
+    vertex a hair outside it.  Nothing about that is visible in a diff, so the
+    containment is measured instead: points known to be inside the strand are
+    asked whether they are inside the clump.  It comes out at machine precision,
+    which is the strength of the test -- a strand built from *its own* endpoints
+    instead of the clump's escapes by a tenth of a unit and would be caught at once.
     """
     for name in dna.HAIR_STYLES:
         g = _genes(17, hair_style=name)
         _, h = _hair(g)
         assert len(h.front_strands) == len(h.bangs) + len(h.sides), name
         for (strand, top), clump in zip(h.front_strands, h.bangs + h.sides):
-            x0, y0, x1, y1 = clump.bbox
-            sx0, sy0, sx1, sy1 = strand.bbox
-            assert sx0 >= x0 - 1e-9 and sx1 <= x1 + 1e-9, name
-            assert sy0 >= y0 - 1e-9 and sy1 <= y1 + 1e-9, name
+            X, Y = _probe(strand)
+            escape = float(clump.f(X, Y).max())
+            assert escape <= 1e-9, f"{name}: the strand leaves its clump by {escape:.2e}"
             # The fade has to start below the root, or the strand is invisible.
-            assert top < y1, name
+            assert top < clump.bbox[3], name
+
+        # A tail carries a strand and a spike does not, so the crest's two lists
+        # differ in length on purpose: the test is containment in the row.
+        assert len(h.crest_strands) <= len(h.crest), name
+        for strand, _ in h.crest_strands:
+            X, Y = _probe(strand)
+            escape = min(float(c.f(X, Y).max()) for c in h.crest)
+            assert escape <= 1e-9, f"{name}: the strand leaves the crest by {escape:.2e}"
 
 
 # -------------------------------------------------------------- the picture

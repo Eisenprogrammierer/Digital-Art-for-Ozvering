@@ -219,8 +219,11 @@ a smooth sheet with a sawtooth bottom. The line an artist actually draws runs
 *down* a lock, not around it, so each clump gets one: the same spine, less width.
 Sharing the spine is the point. A line laid beside it from its own endpoints can
 bulge past the hem and draw on the skin, and that is the one thing ink must never
-do; asking for less width on the same spine makes the strand a strict subset of
-its clump, which a test then checks rather than trusts.
+do; asking for less width on the same spine makes the strand a sub-set of its
+clump, and -- because that argument goes through two resamplers -- a test measures
+the escape at machine precision rather than trusting it. Ponytails and twin tails
+get the same line for the same reason, and their fade starts at the root instead
+of halfway down, because nothing is ever painted over a tail.
 
 The parameterisation is deliberately *not* a wall of independent sliders -- those
 produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
@@ -273,7 +276,7 @@ style at some sizes. `zip` truncates in silence, so the pairing is asserted.
 
 The strands that lie inside the clumps get a test of their own, and it is a
 containment test: a strand is built from its clump's spine with less width, and
-"built to be inside" survives two resamplings and a bulge term only if someone
+"built to be inside" survives two resamplers and a bulge term only if someone
 checks. Ink that leaves the silhouette draws on skin.
 
 ## Roadmap
