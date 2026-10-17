@@ -273,6 +273,28 @@ def test_shade_is_bounded_and_edge_aware():
     assert not np.allclose(rgb[32, 15], rgb[32, 48])
 
 
+def test_an_inset_bevel_is_the_same_ramp_turned_over():
+    # `shade(inset=True)` is a recess, and the test is the physical signature:
+    # a raised moulding is lit on its top face and dark on its bottom, and
+    # knocked in the two swap.  The geometry, the light and the bevel width are
+    # all identical, so the only thing the comparison can be measuring is the
+    # sign of the slope.
+    c = Canvas(128, 128, scale=48.0)
+    X, Y = c.grid()
+    d = sdf.box(X, Y, 0.6, 0.6, 0.15)
+    base = np.array([0.5, 0.5, 0.5])
+    raised = render.shade(base, d, dx=c.dx, bevel=0.1)
+    recessed = render.shade(base, d, dx=c.dx, bevel=0.1, inset=True)
+    top = slice(36, 39)      # inside the band along the upper edge
+    bottom = slice(90, 93)   # ... and along the lower one
+    cols = slice(54, 74)
+    for img, top_is_bright in ((raised, True), (recessed, False)):
+        hi = float(img[top, cols].mean())
+        lo = float(img[bottom, cols].mean())
+        assert (hi > lo) == top_is_bright, f"{hi:.4f} vs {lo:.4f}"
+    assert not np.allclose(raised, recessed)
+
+
 def test_gaussian_blur_preserves_mean_and_spreads():
     a = np.zeros((33, 33))
     a[16, 16] = 1.0
@@ -498,9 +520,10 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         cli.demo_texture(d / "texture.png", seed=3, size=16)
         cli.demo_palette(d / "palette.png", seed=3, count=2)
         cli.demo_portraits(d / "portraits.png", seed=3, count=2, size=32)
+        cli.demo_ui(d / "ui.png", seed=3, count=1, scale=1, style="slate")
         images = {p.name for p in d.glob("*.png")}
         assert images == {"icons.png", "shapes.png", "texture.png", "palette.png",
-                          "portraits.png"}
+                          "portraits.png", "ui.png"}
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images
 

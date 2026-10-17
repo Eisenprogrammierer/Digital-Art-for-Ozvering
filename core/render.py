@@ -74,6 +74,7 @@ def shade(
     shininess: float = 28.0,
     y_up: bool = True,
     rim: float = 0.0,
+    inset: bool = False,
 ) -> np.ndarray:
     """Shade a distance field as a raised, beveled solid.
 
@@ -82,12 +83,23 @@ def shade(
     in-plane direction towards the light source; the z-component is fixed, which
     keeps the look consistent across an entire asset set.
 
+    ``inset`` turns the same ramp the other way: the height falls towards the
+    edge, so the moulding reads as *pressed into* the surface instead of raised
+    out of it.  A raised and a recessed bevel are not two effects -- they are one
+    height field with the slope negated, which is why they share every other
+    parameter.  Note that for a band (a ring of material) ``inset`` gives a
+    valley with ridges along both boundaries, which is what a knocked-in button
+    frame looks like.
+
     Returns linear-light RGB; ``coverage(d, dx)`` is still the matching alpha.
     """
     base = palette.srgb_to_linear(np.asarray(base_srgb, dtype=np.float64))
     d = np.asarray(d, dtype=np.float64)
 
-    h = np.clip(-d, 0.0, max(bevel, 1e-9))
+    b = max(bevel, 1e-9)
+    h = np.clip(-d, 0.0, b)
+    if inset:
+        h = b - h
     n = height_normals(h, dx, y_up)
 
     L = _unit3((light[0], light[1], 0.65))

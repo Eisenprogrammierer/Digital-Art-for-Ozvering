@@ -18,6 +18,7 @@ Usage
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
+    python cli.py ui         --seed 7 --count 3 --scale 2
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -43,6 +44,10 @@ from gen.heraldry import flags as flaglib  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
+from gen.ui import frame as ui_frame  # noqa: E402
+from gen.ui import paint as ui_paint  # noqa: E402
+from gen.ui import slice as ui_slice  # noqa: E402
+from gen.ui import style as ui_style  # noqa: E402
 
 # A single light direction for the whole project.  Consistency of lighting is
 # most of what makes individually generated assets read as one art set.
@@ -75,9 +80,35 @@ def _label(img, xy, text, font=None, dark=(24, 24, 30, 235), plate=(255, 255, 25
     draw = ImageDraw.Draw(img)
     font = font or _font(14)
     x, y = xy
-    l, t, r, b = draw.textbbox((x, y), text, font=font)
-    draw.rounded_rectangle([l - 6, t - 4, r + 6, b + 4], radius=5, fill=plate)
+    if plate is not None:
+        l, t, r, b = draw.textbbox((x, y), text, font=font)
+        draw.rounded_rectangle([l - 6, t - 4, r + 6, b + 4], radius=5, fill=plate)
     draw.text((x, y), text, fill=dark, font=font)
+
+
+def _centre_label(img, box, text, font=None, dark=(24, 24, 30, 235), plate=None):
+    """Caption centred inside a pixel box, for labelling generated controls."""
+    draw = ImageDraw.Draw(img)
+    font = font or _font(12)
+    x0, y0, x1, y1 = box
+    l, t, r, b = draw.textbbox((0, 0), text, font=font)
+    xy = (int((x0 + x1 - (r - l)) / 2) - l, int((y0 + y1 - (b - t)) / 2) - t)
+    _label(img, xy, text, font=font, dark=dark, plate=plate)
+
+
+def _dashed(draw, a, b, fill=(226, 62, 122, 215), dash=5, gap=4):
+    """A dashed line, used to draw the nine-slice cuts over a real asset."""
+    ax, ay = a
+    bx, by = b
+    length = float(np.hypot(bx - ax, by - ay))
+    if length < 1.0:
+        return
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    s = 0.0
+    while s < length:
+        e = min(s + dash, length)
+        draw.line([(ax + ux * s, ay + uy * s), (ax + ux * e, ay + uy * e)], fill=fill, width=1)
+        s = e + gap
 
 
 def _wrap_label(img, xy, text, width, font=None, lines=2, dark=(40, 40, 50, 255)):
@@ -634,6 +665,134 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
     return _report(out)
 
 
+# --------------------------------------------------------------------------
+# UI kit: panels, frames and buttons, generated as nine-slice assets
+# --------------------------------------------------------------------------
+def _ui_part(spec: dict, size, scale: int = 2, **kw) -> Canvas:
+    """Render one part from its *design* size; ``scale`` is the pixel density."""
+    return ui_paint.draw(spec, (int(size[0] * scale), int(size[1] * scale)), scale=float(scale), **kw)
+
+
+def _ui_kit(spec: dict, scale: int = 2) -> tuple:
+    """One style as a small mock window, plus the notes to annotate it with.
+
+    A palette is not a kit until something is drawn with it, so the tile is a
+    miniature screen: a header, a control in each of its states, one control that
+    was *drawn narrow and stretched wide* by the nine-slice rule, and a hollow
+    frame marked up with the cuts.  The notes come back as plain coordinates in
+    the tile, so the sheet code can draw them on top of the finished render.
+    """
+    dw, dh = 240, 150
+    win = _ui_part(spec, (dw, dh), scale)
+
+    header = _ui_part({**spec, "body": spec["edge"], "body_low": spec["edge"],
+                       "gradient": 0.35, "radius": 5.0, "boss": 0.0, "rule": 0.0,
+                       "alpha": 1.0}, (dw - 16, 22), scale)
+    win.blit(header.rgb, header.a, 8 * scale, 8 * scale)
+
+    btn = {**spec, "radius": 5.0, "boss": 1.2}
+    bars = []
+    for i, state in enumerate(ui_paint.STATES):
+        part = _ui_part(btn, (100, 22), scale, state=state)
+        bars.append(part)
+        win.blit(part.rgb, part.a, 8 * scale, (36 + i * 26) * scale)
+
+    # The nine-slice claim, made once, in one line of code.
+    ins = ui_slice.insets(ui_frame.Panel(btn, (100 * scale, 22 * scale), scale))
+    wide = ui_slice.stretch(bars[0], ((dw - 16) * scale, 22 * scale), ins)
+    win.blit(wide.rgb, wide.a, 8 * scale, 114 * scale)
+
+    fr = {**spec, "boss": 1.2}
+    box = (116, 36, 116, 74)
+    part = _ui_part(fr, (box[2], box[3]), scale, kind="frame")
+    win.blit(part.rgb, part.a, box[0] * scale, box[1] * scale)
+
+    cut = ui_slice.insets(ui_frame.Panel(fr, (box[2] * scale, box[3] * scale), scale))
+    x0, y0 = box[0] * scale, box[1] * scale
+    x1, y1 = x0 + box[2] * scale, y0 + box[3] * scale
+    cuts = [(x0 + cut[0], y0, x0 + cut[0], y1), (x1 - cut[2], y0, x1 - cut[2], y1),
+            (x0, y0 + cut[1], x1, y0 + cut[1]), (x0, y1 - cut[3], x1, y1 - cut[3])]
+
+    # Notes are in design pixels, relative to the tile.  Text over a dark body
+    # has to be light, so the colour is decided here, where the style is known.
+    body_l = float(palette.srgb_to_oklch(spec["body"])[0])
+    ink = (246, 242, 234, 255) if body_l < 0.55 else (26, 26, 32, 255)
+    plate = (0, 0, 0, 120) if body_l < 0.55 else (255, 255, 255, 200)
+    notes = [((8, 12), "title bar", (246, 242, 234, 235), None)]
+    for i, label in enumerate(list(ui_paint.STATES) + ["stretched"]):
+        notes.append((("centre", 8, 36 + i * 26, 108, 36 + i * 26 + 22), label, ink, plate))
+    hole = (box[0] + cut[0], box[1] + cut[1], box[2] - 2 * cut[0], box[3] - 2 * cut[1])
+    notes.append((("centre", hole[0], hole[1], hole[0] + hole[2], hole[1] + 18),
+                  "corners kept", ink, plate))
+    notes.append((("centre", hole[0], hole[1] + 20, hole[0] + hole[2], hole[1] + 38),
+                  "middle stretches", ink, plate))
+    info = {"insets": list(cut), "design": [box[2], box[3]], "cuts": cuts, "notes": notes}
+    return win, info
+
+
+def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str | None = None) -> Path:
+    """The UI kit sheet: every named style, plus seeded ones, as mock windows.
+
+    The sidecar is the deliverable, not the PNG: a kit is ``(image, insets,
+    minimum size)``, and an engine needs all three.
+    """
+    kits = []
+    for name in ([style] if style else ui_style.names()):
+        spec = ui_style.get(name)
+        kits.append((name, spec, _ui_kit(spec, scale)))
+    for i in range(count):
+        spec = ui_style.random_style(seed + i)
+        kits.append((f"seed {seed + i}", spec, _ui_kit(spec, scale)))
+
+    cols = 2
+    gap = 22
+    sheet = render.sheet([k[2][0] for k in kits], cols=cols, gap=gap, background=(0.90, 0.90, 0.93))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    draw = ImageDraw.Draw(img)
+
+    cw = max(c.w for c in [k[2][0] for k in kits])
+    ch = max(c.h for c in [k[2][0] for k in kits])
+    for i, (name, spec, (tile, info)) in enumerate(kits):
+        r, col = divmod(i, cols)
+        tx = gap + col * (cw + gap) + (cw - tile.w) // 2
+        ty = gap + r * (ch + gap) + (ch - tile.h) // 2
+        for x0, y0, x1, y1 in info["cuts"]:
+            _dashed(draw, (tx + x0, ty + y0), (tx + x1, ty + y1))
+        for where, text, ink, plate in info["notes"]:
+            if len(where) == 5:
+                _, nx0, ny0, nx1, ny1 = where
+                _centre_label(img, (tx + nx0 * scale, ty + ny0 * scale,
+                                    tx + nx1 * scale, ty + ny1 * scale),
+                              text, dark=ink, plate=plate)
+            else:
+                _label(img, (tx + where[0] * scale, ty + where[1] * scale), text,
+                       dark=ink, plate=plate)
+        _label(img, (tx + 4, ty + tile.h + 4),
+               f"{name}   inset {info['insets'][0]} px @ {scale}x   min {info['insets'][0] * 2} px")
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.ui.style", kits=[
+        {"style": name, "insets": info["insets"],
+         "design_size": info["design"], "spec": _json_style(spec)}
+        for name, spec, (_, info) in kits
+    ])
+    return _report(out)
+
+
+def _json_style(spec: dict) -> dict:
+    """A spec with the colours as hex, so the sidecar is readable and stable."""
+    out = {}
+    for k, v in spec.items():
+        if k in ui_style.COLOURS:
+            out[k] = palette.srgb_to_hex(v)
+        elif isinstance(v, (int, np.integer)):
+            out[k] = int(v)
+        else:
+            out[k] = round(float(v), 4)
+    return out
+
+
 def demo(out: Path, seed: int = 7) -> None:
     """Render everything into ``out/`` -- the smoke test for the whole core."""
     print(f"ozart demo  (seed={seed}, out={out})")
@@ -645,6 +804,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_flags(out / "flags.png", seed=seed, count=12)
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
+    demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
     print("done.")
@@ -729,6 +889,14 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--size", type=int, default=208)
     ln.add_argument("--children", type=int, default=6)
 
+    u = sub.add_parser("ui", help="UI kit sheet: panels, frames, buttons, nine-slice cuts")
+    u.add_argument("--out", default="out/ui.png", type=Path)
+    u.add_argument("--seed", type=int, default=7)
+    u.add_argument("--count", type=int, default=3, help="how many seeded kits to add")
+    u.add_argument("--scale", type=int, default=2, help="pixel density of the kit")
+    u.add_argument("--style", default=None, choices=ui_style.names(),
+                   help="render one named style instead of all of them")
+
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
                     help="write credits.txt here (default: print it)")
@@ -772,6 +940,9 @@ def main(argv=None) -> int:
         demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols)
     elif args.cmd == "lineage":
         demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
+    elif args.cmd == "ui":
+        demo_ui(args.out, seed=args.seed, count=args.count, scale=args.scale,
+                style=args.style)
     elif args.cmd == "credits":
         if args.out is None:
             print(creditslib.credits(args.manifest), end="")

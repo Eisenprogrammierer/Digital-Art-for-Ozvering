@@ -29,12 +29,12 @@ python cli.py demo --out out --seed 7
 ```
 
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
-`out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png` and
-`out/lineage.png`, each with a `.json` sidecar recording the seed, the spec, the
-blazon and -- for portraits -- the genome of every tile, plus `out/credits.txt`
-and `out/credits.png`, which are built from those sidecars. The credits are not a
-seeded asset and carry no sidecar of their own: they are what the sidecars are
-*for*.
+`out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
+`out/lineage.png` and `out/ui.png`, each with a `.json` sidecar recording the
+seed, the spec, the blazon, the genome of every portrait tile and the corner
+insets of every UI part, plus `out/credits.txt` and `out/credits.png`, which are
+built from those sidecars. The credits are not a seeded asset and carry no
+sidecar of their own: they are what the sidecars are *for*.
 
 ## Usage
 
@@ -50,11 +50,13 @@ python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
+python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
-python tests/test_core.py                       # 52 tests, no pytest needed
+python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 25 tests
+python tests/test_ui.py                         # 22 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -66,7 +68,7 @@ python tests/test_portraits.py                  # 25 tests
 | `noise` | Deterministic hash-based value noise, fBm, ridged/turbulence variants, domain warping, Worley cells (F1) and Worley cell walls (F2−F1). |
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
-| `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient, separable blur, drop shadows, contact sheets. |
+| `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
 | `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. |
 | `export` | PNG writer (SVG/atlases to come). |
 
@@ -282,6 +284,78 @@ containment test: a strand is built from its clump's spine with less width, and
 "built to be inside" survives two resamplers and a bulge term only if someone
 checks. Ink that leaves the silhouette draws on skin.
 
+## UI chrome (`gen/ui/`)
+
+A panel is the first asset here that has to survive being resized to a size
+nobody chose. An icon is rendered at the size it is asked for; a panel is drawn
+once at a comfortable size and then stretched by the layout, which is what the
+nine-slice convention is for. That inverts the usual question about what a
+generator produces:
+
+> The asset is not the PNG. The asset is `(PNG, corner insets, minimum size)`.
+
+Everything in the package is arranged around that sentence.
+
+| Module | What it provides |
+| --- | --- |
+| `style` | The numbers: a palette plus proportions in **design pixels**, the named kits (`parchment`, `slate`, `brass`, `moss`, `glass`), a seeded `random_style`, and the geometric invariant the rest of the package leans on. |
+| `frame` | The geometry as distance fields: concentric rounded rectangles, the band between them, the inner rule, and a corner ornament whose radius is a Fourier series. |
+| `slice` | The contract itself — the insets, the nine rectangles, and the resample a game engine will perform, implemented here so that it can be tested here. |
+| `paint` | Five passes over one fixed light: shadow, body, band, rule, ornament. |
+
+### The one hard geometric rule
+
+```
+every bit of curvature in the design must fit inside the corner box,
+and the design must be constant across whatever axis gets stretched.
+```
+
+A nine-slice resample keeps the corners and stretches the four edges and the
+middle. A straight edge survives that; a curve does not — it would smear. So the
+corner radius, the bevel and the ornament all have to live within `inset` pixels
+of the corner, and the style may vary *along* the stretch axis but never across
+it (which is why the body gradient is a function of `y` and of nothing else).
+
+`style.validate` states that, `style.clamp` enforces it, and the test checks the
+*pixels* rather than the algebra: outside the corner boxes, every column of the
+left strip has to be identical down the panel and every row of the top strip
+identical across it. That one assertion catches an ornament that has grown out of
+its corner, a rule that curves too far, and a drop shadow that is not separable,
+all at once.
+
+### `inset` is derived, not requested
+
+The style states a floor, and `clamp` widens the corner box to whatever the look
+actually needs — `radius + bevel`, or the ornament's reach. The nine-slice cut can
+therefore never be too small to hold the curvature, by construction rather than by
+check. `size` runs the argument the other way: at a size with no room for the
+corner box the *look* gives way instead, keeping the radius (which is the shape)
+and flattening the bevel (which is only the shading) first.
+
+### The Fourier series goes in the corner
+
+A border whose radius varied around the whole perimeter is exactly the thing a
+nine-slice stretch destroys, because the resample stretches that perimeter. So the
+radius function is used where the geometry is *fixed*: inside a corner box, which
+is never resampled at all. `frame.boss_radius` normalises by its own harmonic
+weight, so `r(θ)` stays within `r0 · [1 ± amp]` for any harmonic count, and
+`style.boss_limit` inverts the reach formula to cap the ornament at precisely the
+size the box can hold — the ornament yields to the frame, not the other way round.
+
+### A state is a colour, never a layout
+
+`idle`, `hover` and `pressed` share one geometry, so a control cannot jitter as
+the pointer crosses it, and the silhouette alpha of the three is bit-identical
+(tested). `pressed` is the same bevel with the ramp turned over —
+`render.shade(..., inset=True)`: a recess is not a second effect, it is one height
+field with the sign of its slope flipped, which is why the two share every other
+parameter.
+
+Because a style is written in design pixels, `--scale` doubles the pixels and
+changes no number: the same spec renders a 48 px icon-button and a 512 px hero
+panel, with the same corner geometry in both — which is what makes the insets
+mean something.
+
 ## Roadmap
 
 Generators to sit on top of the core, in the order they become useful:
@@ -297,8 +371,11 @@ Generators to sit on top of the core, in the order they become useful:
   line~~ *(done: a collar stroke, three kinds, one per seed)*; next, turn the head
   in depth (a proper 3-D skull projected to 2-D, not a 2-D face that fakes a turn),
   and expressions that move the whole face rather than three features.
-- **ui** -- 9-slice frames and panels, ornamental borders from a Fourier series
-  of a radius function, wood/stone textures via fBm + domain warping.
+- **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
+  of a radius function~~ *(done: `gen/ui/`, with the series moved into the corner
+  box, which is the only part of a nine-slice asset that is never resampled)*;
+  next, asymmetric insets for title bars, and wood/stone textures for the body via
+  fBm + domain warping.
 - **maps** -- hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching squares.
 - **textures** -- Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
