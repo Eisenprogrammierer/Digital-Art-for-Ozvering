@@ -31,7 +31,8 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png` and
 `out/lineage.png`, each with a `.json` sidecar recording the seed, the spec, the
-blazon and -- for portraits -- the genome of every tile.
+blazon and -- for portraits -- the genome of every tile, plus `out/credits.txt`,
+which is built from those sidecars.
 
 ## Usage
 
@@ -47,7 +48,8 @@ python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
-python tests/test_core.py                       # 46 tests, no pytest needed
+python cli.py credits    --manifest out         # what we owe, and what we made
+python tests/test_core.py                       # 50 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 23 tests
 ```
@@ -62,7 +64,8 @@ python tests/test_portraits.py                  # 23 tests
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient, separable blur, drop shadows, contact sheets. |
-| `export` | PNG writer (SVG/atlases/credits to come). |
+| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes. |
+| `export` | PNG writer (SVG/atlases to come). |
 
 ### The three ideas worth remembering
 
@@ -265,10 +268,14 @@ Generators to sit on top of the core, in the order they become useful:
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching squares.
 - **textures** -- Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns.
-- **export extras** -- SVG for vector UI, atlas packing, and an
-  `assets.yaml` registry carrying `source/license/attribution/seed` for every
-  asset. That registry also generates the credits screen, which matters because
-  the Kevin MacLeod tracks are CC-BY and *require* attribution.
+- **export extras** -- SVG for vector UI, atlas packing, and an ~~`assets.yaml`
+  registry carrying `source/license/attribution/seed` for every asset~~
+  *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
+  YAML parser is a dependency this project does not take)*. The registry also
+  generates the credits block, which matters because the Kevin MacLeod tracks are
+  CC-BY and *require* attribution; next, render it as a screen (Pillow's built-in
+  bitmap font is enough) and use the same manifest to check a build before it
+  ships.
 
 ## Licensing notes
 
@@ -279,3 +286,21 @@ Generators to sit on top of the core, in the order they become useful:
   **fonts** (use OFL/Apache, or draw glyphs procedurally -- Pillow's built-in
   bitmap font is used here for dev previews only), **external textures/brushes**
   (don't), and **CC-BY music** (attribution is mandatory).
+
+### Attribution
+
+`core/credits.py` keeps the two halves apart on purpose. The half that can be
+*forgotten* is hand-written and short -- a list of sources with the credit line
+each licence asks for, stored as the string that has to appear on screen rather
+than assembled at print time. The half that can be got *wrong* is generated: the
+manifest, read out of the sidecars the exporters already write, so a new
+generator is covered the day it writes one.
+
+```bash
+python cli.py credits --manifest out            # print the credits block
+python cli.py credits --manifest out --out out  # ...or write out/credits.txt
+```
+
+A test asserts that every sheet the demos write has a sidecar, which is what
+makes the manifest worth trusting: not that the entries are right, but that none
+are missing.

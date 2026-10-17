@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import curve, mat, noise, palette, render, sdf  # noqa: E402
+from core import credits, curve, mat, noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 
 
@@ -438,6 +438,71 @@ def test_png_write_is_byte_identical():
         h2 = hashlib.sha256(p2.read_bytes()).hexdigest()
         assert h1 == h2
         assert p1.stat().st_size > 0
+
+
+# ---------------------------------------------------------------- credits
+def test_every_source_can_actually_be_credited():
+    """A source without a credit line is a licence violation, not a tidy-up.
+
+    The list is short and hand-written, so the only way it goes wrong is by
+    omission: a source added with a title and no author, or with the licence
+    filed under the wrong key, is exactly the failure this exists to catch.
+    """
+    assert credits.missing_fields() == []
+    for s in credits.sources():
+        assert s["attribution"].strip()
+        assert s["author"] in s["attribution"]
+        if s["license"].startswith("CC "):
+            # A CC licence is a *versioned* one, and the attribution has to name
+            # the licence it is granted under, not just "Creative Commons".
+            assert any(ch.isdigit() for ch in s["license"])
+            assert s["url"].startswith("http")
+            assert "Creative Commons" in s["attribution"]
+
+
+def test_the_credits_text_carries_the_attribution_verbatim():
+    text = credits.credits()
+    for s in credits.sources():
+        assert s["attribution"] in text
+
+
+def test_manifest_reads_the_sidecar_envelope_and_ignores_other_json():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.png").write_bytes(b"")
+        (d / "a.json").write_text('{"seed": 4, "source": "procedural:x", "license": "MIT",'
+                                 ' "things": [1, 2, 3]}', encoding="utf-8")
+        (d / "b.json").write_text('{"unrelated": true}', encoding="utf-8")
+        (d / "c.json").write_text("not json at all", encoding="utf-8")
+        found = credits.manifest(d)
+        assert [e["image"] for e in found] == ["a.png"]
+        assert found[0]["seed"] == 4 and found[0]["count"] == 3
+        text = credits.credits(d)
+        assert "a.png x3  seed 4  MIT" in text
+        assert "b.json" not in text
+
+
+def test_every_sheet_the_demos_write_has_a_sidecar():
+    """No asset ships unregistered.
+
+    This is the invariant that makes the manifest worth trusting: not that the
+    sidecars are right, but that there are none missing.  The sheets are rendered
+    tiny here, because what is under test is the envelope, not the pixels.
+    """
+    import cli
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        cli.demo_icons(d / "icons.png", seed=3, count=2, size=24)
+        cli.demo_shapes(d / "shapes.png", size=24)
+        cli.demo_texture(d / "texture.png", seed=3, size=16)
+        cli.demo_palette(d / "palette.png", seed=3, count=2)
+        cli.demo_portraits(d / "portraits.png", seed=3, count=2, size=32)
+        images = {p.name for p in d.glob("*.png")}
+        assert images == {"icons.png", "shapes.png", "texture.png", "palette.png",
+                          "portraits.png"}
+        listed = {e["image"] for e in credits.manifest(d)}
+        assert listed == images
 
 
 if __name__ == "__main__":

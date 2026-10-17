@@ -18,6 +18,7 @@ Usage
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
+    python cli.py credits    --out out --manifest out
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from PIL import ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from core import credits as creditslib  # noqa: E402
 from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import png  # noqa: E402
@@ -110,6 +112,22 @@ def _report(path: Path) -> Path:
     return path
 
 
+def _sidecar(out: Path, seed: int, source: str, **extra) -> Path:
+    """The two lines that make an asset reproducible, and that credits reads.
+
+    A sheet with a seed and a named entry point *is* the asset: regenerate it and
+    the bytes match.  ``core.credits`` walks a build directory for exactly this
+    envelope, so writing the sidecar is what puts an asset on the manifest.
+    """
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps({"seed": seed, "source": source, "license": "MIT", **extra},
+                   indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return _report(meta)
+
+
 def _unit3(v) -> np.ndarray:
     v = np.asarray(v, dtype=np.float64)
     return v / max(float(np.linalg.norm(v)), 1e-12)
@@ -175,7 +193,10 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
     """Contact sheet of seed-driven icons -- proof the generator has range."""
     icons = [make_icon(seed + i, size) for i in range(count)]
     sheet = render.sheet(icons, cols=cols, gap=10, background=(0.94, 0.94, 0.96))
-    return sheet.save(out)
+    sheet.save(out)
+    _sidecar(out, seed, "procedural:cli.make_icon",
+             icons=[{"seed": seed + i} for i in range(count)])
+    return _report(out)
 
 
 def demo_shapes(out: Path, size: int = 160, cols: int = 3) -> Path:
@@ -225,6 +246,8 @@ def demo_shapes(out: Path, size: int = 160, cols: int = 3) -> Path:
         r, col = divmod(i, cols)
         _label(img, (gap + col * (cell + gap) + 7, gap + r * (cell + gap) + cell - 23), name)
     img.save(out, "PNG", optimize=True)
+    _sidecar(out, 0, "procedural:core.sdf reference sheet",
+             fields=[name for name, _ in fields])
     return _report(out)
 
 
@@ -305,6 +328,8 @@ def demo_texture(out: Path, seed: int = 3, size: int = 256) -> Path:
         r, col = divmod(i, 2)
         _label(img, (gap + col * (size + gap) + 9, gap + r * (size + gap) + 8), name)
     img.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:core.noise materials",
+             materials=[name for name, _, _ in variants])
     return _report(out)
 
 
@@ -619,6 +644,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_flags(out / "flags.png", seed=seed, count=12)
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
+    _report(creditslib.write(out))
     print("done.")
 
 
@@ -701,6 +727,12 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--size", type=int, default=208)
     ln.add_argument("--children", type=int, default=6)
 
+    cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
+    cr.add_argument("--out", default=None, type=Path,
+                    help="write credits.txt here (default: print it)")
+    cr.add_argument("--manifest", default="out", type=Path,
+                    help="directory whose sidecars list the generated assets")
+
     return p
 
 
@@ -732,6 +764,11 @@ def main(argv=None) -> int:
         demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols)
     elif args.cmd == "lineage":
         demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
+    elif args.cmd == "credits":
+        if args.out is None:
+            print(creditslib.credits(args.manifest), end="")
+        else:
+            _report(creditslib.write(args.manifest, args.out))
     return 0
 
 
