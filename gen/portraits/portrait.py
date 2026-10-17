@@ -107,6 +107,10 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
                bevel=0.05)
     bust.stroke(c, st.ink_w * st.line * 0.85, h.cloth_line, inset=st.ink_w * st.line * 0.42)
 
+    # The locks rooted at the temples hang in front of the shoulder and behind
+    # the jaw, so they belong between the body and the head.
+    hair.paint_near(c, st, h, hs, turn)
+
     # --- 4. head ----------------------------------------------------------
     skull_surf.paint(c, h.skin)
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),

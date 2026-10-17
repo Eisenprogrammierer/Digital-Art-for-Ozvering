@@ -231,6 +231,42 @@ def test_every_hairstyle_renders_and_covers_the_crown():
         assert img.to_uint8().shape[0] == 64
 
 
+def test_the_crown_is_painted_hair_and_not_skin():
+    """The cap covers the skull -- and it has to be *painted* there.
+
+    Geometry was never the problem: the cap has always covered the crown above
+    the hairline and the test above says so.  The cap used to be drawn with the
+    hair behind the head, though, and the skin goes on afterwards, so the crown
+    came out as a bare band of forehead with the fringe hanging over it and the
+    partings showing scalp.  Only pixels catch an ordering mistake, so this test
+    samples them.
+    """
+    for name in dna.HAIR_STYLES:
+        g = _genes(3, hair_style=name)
+        st, _ = _hair(g)
+        canvas = portraitlib.render(g, size=96)
+        X, Y = canvas.grid()
+        img = canvas.to_uint8().reshape(-1, 4)[:, :3].astype(float)
+        flat = np.stack([X.ravel(), Y.ravel()], axis=1)
+        h = hues.from_genes(g)
+
+        def pixel(x, y):
+            return img[int(np.argmin(((flat - (x, y)) ** 2).sum(axis=1)))]
+
+        def nearest(px, colours):
+            ref = palette.linear_to_srgb(np.array(colours)) * 255.0
+            return float(np.min(np.linalg.norm(ref - px, axis=1)))
+
+        hair_hues = [h.hair, h.hair_shadow, h.hair_deep]
+        skin_hues = [h.skin, h.skin_shadow, h.skin_deep]
+        crown = pixel(0.0, head.hairline_y(st) + 0.05)
+        cheek = pixel(0.10, -0.20)
+        assert nearest(crown, hair_hues) < nearest(crown, skin_hues) - 24.0, (
+            f"{name}: the crown is painted skin, not hair")
+        assert nearest(cheek, skin_hues) < nearest(cheek, hair_hues) - 24.0, (
+            f"{name}: the cheek is painted hair, not skin")
+
+
 # -------------------------------------------------------------- the picture
 def test_render_is_deterministic():
     g = dna.random_genes(5)
