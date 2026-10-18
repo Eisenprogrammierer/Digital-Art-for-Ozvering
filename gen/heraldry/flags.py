@@ -11,6 +11,10 @@ because it shapes this module:
   field with bands (bicolour, tricolour), a cross (including the offset Nordic
   one), a saltire, a canton, or a triangle at the hoist.  Each of those is one
   line here because the ordinaries and divisions already exist.
+* **A flag can be flown.**  ``spec["pole"]`` draws it on one, and the pole -- with
+  the room it needs in the frame, the anchor it puts on the cloth's hoist and the
+  droop that follows -- is :mod:`gen.heraldry.pole`.  It is composited *after* the
+  wave and *over* the cloth, because a pole is the one rigid thing on the canvas.
 
 A flag pattern therefore returns an ordinary *spec* -- exactly the dict
 :mod:`gen.heraldry.blazon` renders -- so flags and arms share one renderer, one
@@ -25,6 +29,8 @@ from . import blazon as _blazon
 from . import charges as _charges
 from . import cloth as _cloth
 from . import ordinaries as _ordinaries
+from . import pole as _pole
+from . import shields as _shields
 from . import tinctures as _tinctures
 
 __all__ = [
@@ -239,6 +245,28 @@ def describe(spec: dict, lang: str = "en") -> str:
     return f"Plain field of {keys[0]}.{tail_en}"
 
 
+def _frame_for(spec: dict) -> dict:
+    """The spec with room made for its pole, if it has one.
+
+    The room goes into the *shape* rather than into the style margin, because the
+    margin is a fraction of the whole frame while the pole's demand is vertical:
+    the shape's half-height grows and the cloth keeps its own coordinates inside it,
+    so the same field function serves both cases.  A pole on something that is not
+    a flag is refused rather than ignored -- there is no pole that holds a shield.
+    """
+    pole = spec.get("pole")
+    if not pole:
+        return spec
+    out = dict(spec)
+    shield = out.get("shield")
+    if isinstance(shield, str) and shield in _shields.FLAG_SHAPES:
+        shield = {"kind": "flag", "ratio": (3, 2), "shape": shield}
+    if not isinstance(shield, dict) or shield.get("kind") != "flag":
+        raise ValueError(f"a pole holds up a flag, not {shield!r}")
+    out["shield"] = dict(shield, room=_pole.room(pole))
+    return out
+
+
 def render(spec: dict, size=512, background=None, shade=None):
     """Render a flag spec (the same renderer as arms), hanging if it is waved.
 
@@ -247,18 +275,37 @@ def render(spec: dict, size=512, background=None, shade=None):
     gets the same cloth from the same dict.  The margin is widened first: a flag
     that is going to move needs somewhere to move to.
 
+    A ``pole`` in the spec rides along.  It changes the frame rather than the flag,
+    and it is composited *after* the wave and *over* the cloth: a pole is the one
+    rigid thing on the canvas, so the cloth moves and the pole does not.
+
     ``shade`` is a faction's livery; a banner that is flown for a faction is painted
     in that faction's colours, which is what keeps a shield and its flag from being
     the same *pattern* in two different pigments.
     """
-    wave = spec.get("wave")
-    if not wave:
-        return _blazon.render(spec, size=size, background=background, shade=shade)
-    style = dict(spec.get("style", FLAG_STYLE))
-    style["margin"] = float(style.get("margin", FLAG_STYLE["margin"])) + 1.6 * _cloth.reach(wave)
-    canvas = _blazon.render({**spec, "style": style}, size=size, background=background,
-                            shade=shade)
-    return _cloth.hang(canvas, wave)
+    frame = _frame_for(spec)
+    wave = frame.get("wave")
+    cloth_hw = 1.0
+    if wave or frame.get("pole"):
+        cloth_hw = _blazon.resolve_shape(frame)[1]
+    if wave:
+        style = dict(frame.get("style", FLAG_STYLE))
+        style["margin"] = float(style.get("margin", FLAG_STYLE["margin"])) + 1.6 * _cloth.reach(wave)
+        canvas = _blazon.render({**frame, "style": style}, size=size, background=background,
+                                shade=shade)
+        # The folds are measured against the cloth, which the renderer is the one
+        # that knows: the frame has been widened for the cloth to move into, and a
+        # fold measured against *that* would start at the hoist only by accident.
+        along_x = wave.get("direction", _cloth.DEFAULTS["direction"]) == "vertical"
+        box = (-cloth_hw, cloth_hw) if along_x else (-1.0, 1.0)
+        canvas = _cloth.hang(canvas, wave, box=box)
+    else:
+        canvas = _blazon.render(frame, size=size, background=background, shade=shade)
+    if frame.get("pole"):
+        # A flag's cloth is one unit tall by construction, whatever the frame grew
+        # to around it, and the pole is measured against the cloth.
+        _pole.paint(canvas, frame["pole"], cloth_hw, 1.0)
+    return canvas
 
 
 #: Flag pattern factories, keyed by name, for the generator and the CLIs.
@@ -313,7 +360,7 @@ def _maybe(rng, pool):
 
 
 def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=None,
-                wave=False) -> dict:
+                wave=False, pole=False) -> dict:
     """Generate a random flag spec.
 
     Real flags break the rule of tincture, so this does too -- but it does keep
@@ -323,6 +370,11 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
     ``wave`` is off by default: the spec is a flag, and whether it is drawn
     hanging is the caller's decision.  Pass ``True`` for cloth whose folds are
     drawn from the same seed, or a dict to pin them.
+
+    ``pole`` flies the flag from one, and it is independent of ``wave`` -- a banner
+    at rest is still on a pole.  When both are asked for, the pole decides the
+    cloth as well: the wave is anchored at the hoist and the fly trails, because a
+    cloth tied to a pole cannot move where it is tied.
     """
     rng = np.random.default_rng(seed)
     name = str(rng.choice(list(_FACTORIES)))
@@ -336,6 +388,9 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
         count = int(rng.choice([1, 1, 3]))
         tincture = _pick(rng, [t for t in _POOL if t != spec["field"].get("tinctures", ["argent"])[0]])
         spec["charges"] = [{"name": ch, "count": count, "arrangement": "one" if count == 1 else "three", "tincture": tincture}]
+    # A pole is not cloth, so it is drawn before the wave and cannot change it.
+    if pole:
+        spec["pole"] = _pole.spec(**(dict(pole) if isinstance(pole, dict) else {}))
     # Drawn last, so that asking for cloth cannot change a flag that does not.
     if wave:
         pinned = dict(wave) if isinstance(wave, dict) else {}
@@ -348,4 +403,6 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
             direction=pinned.pop("direction", "vertical"),
             **pinned,
         )
+        if pole:
+            spec["wave"] = _pole.anchor(spec["wave"])
     return spec

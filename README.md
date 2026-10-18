@@ -52,7 +52,7 @@ python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
-python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--flat]
+python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--flat]  # on their poles
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -64,7 +64,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
-python tests/test_heraldry.py                   # 56 tests
+python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 46 tests
@@ -269,8 +269,9 @@ is a small compiler, not a drawing routine.
 | `charges` | 29 charges built from SDF primitives in a normalised unit box — a lion is a set of capsules and discs, so it reads as a *generated* beast rather than a traced one. |
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
 | `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`, and `render(spec, size, shade=...)` — one extra argument, and the classical palette is what you get without it. |
-| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. |
+| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. A `pole` in the spec flies it. |
 | `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected. |
+| `pole` | The shaft, its finial and the material it is made of; the room the flag's frame has to make for it, the anchor it puts on the cloth's hoist, and the droop that follows. |
 | `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, the livery it wears, the words for both, and `render`, which cannot be handed a coat without its colours. |
 
 An asset is a **spec** — a plain dict — and everything else is a view of it:
@@ -439,6 +440,15 @@ to the pole: a fold that starts at zero and grows is most of what makes a flag h
 frequency is added because one sinusoid is a corrugation, and cloth is not
 corrugated.
 
+`taper` is a fraction of the **cloth's** extent, which sounds like a detail and is
+not. The frame a flag is drawn in carries margin for the cloth to move into, so a
+fold measured against the *frame* would start a tenth of the way up the flag: "the
+amplitude at the hoist" would mean the amplitude at the hoist plus a margin, and the
+anchor a pole puts there would not be an anchor. So the folds are measured against
+the cloth, and the renderer -- which drew it, and therefore knows -- says where the
+cloth's box is; a caller that does not say gets the drawn extent, which is the same
+answer to within an edge pixel.
+
 The parameter that decides whether it works is the **wavelength**, and it is
 shorter than instinct suggests. What the light reads is the *slope* of the fold,
 `amplitude * 2*pi / wavelength`; with a wavelength of half the flag the slope is
@@ -458,15 +468,69 @@ about any of it. It is also opt-in, so a faction's banner stays flat and a crest
 cannot pick up folds by accident; `cli.py flags` hangs its flags by default, and
 `--flat` is the special case.
 
-The four tests are the four ways to get this wrong. A wave of **zero amplitude
-must be the identity** bit for bit -- the sampler resamples at fractional pixel
-coordinates, so a wrong pixel-centre convention shifts the whole cloth by half a
-pixel, invisibly. The bands must run **across** the folds' axis, measured on a
-plain field so that the only structure in the profile is the light. The same spec
-must have the **same folds at 96 px and at 384 px**, which is what fails if the
-wave is evaluated in pixel coordinates instead of world ones -- the renderer's
-field is a pixel grid, so this is the easy mistake. And the cloth must **stay on
-the canvas** at every proportion and silhouette.
+The tests are the ways to get this wrong. A wave of **zero amplitude must be the
+identity** bit for bit -- the sampler resamples at fractional pixel coordinates, so
+a wrong pixel-centre convention shifts the whole cloth by half a pixel, invisibly.
+The bands must run **across** the folds' axis, measured on a plain field so that
+the only structure in the profile is the light. The same spec must have the **same
+folds at 96 px and at 384 px**, which is what fails if the wave is evaluated in
+pixel coordinates instead of world ones -- the renderer's field is a pixel grid, so
+this is the easy mistake -- and the comparison is read onto a *world* axis, because
+a box that lands on a different fractional pixel at every size would otherwise
+report a phase drift as a different fold. An **anchored** cloth must be still at
+the hoist at any phase, and the hoist it is measured against is the cloth's. A
+**droop** must move the free end down in both fold directions, which is the one
+thing a fold may not do -- and it must leave the anchored end alone. And the cloth
+must **stay on the canvas** at every proportion and silhouette.
+
+### A pole is why a flag hangs from somewhere
+
+`cloth` makes a flag hang; a pole is what it hangs *from*, and it decides three
+things, only the first of which is about the pole.
+
+* **The room.** A pole rises above the cloth and runs below it, so the frame the
+  flag is drawn in has to grow. The room is asked for in the flag's *shape*
+  (`shields.flag(..., room=...)`), which grows the frame's half-height and leaves
+  the cloth's own coordinates alone, so one field function serves a flag on a pole
+  and a flag without one. The few hundredths of a unit by which the shaft overhangs
+  the hoist are left to the frame's margin, which is several shafts wide.
+* **The anchor.** Cloth tied to a pole cannot move where it is tied, so
+  `pole.anchor` sets the wave's `taper` to **zero** -- exact, not small: the hoist
+  is still at any phase. That claim only means anything because the folds are
+  measured against the cloth. A faction's banner takes its wind from the *name*
+  (the banner's own seed stream), so flying the same faction twice flies the same
+  folds.
+* **The droop.** A cloth free at the fly hangs lower there, and gravity does not
+  consult the folds about which way they run: the droop is the same envelope taken
+  downwards, one term in `cloth.drift`, always down and taking no part in the
+  lighting. A `taper` of zero means the hoist does not droop either, so an anchored
+  flag is still at the pole and trailing at the fly.
+
+The pole is drawn from its own vocabulary, and it is **not heraldic**: it bears no
+tincture and obeys no rule, so it is wood, iron or gilt with a ball, a spearhead or
+nothing on top. A finial or material this module does not know is refused rather
+than repaired -- the same line the icon vocabulary draws.
+
+The shading is a cylinder and a sphere, not a bevel, because that is what those two
+objects *are*. The shaft's normal turns through `(sin t, 0, cos t)` across its
+width, so it is brightest where it faces the light and dark at both edges; a bevel,
+which saturates in the middle and tilts at the rim, would be brightest *at* the rim
+instead. The test switches the rim light off for the measurement -- it darkens
+exactly the pixels a bevel would have made brightest -- checks that the highlight is
+strictly inside the shaft, then hands the painter a mirrored light and checks that
+the highlight follows it, which is what says the shading came from the normals at
+all.
+
+The pole is the one rigid thing on a banner's canvas, so the wave must not move it.
+It is therefore composited **after** the wave, and the test renders two phases and
+requires the band below the lowest pixel the cloth can reach to be identical -- and
+non-empty, or the comparison would prove nothing. It is also drawn *over* the cloth
+rather than tucked under the hoist, and that is geometry rather than taste: the
+plane of the cloth passes through the shaft's axis, so every column of the shaft's
+image is nearer the camera than the plane it cuts, and the shaft wins the whole
+overlap. A pole is opt-in -- `random_flag(..., pole=...)`, `crest.flag(...,
+pole=...)`, `crest.render(..., which="flag", pole=True)` -- so a crest used as a
+sign stays flat, and `cli.py flags --flat` is the special case on the other side.
 
 ## Portraits (`gen/portraits/`)
 
@@ -1066,11 +1130,15 @@ Generators to sit on top of the core, in the order they become useful:
   sidecar, so a province is not just owned but *worn*, which is the first place the
   livery has to survive being scaled down to a hex.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
-  clipping~~ and ~~cloth folds as sinusoidal normal displacement~~ *(done:
-  `gen/heraldry/flags.py` and `gen/heraldry/cloth.py`, where one height field
-  supplies both the lighting and the projection, in world coordinates so that the
-  folds are the same folds at any resolution)*; next, a pole and a fly that trails,
-  so a pennant has a direction to hang from.
+  clipping~~, ~~cloth folds as sinusoidal normal displacement~~ and ~~a pole and a fly
+  that trails~~ *(done: `gen/heraldry/flags.py`, `cloth.py` and `pole.py`, where one
+  height field supplies both the lighting and the projection, in world coordinates
+  so that the folds are the same folds at any resolution; a taper of zero is an
+  exact anchor at the hoist and a droop is gravity taken downwards, so a pennant has
+  a direction to hang from and now something to hang from; and the pole is a
+  cylinder and a sphere shaded by the one light rather than a bevel)*; next, a
+  gonfalon -- a banner hung from a crossbar rather than a mast, which is a second
+  *hanging* rather than a second pole.
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
   heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
   line~~ *(done: a collar stroke, three kinds, one per seed)*; next, turn the head

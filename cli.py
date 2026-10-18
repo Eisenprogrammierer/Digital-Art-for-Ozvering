@@ -13,7 +13,7 @@ Usage
     python cli.py palette --out out/palette.png --seed 3 --count 6
     python cli.py shapes  --out out/shapes.png
     python cli.py arms    --out out/arms.png --seed 7 --count 12
-    python cli.py flags   --out out/flags.png --seed 7 --count 12 [--flat]
+    python cli.py flags   --out out/flags.png --seed 7 --count 12 [--flat]  # on their poles
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
@@ -499,10 +499,13 @@ def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols:
                ratio=(3, 2), shape: str = "rectangle", wave: bool = True) -> Path:
     """Contact sheet of generated flags, described vexillologically.
 
-    The flags hang by default: one is asked for cloth with ``--flat``, because a
-    flag on a pole is what the asset is, and a flat flag is the special case.
+    The flags hang by default -- from a pole, because a flag that hangs hangs from
+    something: the pole stands the cloth up, anchors its hoist and lets the fly
+    trail.  One is asked for cloth with ``--flat``, because a flag on a pole is what
+    the asset is and a flat flag is the special case.
     """
-    specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape, wave=wave)
+    specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape, wave=wave,
+                                 pole=wave)
              for i in range(count)]
     tiles = [flaglib.render(spec, size=size) for spec in specs]
 
@@ -1145,7 +1148,7 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--shape", default="rectangle",
                    choices=["rectangle", "swallowtail", "pennant", "guidon"])
     f.add_argument("--flat", action="store_true",
-                   help="draw the flags in a plane instead of hanging them")
+                   help="draw the flags in a plane, without a pole, instead of hanging them")
 
     b = sub.add_parser("blazon", help="print the blazon of a coat (and render it)")
     b.add_argument("--seed", type=int, default=5)

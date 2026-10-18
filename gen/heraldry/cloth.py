@@ -19,11 +19,21 @@ Two things make it hang, and they come from one height field:
   than to a mask, so the silhouette and the design cannot disagree about where
   the cloth is.
 
-The amplitude grows towards the fly (``taper``) because the hoist is the edge
-tied to the pole: a fold that starts at zero and grows is most of what makes a
-flag hang *from* something rather than sag in mid-air.  A second harmonic at a
-different frequency is added because one sinusoid is a corrugation, and cloth is
-not corrugated.
+One envelope decides everything that moves.  ``taper`` is the cloth's *freedom* at
+the hoist as a fraction of its freedom at the fly, and it is applied to the folds
+and to the droop alike, because both of them are the same physical statement: the
+cloth is held there and free here.  Set it to zero and the hoist is *exactly* still
+-- for any phase -- which is what a flag on a pole looks like, and the one thing
+that makes a flag hang *from* something rather than sag in mid-air.  A second
+harmonic at a different frequency is added because one sinusoid is a corrugation,
+and cloth is not corrugated.
+
+**The droop is gravity, not a fold.**  It is an in-plane slip downwards that grows
+with the cloth's freedom, so the fly ends up lower than the hoist and a pennant
+*trails* instead of flying level.  It takes no part in the lighting, because the
+slope that bends light is the fold's and the droop is a displacement of whole
+columns of cloth -- and it runs downwards whichever way the folds run, which is why
+it is computed from the same envelope instead of being folded into the height.
 
 None of it is special-cased in the renderer: like every other asset here, a
 hanging flag is a *spec* -- ``spec["wave"]`` -- so it round-trips through the
@@ -41,7 +51,7 @@ from . import paint as _paint
 #: side is the fastest way to make it look borrowed.
 LIGHT = _paint.LIGHT
 
-__all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "surface", "hang"]
+__all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "freedom", "surface", "drift", "hang"]
 
 #: What a flag gets when it is asked to hang and nothing more is said.
 #:
@@ -53,9 +63,10 @@ __all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "surface", "hang"]
 DEFAULTS = {
     "amplitude": 0.035,     # of the flag's extent along the folds' axis
     "wavelength": 0.30,     # ditto -- a third of the extent is one fold
-    "taper": 0.45,          # amplitude at the hoist, as a fraction of the fly's
+    "taper": 0.45,          # the cloth's freedom at the hoist, of the fly's
     "harmonic": 0.3,        # strength of the second, higher frequency
     "shear": 0.5,           # in-plane displacement per unit of height
+    "droop": 0.0,           # how far the free end slips down, of the folds' extent
     "direction": "vertical",
 }
 
@@ -70,13 +81,17 @@ CONTRAST = 0.55
 
 
 def wave(seed: int = 0, amplitude=None, wavelength=None, direction=None,
-         taper=None, harmonic=None, shear=None, phase=None) -> dict:
+         taper=None, harmonic=None, shear=None, droop=None, phase=None) -> dict:
     """Build a wave spec.  ``seed`` sets the phase; everything else is explicit.
 
-    Three things are refused rather than clamped, because each of them is a
-    silent wrong answer otherwise: a direction that is neither vertical nor
-    horizontal (which would quietly pick one), a negative amplitude (which would
-    mean nothing) and a wavelength of zero (which would divide).
+    Four things are refused rather than clamped, because each of them is a silent
+    wrong answer otherwise: a direction that is neither vertical nor horizontal
+    (which would quietly pick one), a negative amplitude (which would mean
+    nothing), a wavelength of zero (which would divide) and a negative droop
+    (which is not a flag, it is a flag being blown upwards).
+
+    ``taper`` of zero is worth building on purpose: it is the anchored cloth, the
+    one a pole is holding, and it is exactly still at the hoist for any phase.
     """
     if direction is None:
         direction = DEFAULTS["direction"]
@@ -89,6 +104,7 @@ def wave(seed: int = 0, amplitude=None, wavelength=None, direction=None,
         "taper": float(DEFAULTS["taper"] if taper is None else taper),
         "harmonic": float(DEFAULTS["harmonic"] if harmonic is None else harmonic),
         "shear": float(DEFAULTS["shear"] if shear is None else shear),
+        "droop": float(DEFAULTS["droop"] if droop is None else droop),
         "phase": float(phase if phase is not None
                        else np.random.default_rng(int(seed)).uniform(0.0, 2.0 * np.pi)),
     }
@@ -96,6 +112,8 @@ def wave(seed: int = 0, amplitude=None, wavelength=None, direction=None,
         raise ValueError("a fold has a height, not a negative one")
     if out["wavelength"] <= 0.0:
         raise ValueError("a wavelength of zero is not a wavelength")
+    if out["droop"] < 0.0:
+        raise ValueError("a droop is gravity; it does not pull upwards")
     return out
 
 
@@ -105,12 +123,28 @@ def reach(spec: dict) -> float:
     A flag that is asked to hang needs room for the fly to move, so the renderer
     shrinks the design by this much before waving it -- otherwise the edge of the
     cloth would wave off the edge of the canvas, and the flag would be cut off in
-    the one place the eye is looking.
+    the one place the eye is looking.  The folds and the droop travel in different
+    directions, so adding them is conservative in both; a margin is one number, and
+    the honest thing is to give it the largest one rather than to pretend.
     """
     amp = abs(float(spec.get("amplitude", DEFAULTS["amplitude"])))
     shear = abs(float(spec.get("shear", DEFAULTS["shear"])))
     harm = abs(float(spec.get("harmonic", DEFAULTS["harmonic"])))
-    return shear * amp * (1.0 + harm)
+    droop = abs(float(spec.get("droop", DEFAULTS["droop"])))
+    return shear * amp * (1.0 + harm) + droop
+
+
+def freedom(spec: dict, t):
+    """How free the cloth is at ``t``, 0 at the hoist and 1 at the fly.
+
+    One envelope for everything that moves, because the folds and the droop are
+    the same statement about the same cloth.  ``taper`` is the value at the hoist,
+    so a taper of zero is a cloth that is *held*: nothing at the hoist moves, at
+    any phase, and that is what a pole buys.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    taper = float(spec.get("taper", DEFAULTS["taper"]))
+    return taper + (1.0 - taper) * np.clip(t, 0.0, 1.0)
 
 
 def surface(spec: dict, t, extent: float = 1.0):
@@ -124,11 +158,24 @@ def surface(spec: dict, t, extent: float = 1.0):
     amp = abs(float(spec["amplitude"]))
     k = 2.0 * np.pi / max(float(spec["wavelength"]), 1e-9)
     ph = float(spec.get("phase", 0.0))
-    taper = float(spec.get("taper", DEFAULTS["taper"]))
     harm = float(spec.get("harmonic", DEFAULTS["harmonic"]))
     shape = np.sin(k * t + ph) + harm * np.sin(_HARMONIC_RATIO * (k * t + ph))
-    grow = taper + (1.0 - taper) * np.clip(t, 0.0, 1.0)
-    return amp * float(extent) * grow * shape / (1.0 + harm)
+    return amp * float(extent) * freedom(spec, t) * shape / (1.0 + harm)
+
+
+def drift(spec: dict, t, extent: float = 1.0):
+    """The cloth's in-plane displacement at ``t``, as ``(along, down)`` world units.
+
+    ``along`` is the fold pushing the cloth sideways, signed by the fold's own
+    height; ``down`` is the droop, and it is *always* downwards -- gravity does not
+    consult the folds about which way they run.  The droop rides the envelope alone
+    rather than the fold's oscillation, because a droop that oscillated would lift
+    the fly above the hoist on the next half-turn of the sinusoid.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    shear = abs(float(spec.get("shear", DEFAULTS["shear"])))
+    droop = abs(float(spec.get("droop", DEFAULTS["droop"])))
+    return shear * surface(spec, t, extent), -droop * float(extent) * freedom(spec, t)
 
 
 def _sample(arr, x, y):
@@ -159,7 +206,7 @@ def _sample(arr, x, y):
     return (top * (1.0 - fy) + bot * fy) * inside
 
 
-def hang(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST):
+def hang(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST, box=None):
     """Wave and light a finished flag, in place, and return it.
 
     The pixels are warped first and shaded second, so that the shading belongs to
@@ -167,28 +214,46 @@ def hang(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST):
     started with.  RGB is warped *premultiplied*: sampling straight alpha would
     pull the transparent black around a flag into its own edge, and the edge of a
     flag is the whole silhouette.
+
+    ``box`` is the span the cloth occupies along its folds, ``(lo, hi)`` in world
+    units, when the caller knows it -- the renderer drew it, so it does.  It matters
+    because the frame usually carries margin the cloth is going to move into, and
+    measuring the folds against the frame instead would put the hoist partway up the
+    fold: "taper at the hoist" would not mean the hoist, and the anchor a pole puts
+    there would not be an anchor.  Without it the drawn extent is used, which is the
+    same answer to within an edge pixel.
     """
     X, Y = canvas.grid()
     along_x = spec.get("direction", DEFAULTS["direction"]) == "vertical"
     u = X if along_x else Y
-    lo = float(u.min())
-    extent = float(u.max()) - lo
+    if box is not None:
+        lo, hi = float(box[0]), float(box[1])
+    else:
+        drawn = np.asarray(canvas.a) > 0.5
+        cells = np.where(drawn.any(axis=0) if along_x else drawn.any(axis=1))[0]
+        if cells.size:
+            line = u[0, cells] if along_x else u[cells, 0]
+            lo, hi = float(line.min()), float(line.max())
+        else:
+            lo, hi = float(u.min()), float(u.max())
+    extent = hi - lo
     t = (u - lo) / max(extent, 1e-9)
     z = surface(spec, t, extent)
 
     # Pixel index of the cloth that lands in each output pixel.  Along the folds'
-    # axis the offset is ``-shear * z`` in world units; across it, nothing moves.
-    shift = abs(float(spec.get("shear", DEFAULTS["shear"]))) * z * canvas.scale
+    # axis the offset is ``shear * z`` in world units and across it there is
+    # nothing; the droop is the other way round -- it moves every column of cloth
+    # down the screen whichever way the folds run, so the two simply add.
+    along, down = drift(spec, t, extent)
+    move_x = along * canvas.scale if along_x else np.zeros_like(along)
+    move_y = (down + (0.0 if along_x else along)) * canvas.scale
     ys = np.arange(canvas.h, dtype=np.float64)[:, None] + np.zeros((1, canvas.w))
     xs = np.arange(canvas.w, dtype=np.float64)[None, :] + np.zeros((canvas.h, 1))
-    if along_x:
-        i_src, j_src = xs - shift, ys
-    else:
-        # Raster rows run downwards while world y runs up, so the same physical
-        # offset is the opposite sign in pixel space.  (This is the mistake the
-        # whole project keeps one eye on: see core.render.height_normals.)
-        i_src = xs
-        j_src = ys + (shift if canvas.y_up else -shift)
+    i_src = xs - move_x
+    # Raster rows run downwards while world y runs up, so the same physical offset
+    # is the opposite sign in pixel space.  (This is the mistake the whole project
+    # keeps one eye on: see core.render.height_normals.)
+    j_src = ys + (move_y if canvas.y_up else -move_y)
 
     premultiplied = canvas.rgb * canvas.a[..., None]
     a = _sample(canvas.a, i_src, j_src)

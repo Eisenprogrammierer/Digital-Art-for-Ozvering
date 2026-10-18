@@ -25,7 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
-from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, shields, tinctures  # noqa: E402
+from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, paint, pole, shields, tinctures  # noqa: E402
 
 
 # --------------------------------------------------------------- tinctures
@@ -376,6 +376,20 @@ def _lum(canvas):
     return np.where(arr[..., 3] > 200, rgb.mean(axis=2), np.nan)
 
 
+def _cloth_box(size, margin, hw=1.5, hh=1.0):
+    """The pixel rectangle the cloth's own box maps to, ``(x0, x1, y0, y1)``.
+
+    The frame is not the cloth: it carries the margin the cloth is going to move
+    into, so the drawn extent of a hanging flag is the cloth *plus* however far the
+    wave dragged it.  Anything that compares two hanging flags -- across sizes, or
+    across a phase -- has to compare them on the cloth's own box, or it ends up
+    measuring the margin in fractional pixels.
+    """
+    scale = size / max(2.0 * hw, 2.0 * hh) * (1.0 - 2.0 * margin)
+    return (int(size / 2.0 - hw * scale), int(size / 2.0 + hw * scale),
+            int(size / 2.0 - hh * scale), int(size / 2.0 + hh * scale))
+
+
 def test_a_wave_is_a_spec_with_a_phase_from_its_seed():
     a = cloth.wave(3)
     assert a == cloth.wave(3)
@@ -467,21 +481,30 @@ def test_the_folds_are_the_same_folds_at_any_size():
     The wave is evaluated in world coordinates, so the same spec at 96 px and at
     384 px must have the same folds -- not merely the same *number* of them, which
     is what the dominant frequency of the light profile measures, but the same
-    folds: the three profiles are stretched onto a common axis and compared.  A
+    folds: the three profiles are read onto a common *world* axis and compared.  Two
+    details make that comparison mean what it says.  The profiles are taken inside
+    the cloth's own box, inset by what the wave is allowed to drag -- outside it is
+    either margin, or the cloth that has moved into it -- and the sampling axis is
+    in world units rather than in columns, because the box lands on a different
+    fractional pixel at every size and reading by column index would turn that half
+    pixel into a phase drift the correlation would report as a different fold.  A
     wave evaluated in pixel coordinates -- the easy mistake, since the renderer's
     field *is* a pixel grid -- would multiply the folds with the resolution, and
     neither the frequency nor the comparison would survive that.
     """
-    spec = {**flags.plain("azure", ratio=(3, 2)),
-            "wave": cloth.wave(3, amplitude=0.05, wavelength=0.25, harmonic=0.0)}
+    wave = cloth.wave(3, amplitude=0.05, wavelength=0.25, harmonic=0.0)
+    spec = {**flags.plain("azure", ratio=(3, 2)), "wave": wave}
+    margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(wave)
     profiles, folds = [], []
     for size in (96, 192, 384):
-        prof = np.nanmean(_lum(flags.render(spec, size=size)), axis=0)
-        prof = prof[~np.isnan(prof)]
+        scale = size / 3.0 * (1.0 - 2.0 * margin)
+        inset = int(np.ceil(cloth.reach(wave) * size)) + 1
+        x0, x1 = int(size / 2.0 - 1.5 * scale) + inset, int(size / 2.0 + 1.5 * scale) - inset
+        prof = np.nanmean(_lum(flags.render(spec, size=size))[:, x0:x1], axis=0)
         spectrum = np.fft.rfft(prof - prof.mean())
         folds.append(int(np.argmax(np.abs(spectrum[1:])) + 1))
-        profiles.append(np.interp(np.linspace(0.0, 1.0, 128),
-                                  np.linspace(0.0, 1.0, len(prof)), prof))
+        world = (np.arange(x0, x1) + 0.5 - size / 2.0) / scale
+        profiles.append(np.interp(np.linspace(-1.5, 1.5, 128), world, prof))
     assert folds[0] >= 2, folds
     assert len(set(folds)) == 1, folds
     for other in profiles[1:]:
@@ -505,6 +528,253 @@ def test_a_crest_banner_flies_flat():
     cannot acquire folds by accident, and its banner stays comparable to its shield.
     """
     assert "wave" not in crest.faction("Kingdom of Alder")["flag"]
+
+
+# ---------------------------------------------------------- the pole
+def _silhouette(canvas):
+    """Rows and columns of the drawn part of a canvas, as index arrays."""
+    a = np.asarray(canvas.a)
+    ys, xs = np.where(a > 0.5)
+    return ys, xs
+
+
+def test_a_pole_is_a_spec_and_refuses_a_name_it_does_not_know():
+    a = pole.spec()
+    assert a == pole.spec()
+    assert set(a) == {"width", "height", "over", "finial", "material"}
+    assert a["finial"] in pole.FINIALS and a["material"] in pole.MATERIALS
+    for wrong in (lambda: pole.spec(finial="onion"),
+                  lambda: pole.spec(material="cheese"),
+                  lambda: pole.spec(width=0.0),
+                  lambda: pole.spec(height=-1.0)):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a pole that cannot be drawn should be refused")
+
+
+def test_an_anchored_cloth_is_exactly_still_at_the_hoist():
+    """What a pole buys, and why it is a taper of zero rather than a small one.
+
+    A cloth tied to a pole cannot move where it is tied, at any phase.  The claim
+    is measured on the silhouette rather than trusted: the leftmost drawn column of
+    a hanging flag is the hoist, and with the anchor on it does not move between two
+    phases, while with the default taper it does -- so the test also shows that it
+    is measuring something, which a comparison of two identical pictures would not.
+    """
+    def hoist(wave, seed):
+        spec = flags.plain("azure", ratio=(3, 2))
+        a = np.asarray(flags.render({**spec, "wave": wave}, size=160).a)
+        ys, xs = np.where(a > 0.5)
+        return int(xs.min()), ys[xs <= xs.min() + 1].mean()
+
+    anchored = cloth.wave(1, amplitude=0.05, wavelength=0.25, taper=0.0)
+    loose = dict(anchored, taper=0.45)
+    for phase in (0.0, 1.1, 2.7):
+        w = dict(anchored, phase=phase, droop=0.0)
+        assert hoist(w, 0) == hoist(w, 1)
+    moved = {hoist(dict(loose, phase=p, droop=0.0), 0)[0] for p in (0.0, 1.1, 2.7)}
+    assert len(moved) > 1, "an unanchored hoist should wander, or this measures nothing"
+    assert cloth.surface({"amplitude": 0.05, "wavelength": 0.25, "taper": 0.0,
+                          "phase": 1.1}, np.array([0.0])).item() == 0.0
+
+
+def test_the_droop_is_gravity_whichever_way_the_folds_run():
+    """The fly trails, and it trails *down* even for horizontal folds.
+
+    A droop cannot be measured the way a fold is: the cloth's own shape differs
+    along the folds' axis, so comparing its two ends would compare two different
+    parts of a flag.  Instead each end is asked how *low it reaches* in two renders
+    -- one without the droop, one with it -- and the frame is pinned for both,
+    because a droop that widens the margin would shrink the cloth and move every
+    pixel for the wrong reason.  The anchored end must stay put and the free end
+    must reach lower, in both fold directions, which is the whole point: gravity
+    does not turn with the cloth.
+    """
+    size, margin = 192, 0.25
+    style = {"margin": margin, "shadow": 0.0, "rim": 0.0, "rim_width": 0.0}
+    x0, x1, y0, y1 = _cloth_box(size, margin)
+    xspan = x1 - x0
+
+    for direction in ("vertical", "horizontal"):
+        spec = flags.plain("azure", ratio=(3, 2))
+        base = cloth.wave(2, amplitude=0.04, wavelength=0.3, taper=0.0, direction=direction)
+        reaches = []
+        for droop in (0.0, 0.10):
+            can = cloth.hang(blazon.render({**spec, "style": style}, size=size),
+                             dict(base, droop=droop, phase=0.6))
+            a = np.asarray(can.a) > 0.5
+            if direction == "vertical":
+                # The folds run across the cloth, so the hoist is its left edge and
+                # the fly its right; the question is how low the cloth reaches over
+                # each band of columns.  A *mean* would not do: the cloth can only
+                # leave the bottom of the frame, never enter it, so the mean is
+                # clipped there and reads as half the droop.
+                reaches.append((int(np.where(a[:, x0:x0 + xspan // 8])[0].max()),
+                                int(np.where(a[:, x1 - xspan // 8:x1])[0].max())))
+            else:
+                # The folds run up the cloth, so the hoist is its bottom edge and the
+                # fly its top, and the question is how low each edge reaches: the
+                # bottom edge is the anchored end, the top edge the free one.
+                ys, _ = np.where(a)
+                reaches.append((int(ys.max()), int(ys.min())))
+        anchored, free = reaches[1][0] - reaches[0][0], reaches[1][1] - reaches[0][1]
+        assert free > 3.5, (direction, free)
+        assert abs(anchored) < 2.5, (direction, anchored)
+
+
+def test_a_pole_gets_room_in_the_frame_and_stays_on_the_canvas():
+    """A pole is not cloth, so it needs its own room -- and enough of it.
+
+    The room is asked for in the *shape* rather than in the margin, and the claim
+    is the same one the cloth makes: nothing reaches the border.  The pole is
+    checked at both of its ends, because the finial above and the shaft below are
+    the two places the frame could have been too short.
+    """
+    for ratio in ((3, 2), (1, 1), (5, 3), (2, 5)):
+        for shape in ("rectangle", "swallowtail", "pennant"):
+            for finial in pole.FINIALS:
+                spec = flags.random_flag(seed=6, ratio=ratio, shape=shape, wave=True,
+                                         pole={"finial": finial})
+                can = flags.render(spec, size=128)
+                a = np.asarray(can.a)
+                border = max(float(a[0].max()), float(a[-1].max()),
+                             float(a[:, 0].max()), float(a[:, -1].max()))
+                assert border < 1e-6, (ratio, shape, finial, border)
+                ys, xs = _silhouette(can)
+                assert len(ys) > 0
+                # The pole is left of the cloth's own box and reaches past it, above
+                # and below: two thirds of the frame at the very least.
+                assert xs.min() < 0.5 * a.shape[1], (ratio, shape, finial, xs.min())
+                assert ys.min() < 0.30 * a.shape[0], (ratio, shape, finial, ys.min())
+                assert ys.max() > 0.70 * a.shape[0], (ratio, shape, finial, ys.max())
+
+
+def test_the_pole_is_the_one_thing_the_wave_does_not_move():
+    """The pole is rigid, so a change of phase may not change a pixel of it.
+
+    The cloth is waved *before* the pole is painted, and this is the test that
+    says so where it is measurable: below the lowest pixel the cloth can reach --
+    its own box, less the droop it is allowed -- the two renders must be identical,
+    and that band must not be empty, or the comparison would prove nothing.
+    """
+    frame = flags.random_flag(seed=9, ratio=(3, 2), wave=True, pole={"height": 0.5})
+    fn, hw, hh = blazon.resolve_shape(frame)
+    style = dict(frame["style"])
+    style["margin"] = float(style["margin"]) + 1.6 * cloth.reach(frame["wave"])
+    size = 192
+    scale = size / max(2.0 * hw, 2.0 * hh) * (1.0 - 2.0 * style["margin"])
+    extent = float(size) / scale
+    floor = -1.0 - float(frame["wave"]["droop"]) * extent
+    row = int(size / 2.0 - floor * scale) + 2
+    assert 0 < row < size, row
+
+    a = np.asarray(flags.render({**frame, "wave": dict(frame["wave"], phase=0.3)},
+                                size=size).to_uint8())
+    b = np.asarray(flags.render({**frame, "wave": dict(frame["wave"], phase=2.4)},
+                                size=size).to_uint8())
+    assert not np.array_equal(a[:row, :], b[:row, :]), "the wave should move the cloth"
+    band_a, band_b = a[row:, :], b[row:, :]
+    assert np.array_equal(band_a, band_b)
+    assert int((band_a[..., 3] > 200).sum()) > 25, "the pole should be down there to compare"
+
+
+def _shaft_profile(light):
+    """The shaft's luminance across its width, on a blank canvas, at mid-height.
+
+    Taken on a bare pole rather than on a flag, because the thing being measured
+    is the pole's own surface: only the pixels where the shaft actually is are
+    kept, in left-to-right order.
+    """
+    p = pole.spec(width=0.18, finial="none")
+    fn, hw, hh = shields.flag((3, 2), "rectangle", pole.room(p))
+    can = paint.field_canvas(256, hw, hh, margin=0.05, background=(0.90, 0.90, 0.90))
+    pole.paint(can, p, hw, 1.0, light=light)
+    row = can.h // 2
+    lum = np.asarray(can.to_uint8())[..., :3].astype(np.float64).mean(axis=2)[row]
+    d = pole.field(p, hw, 1.0)(*can.grid())[row]
+    # Only the pixels the shaft *covers*: a pixel half on the edge is half
+    # background, and a profile that ended on one would be measuring the sheet.
+    return lum[d < -can.dx]
+
+
+def test_the_pole_is_shaded_as_a_cylinder_not_as_a_bevel():
+    """A cylinder is brightest where it faces the light, not at its own rim.
+
+    That is the whole difference between the shaft's shading and the house bevel:
+    a bevel's height saturates in the middle and tilts at the rim, so it is
+    brightest at the edge, while a cylinder's normal turns smoothly across the
+    width and peaks somewhere inside it.  The rim light is switched off for the
+    measurement, because it darkens exactly the pixels a bevel would have made
+    brightest and the question is about the surface rather than the outline.  The
+    light is then handed to the painter mirrored and the highlight has to follow
+    it, which is what says the shading came from the normals at all.
+    """
+    strength = pole.RIM_STRENGTH
+    pole.RIM_STRENGTH = 0.0
+    try:
+        left = _shaft_profile(pole.LIGHT)
+        right = _shaft_profile((0.45, 0.65))
+    finally:
+        pole.RIM_STRENGTH = strength
+    assert left.shape[0] >= 7, left.shape
+    peak = int(np.argmax(left))
+    assert 0 < peak < left.shape[0] - 1, (peak, left)
+    assert float(left[0]) < float(left[peak]) and float(left[-1]) < float(left[peak])
+    assert int(np.argmax(right)) > peak, (peak, np.argmax(right))
+
+
+def test_a_pole_may_not_hold_up_a_shield():
+    spec = {**flags.plain("azure", ratio=(3, 2)), "pole": pole.spec(), "shield": "heater"}
+    try:
+        flags.render(spec, size=64)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a pole holds up a flag, not a shield")
+
+
+def test_a_poled_flag_survives_a_round_trip():
+    import json
+
+    spec = flags.random_flag(seed=8, ratio=(3, 2), wave=True, pole=True)
+    again = json.loads(json.dumps(spec))
+    assert again["pole"] == spec["pole"] and again["wave"] == spec["wave"]
+    assert flags.render(again, size=96).to_uint8().tobytes() == \
+        flags.render(spec, size=96).to_uint8().tobytes()
+
+
+def test_a_faction_banner_can_be_flown_on_a_pole():
+    name = "Kingdom of Alder"
+    assert "pole" not in crest.flag(name), "the pole is opt-in, so the default stands"
+    flown = crest.flag(name, pole=True)
+    assert flown["pole"]["material"] in pole.MATERIALS
+    assert flown["field"] == crest.flag(name)["field"]
+    # A banner on a pole is cloth, and the pole is what anchors it: the hoist is
+    # still, and the wind comes from the name rather than from the call.
+    assert flown["wave"]["taper"] == 0.0
+    assert flown["wave"]["droop"] > 0.0
+    assert crest.flag(name, pole=True)["wave"] == flown["wave"], "the wind is the name's"
+    table = crest.shade_table(name)
+    plain = np.asarray(flags.render(crest.flag(name), size=128, shade=table).a)
+    poled = np.asarray(flags.render(flown, size=128, shade=table).a)
+    # The pole reaches outside the cloth's own box on three sides -- the shaft to the
+    # left of the hoist, the finial above, the foot below -- and the room is what the
+    # frame paid for that, because the cloth keeps its coordinates either way.
+    margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(flown["wave"])
+    x0, x1, y0, y1 = _cloth_box(128, margin)
+    drawn = np.where(poled > 0.5)
+    assert drawn[1].min() < x0, "the shaft is to the left of the hoist"
+    assert drawn[0].min() < y0, "the finial is above the cloth"
+    assert drawn[0].max() > y1, "and the foot is below it"
+    assert np.where(plain > 0.5)[1].min() >= _cloth_box(128, flags.FLAG_STYLE["margin"])[0], \
+        "while the flat banner is inside its own frame"
+    # The drift-proof entry point flies the same banner, pole and wind included.
+    one = crest.render(name, size=64, which="flag", pole=True).to_uint8().tobytes()
+    two = flags.render(flown, size=64, shade=table).to_uint8().tobytes()
+    assert one == two, "crest.render and crest.flag disagree about the banner"
 
 
 # --------------------------------------------------------------- end to end

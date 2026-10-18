@@ -49,9 +49,11 @@ same shade or wear shades a measurable step apart.
 from __future__ import annotations
 
 import hashlib
+import random
 import unicodedata
 
-from . import blazon, flags, tinctures
+from . import blazon, cloth as _cloth, flags, tinctures
+from . import pole as _pole
 
 __all__ = ["NAMESPACE", "arms", "faction", "flag", "normalise", "render", "seed_from",
            "shade", "shade_table"]
@@ -139,14 +141,8 @@ def _second_field(field_tincture: str, candidates, name: str) -> str:
     return _opposite(field_tincture, name)
 
 
-def flag(name: str, coat: dict | None = None, ratio=(3, 2), shape: str = "rectangle",
-         style: dict | None = None) -> dict:
-    """The banner of the faction: the coat's tinctures, flown.
-
-    Passing ``coat`` in is how :func:`faction` keeps the two from drifting apart;
-    omitting it derives the coat from the name first, so the banner is a function of
-    the name either way.
-    """
+def _banner(name: str, coat: dict | None, ratio, shape, style) -> dict:
+    """The banner's *pattern*: what the coat looks like flown.  See :func:`flag`."""
     coat = coat if coat is not None else arms(name)
     field = coat["field"]
     tinctures_of_field = list(field["tinctures"])
@@ -198,6 +194,46 @@ def flag(name: str, coat: dict | None = None, ratio=(3, 2), shape: str = "rectan
     return flags.plain(field_tincture, ratio=ratio, shape=shape, style=style)
 
 
+def _wind(name: str) -> dict:
+    """The wind a flown banner gets, from the name's own seed.
+
+    A banner on a pole is cloth, so it has folds -- and they have to be the *same*
+    folds every time the faction is drawn, or the banner would ripple differently
+    in every frame and read as a different banner.  Everything here comes from the
+    name, and the ranges are the ones :func:`gen.heraldry.flags.random_flag` draws
+    from, so a flown banner and a random flag at the same seed are the same *kind*
+    of cloth.
+    """
+    rng = random.Random(seed_from(name, "wind"))
+    return _cloth.wave(
+        seed=seed_from(name, "phase"),
+        amplitude=rng.uniform(0.028, 0.045),
+        wavelength=rng.uniform(0.22, 0.40),
+        harmonic=rng.uniform(0.15, 0.35),
+    )
+
+
+def flag(name: str, coat: dict | None = None, ratio=(3, 2), shape: str = "rectangle",
+         style: dict | None = None, pole=False) -> dict:
+    """The banner of the faction: the coat's tinctures, flown.
+
+    Passing ``coat`` in is how :func:`faction` keeps the two from drifting apart;
+    omitting it derives the coat from the name first, so the banner is a function of
+    the name either way.
+
+    ``pole`` flies the banner on one -- see :mod:`gen.heraldry.pole` -- and a
+    banner on a pole is *cloth*, so it also gets the name's wind and the hoist the
+    pole anchors.  Both are the pole's decisions rather than this module's, so they
+    are applied here rather than left to the renderer, and both come from the name:
+    drawing the same faction twice gives the same banner.
+    """
+    banner = _banner(name, coat, ratio, shape, style)
+    if pole:
+        banner["pole"] = _pole.spec(**(dict(pole) if isinstance(pole, dict) else {}))
+        banner["wave"] = _pole.anchor(banner.get("wave") or _wind(name))
+    return banner
+
+
 def shade(name: str) -> dict:
     """The faction's livery: how far each tincture is nudged, as integer steps.
 
@@ -216,20 +252,21 @@ def shade_table(name: str) -> dict:
     return tinctures.shade_table(shade(name))
 
 
-def render(name: str, size=512, which: str = "arms"):
+def render(name: str, size=512, which: str = "arms", pole=False):
     """The faction's shield or banner, painted in the faction's own shade.
 
     This is the entry point a game wants, because it is the one that cannot drift:
     the coat, the banner and the pigments all come from the name, and there is no
     way to render a faction's arms in the *classical* palette by forgetting an
     argument -- forgetting it takes calling :func:`gen.heraldry.blazon.render`
-    yourself.
+    yourself.  ``pole`` flies a banner from one; it is a presentation choice rather
+    than something the name decides, which is why :func:`faction` does not carry it.
     """
     table = shade_table(name)
     if which == "arms":
         return blazon.render(arms(name), size=size, shade=table)
     if which == "flag":
-        return flags.render(flag(name), size=size, shade=table)
+        return flags.render(flag(name, pole=pole), size=size, shade=table)
     raise ValueError(f"a faction is rendered as 'arms' or 'flag', not {which!r}")
 
 

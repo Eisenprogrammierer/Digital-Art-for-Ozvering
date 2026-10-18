@@ -151,7 +151,8 @@ def resolve_shape(spec: dict):
     shape = spec.get("shield", "heater")
     if isinstance(shape, dict):
         if shape.get("kind") == "flag":
-            return _shields.flag(tuple(shape.get("ratio", (3, 2))), shape.get("shape", "rectangle"))
+            return _shields.flag(tuple(shape.get("ratio", (3, 2))), shape.get("shape", "rectangle"),
+                                 shape.get("room", 0.0))
         raise ValueError(f"unknown shield spec {shape!r}")
     if shape in _shields.FLAG_SHAPES:
         return _shields.flag((3, 2), shape)
