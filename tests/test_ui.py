@@ -552,6 +552,84 @@ def test_an_unknown_material_is_reported_and_refused():
     raise AssertionError("an unknown material was drawn")
 
 
+# ---------------------------------------------------------- the material cache
+def test_a_buttons_three_states_are_one_material():
+    """The cache, measured as counts: a state is a colour, so the shape is shared.
+
+    This is the claim that makes a material affordable in a UI that redraws on
+    hover, and it is asserted as a count rather than as elapsed time because a
+    stopwatch is a machine's opinion and a hit count is a fact about the program.
+    """
+    material.clear()
+    spec = stylelib.get("timber")
+    for state in paint.STATES:
+        paint.button(spec, (160, 100), state=state)
+    assert material.stats() == {"hits": 2, "misses": 1, "size": 1}, material.stats()
+
+
+def test_a_cached_material_is_bit_identical_to_an_uncached_one():
+    """A cache that is wrong is worse than no cache, so this compares pixels.
+
+    The arithmetic is unchanged only if the remembered value *is* the value that
+    would have been computed, and the cheapest proof of that is the picture.  Every
+    style, three sizes and all three states, drawn with a cold cache and again with
+    a warm one.
+    """
+    for name in ("timber", "granite", "slate", "moss"):
+        spec = stylelib.get(name)
+        for size in ((160, 100), (240, 150), (97, 61)):
+            material.clear()
+            hot = [paint.button(spec, size, state=s).to_uint8() for s in paint.STATES]
+            material.clear()
+            for state, warm in zip(paint.STATES, hot):
+                material.clear()
+                cold = paint.button(spec, size, state=state).to_uint8()
+                assert np.array_equal(warm, cold), \
+                    f"{name}/{size}/{state}: the cache changed the picture"
+
+
+def test_the_material_key_includes_the_window_and_the_light():
+    """The key is the whole input, and the window is part of it.
+
+    A material is anchored to the world -- a wider panel shows *more* wood rather
+    than the same wood stretched -- so two panels of different sizes sample
+    different windows and a key of ``(kind, scale, seed)`` would slide the grain by
+    half a panel.  The fields themselves are compared here rather than the cache's
+    internals: a cache that got this wrong would draw the wrong picture, so the
+    picture is the test.
+    """
+    spec = {"material": "wood", "material_scale": 20.0, "material_seed": 11}
+    xs = np.linspace(0.0, 3.0, 40)
+    ys = np.linspace(0.0, 3.0, 30)
+    dx = float(xs[1] - xs[0])
+    here = material.modulation("wood", spec, *np.meshgrid(xs, ys), dx, paint.LIGHT)[0]
+    there = material.modulation("wood", spec, *np.meshgrid(xs + 2.0, ys), dx, paint.LIGHT)[0]
+    assert not np.allclose(here, there), "a different window was answered with the same field"
+    # ...and each is remembered as itself, not as the other.
+    assert np.array_equal(here, material.modulation("wood", spec, *np.meshgrid(xs, ys), dx, paint.LIGHT)[0])
+    assert np.array_equal(there, material.modulation("wood", spec, *np.meshgrid(xs + 2.0, ys), dx, paint.LIGHT)[0])
+    # The light and the y direction are in the key for the same reason: they change
+    # the shading without changing the recipe.
+    down = material.modulation("wood", spec, *np.meshgrid(xs, ys), dx, paint.LIGHT, False)[0]
+    assert not np.allclose(here, down), "y_up was not part of the key"
+
+
+def test_the_material_cache_is_bounded_and_can_be_cleared():
+    """A cache with no bound is a leak wearing a cache's name."""
+    material.clear()
+    assert material.stats() == {"hits": 0, "misses": 0, "size": 0}
+    spec = {"material": "stone", "material_scale": 18.0, "material_seed": 5}
+    for i in range(material.CACHE_MAX + 5):
+        xs = np.linspace(float(i), float(i) + 2.0, 12)
+        material.modulation("stone", spec, *np.meshgrid(xs, np.linspace(0.0, 2.0, 12)),
+                            0.05, paint.LIGHT)
+    s = material.stats()
+    assert s["size"] <= material.CACHE_MAX, s
+    assert s["misses"] == material.CACHE_MAX + 5, s
+    material.clear()
+    assert material.stats() == {"hits": 0, "misses": 0, "size": 0}
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -129,7 +129,10 @@ def draw(spec: dict, size, kind: str = "panel", state: str = "idle", scale: floa
         if s["material"] != "none":
             # Only where it can be seen: the band over the body is opaque, so the
             # material is evaluated on the inner rectangle, the same "evaluate
-            # where it can be drawn" rule the ornament follows.
+            # where it can be drawn" rule the ornament follows.  `material.body`
+            # remembers the lit field per recipe and window, so the other two
+            # states of this button -- the same panel in other colours -- cost a
+            # multiply rather than a noise field.
             cx, cy, hw, hh = p.inner_box()
             x0, y0, x1, y1 = _window(c, (cx - hw, cy - hh, cx + hw, cy + hh), margin=4.0)
             if x1 > x0 and y1 > y0:

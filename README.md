@@ -73,7 +73,7 @@ python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
-python tests/test_ui.py                         # 32 tests
+python tests/test_ui.py                         # 36 tests
 python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 42 tests
 python tests/test_icons.py                      # 33 tests
@@ -952,7 +952,7 @@ Everything in the package is arranged around that sentence.
 | `frame` | The geometry as distance fields: concentric rounded rectangles, the band between them, the inner rule, and a corner ornament whose radius is a Fourier series. |
 | `slice` | The contract itself — the insets, the nine rectangles, the resample a game engine will perform, and the measurement of what that resample costs. |
 | `paint` | Five passes over one fixed light: shadow, body, band, rule, ornament. |
-| `material` | Wood and stone, out of fBm and Worley noise in design pixels — the body's surface, and the one look here that gives up a stretchable middle on purpose. |
+| `material` | Wood and stone, out of fBm and Worley noise in design pixels — the body's surface, and the one look here that gives up a stretchable middle on purpose. The lit field is remembered per recipe and window, so a state change costs a multiply. |
 
 ### The one hard geometric rule
 
@@ -1079,6 +1079,47 @@ So an engine can ask what it needs to know — *may I resize this?* — and get 
 answer that was computed from the pixels rather than a flag the style set about
 itself. A subtle material can genuinely come out stretchable; a bold one cannot.
 Both are correct, and both are the same code path.
+
+### A material is remembered, and the key is not `(kind, scale, seed)`
+
+That measurement is what makes the material *honest*; what makes it affordable is
+that it turns out not to depend on the colour it is mixed into. `body` is really
+two halves, and only the last one touches the palette:
+
+```python
+factor, mix = material.modulation(kind, spec, X, Y, dx, LIGHT)   # the noise
+body = clip(colour * factor + stain * mix)                       # the multiply
+```
+
+The first half — the lit relief as a ratio of its own mean, and the stain's blend
+weight — is a pure function of the recipe, the four numbers, the light and the
+*pixel grid*. So it is computed once and remembered, and since **a button state is
+a colour and never a layout**, the three states of a button are one material:
+`material.stats()` reads `{'hits': 2, 'misses': 1}` after `paint.button` is called
+three times, and that is a test rather than a hope.
+
+The measured difference, on one machine: a 400×250 window costs 528 ms (wood) or
+675 ms (stone) to compute and 11–14 ms to re-apply — **38× to 69× cheaper** — and a
+512×320 button drawn in all three of its states drops from 4.4 s to 2.4 s. That
+last number is worth reading properly: the material was about half of the draw and
+the shadow, the moulding band, the rule and the four bosses are the other half, so
+this buys the *redraw* — hover, press, a resize — and not the first draw. Nothing
+in this package made the first draw faster, and nothing pretends to.
+
+The obvious key is `(kind, scale, seed)` and it is wrong. A material is anchored to
+the **world**, not to the panel — that is the whole reason `stretch_error` exists —
+so a wider panel samples a wider *window* of the same wood. Answering a 400-px panel
+with a 200-px panel's field would slide the grain by half a panel, and a cache that
+is wrong is worse than no cache. So the key is the complete input: the recipe, its
+four numbers, `dx`, `y_up`, the light, and the grid (`shape` and the two axes'
+origins and far ends — a canvas grid is a separable meshgrid, so that is exact).
+
+The cache is transparent and bounded. Transparent means a hit is bit-identical to a
+miss, which is checked by drawing every style at three sizes in three states with a
+cold cache and with a warm one and comparing the pictures, not the arrays. Bounded
+means `CACHE_MAX = 16`, an ordered map evicted from the front: a cache with no bound
+is a leak wearing a cache's name. A kit of mock windows peaks at 12 live entries, so
+16 is a bound that the thing it bounds never reaches.
 
 ## Maps (`gen/maps/`)
 
@@ -1789,11 +1830,16 @@ Generators to sit on top of the core, in the order they become useful:
   never resampled; the insets and bands taking one number per side so that a title
   bar is a wider border rather than a second kind of window; and the one look that
   gives up a stretchable middle, priced by `slice.stretch_error` and carried in the
-  sidecar as a measured `stretchable` rather than a promise)*; next, a material
-  that is cheap enough to draw live -- the recipes are two noise fields per panel
-  at the moment, which is fine for a shipped sheet and too slow for a UI that
-  redraws on hover, and the obvious fix is a small cache keyed by
-  `(kind, scale, seed)` that the paint pass asks first.
+  sidecar as a measured `stretchable` rather than a promise)*; ~~a material that is
+  cheap enough to draw live~~ *(done: the plan said "a small cache keyed by
+  `(kind, scale, seed)`", and the interesting part is why that key would have been
+  wrong.  A material does not depend on the colour it is mixed into, so what is
+  cached is the *modulation* -- the lit relief and the stain -- and a button's three
+  states cost one material between them; but a material is anchored to the world, so
+  a wider panel samples a wider window of it and the window is part of the key.  38x
+  to 69x cheaper to re-apply, a 1.86x faster three-state button, transparent (a hit
+  is bit-identical to a miss, checked on the pictures) and bounded at
+  `material.CACHE_MAX = 16`).*
 - **maps** -- ~~hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching
   squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline drawn

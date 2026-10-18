@@ -31,7 +31,10 @@ nine-slice envelope -- and every module below is arranged around that fact:
     Wood and stone: the body's surface, out of fBm and Worley noise evaluated in
     design pixels.  A material is the one look in the package that gives up the
     stretchable middle on purpose, which is why the body it fills is measured
-    rather than trusted.
+    rather than trusted.  It is also the cheap one, which sounds like a
+    contradiction until you notice that its noise does not depend on the colour it
+    is mixed into: the lit field is remembered per recipe and window, so a state
+    change -- a hover, a press -- costs a multiply rather than a noise field.
 
 Typical use::
 
