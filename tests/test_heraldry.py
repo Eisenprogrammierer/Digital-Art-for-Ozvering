@@ -23,7 +23,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.heraldry import blazon, charges, field, flags, ordinaries, shields, tinctures  # noqa: E402
+from gen.heraldry import blazon, charges, crest, field, flags, ordinaries, shields, tinctures  # noqa: E402
 
 
 # --------------------------------------------------------------- tinctures
@@ -381,6 +381,131 @@ def test_rendering_is_deterministic_and_byte_identical():
         assert h[0] == h[1], "arms render is not byte-identical"
         assert h[2] == h[3], "flags render is not byte-identical"
         assert all(p.stat().st_size > 0 for p in paths)
+
+
+# ------------------------------------------------------------------- factions
+def _tinctures_used(spec) -> set:
+    """Every tincture a spec actually wears."""
+    used = set(spec["field"]["tinctures"])
+    if spec.get("ordinary"):
+        used.add(spec["ordinary"]["tincture"])
+        if spec["ordinary"].get("fimbriation"):
+            used.add(spec["ordinary"]["fimbriation"])
+    used.update(c["tincture"] for c in spec.get("charges", []) if c.get("tincture"))
+    return used
+
+
+def test_the_name_is_the_whole_input():
+    a = crest.faction("Kingdom of Alder")
+    b = crest.faction("Kingdom of Alder")
+    assert a == b
+    assert a["seed"] == crest.seed_from("Kingdom of Alder")
+    assert a["key"] == "kingdom of alder"
+    assert a["blazon"]["en"] and a["blazon"]["ru"] and a["description"]["en"]
+
+
+def test_a_fresh_process_with_a_different_hash_seed_agrees():
+    """The trap this module is really about: Python salts string hashing per process.
+
+    Seeded with ``hash(name)`` a faction would be given a different banner every
+    time the game restarted, and nothing in a single process could notice -- the two
+    derivations only have to disagree across a restart.  So the check runs the
+    derivation somewhere else, with a different hash seed, and compares the words.
+    """
+    import os
+    import subprocess
+
+    root = str(Path(__file__).resolve().parents[1])
+    code = (f"import sys; sys.path.insert(0, {root!r});"
+            "from gen.heraldry import crest;"
+            "f = crest.faction('Kingdom of Alder');"
+            "print(f['seed'], '|', f['blazon']['en'])")
+    seen = set()
+    for hash_seed in ("0", "1", "12345"):
+        env = dict(os.environ, PYTHONHASHSEED=hash_seed)
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                             text=True, env=env, timeout=120)
+        assert out.returncode == 0, out.stderr
+        seen.add(out.stdout.strip())
+    assert len(seen) == 1, seen
+    assert next(iter(seen)).startswith(str(crest.seed_from("Kingdom of Alder")))
+
+
+def test_case_and_spacing_do_not_make_a_new_faction():
+    a = crest.faction("Kingdom of Alder")
+    for spelling in ("  kingdom   of  alder ", "KINGDOM OF ALDER", "\tKingdom of Alder\n"):
+        other = crest.faction(spelling)
+        assert other["seed"] == a["seed"]
+        assert other["arms"] == a["arms"] and other["flag"] == a["flag"]
+    assert crest.normalise("  The   Mirefen\nLeague ") == "the mirefen league"
+    # The spelling is kept for display even though the key is not.
+    assert crest.faction("  Kingdom of Alder  ")["name"] == "Kingdom of Alder"
+
+
+def test_different_names_are_different_factions():
+    names = ["Alder", "Brythmark", "Halven", "Craymoor", "Delvane", "Ostmark"]
+    assert len({crest.seed_from(n) for n in names}) == len(names)
+    blazons = {crest.faction(n)["blazon"]["en"] for n in names}
+    assert len(blazons) >= len(names) - 1      # a blazon collision is possible, not likely
+
+
+def test_an_empty_name_is_a_bug_rather_than_a_plain_crest():
+    for empty in ("", "   ", "\t\n"):
+        try:
+            crest.seed_from(empty)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a nameless faction should be refused")
+    try:
+        crest.seed_from(7)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("a name is a string")
+
+
+def test_the_salt_separates_the_streams():
+    assert crest.seed_from("Alder", "arms") != crest.seed_from("Alder", "flag")
+    assert crest.seed_from("Alder") != crest.seed_from("Alder", "arms")
+    assert crest.seed_from("Alder") == crest.seed_from("Alder", "")
+
+
+def test_the_banner_flies_what_the_shield_bears():
+    """The claim that keeps a faction from having two identities.
+
+    The banner is derived from the *coat*, not from the name a second time, so the
+    two cannot drift apart -- and the tinctures they share are what makes that
+    checkable.  Every faction in the demo set is asked, not just one, because the
+    branches (an ordinary to fly, charges but no ordinary, neither) are all real.
+    """
+    flown = 0
+    for name in ("Kingdom of Alder", "Brythmark", "Silverreach Compact", "House Delvane",
+                 "Duchy of Halven", "The Mirefen League"):
+        f = crest.faction(name)
+        arms, banner = f["arms"], f["flag"]
+        assert banner["field"]["tinctures"][0] == arms["field"]["tinctures"][0], name
+        arms_used = _tinctures_used(arms)
+        banner_used = _tinctures_used(banner)
+        assert banner_used <= arms_used, (name, banner_used - arms_used)
+        ordinary = arms.get("ordinary")
+        if ordinary and ordinary["name"] in crest._FLYING:
+            flown += 1
+            assert ordinary["tincture"] in banner_used, name
+    assert flown > 0, "the demo set should include at least one ordinary that flies"
+
+
+def test_every_faction_renders_and_is_json():
+    import json
+
+    for name in ("Kingdom of Alder", "Brythmark", "House Delvane"):
+        f = crest.faction(name)
+        text = json.dumps(f, ensure_ascii=False)
+        assert len(text) > 200
+        assert not f["warnings"], (name, f["warnings"])
+        for spec in (f["arms"], f["flag"]):
+            canvas = blazon.render(spec, size=48)
+            assert float(canvas.a.max()) > 0.5      # something was actually drawn
 
 
 if __name__ == "__main__":

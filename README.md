@@ -30,10 +30,12 @@ python cli.py demo --out out --seed 7
 
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
-`out/lineage.png`, `out/ui.png`, `out/maps.png` and `out/tiles.png`, each with a
-`.json` sidecar recording the seed, the spec, the blazon, the genome of every
-portrait tile, the corner insets of every UI part, for every map its biome census,
-its rivers and its provinces, and for every tiling texture its seam error, plus
+`out/lineage.png`, `out/ui.png`, `out/maps.png`, `out/tiles.png` and
+`out/factions.png`, each with a `.json` sidecar recording the seed, the spec, the
+blazon, the genome of every portrait tile, the corner insets of every UI part, for
+every map its biome census, its rivers and its provinces, for every tiling texture
+its seam error, and for the factions the *names* they were derived from -- which,
+for that sheet, are the input rather than the seed -- plus
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -48,6 +50,7 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2
+python cli.py factions --name "Kingdom of Alder"       # a name, and all it decides
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
@@ -58,7 +61,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
-python tests/test_heraldry.py                   # 31 tests
+python tests/test_heraldry.py                   # 39 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 22 tests
 python tests/test_maps.py                       # 46 tests
@@ -114,6 +117,7 @@ is a small compiler, not a drawing routine.
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
 | `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`. |
 | `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`. |
+| `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, and the words for both. |
 
 An asset is a **spec** — a plain dict — and everything else is a view of it:
 
@@ -132,6 +136,49 @@ flags.describe(flag, "ru")       # 'Скандинавский крест (се�
 
 Note that the *text* is derivable, which is the point: a coat can be reviewed in a
 pull request, stored in a save file, or shown to a player without a picture.
+
+### A faction is its name
+
+Every other generator here is asked for an asset by *seed*. That is right for a
+texture and wrong for a faction, because a game does not have a number for the
+Kingdom of Alder -- it has the words. So the name is the seed, and there is no
+registry to keep in step:
+
+```python
+from gen.heraldry import crest
+
+alder = crest.faction("Kingdom of Alder")
+alder["blazon"]["en"]        # 'Per bend Argent and Azure, a fess Or.'
+alder["description"]["en"]   # 'Horizontal bicolour: argent, or.'
+alder["seed"]                 # 4779193178708914195, forever
+```
+
+Save nothing; the name is the save file. Two things make that work, and both are
+easy to get subtly wrong.
+
+**The hash.** `seed_from` is a cryptographic hash of the name, not Python's
+built-in `hash()`. Python salts string hashing per process, so `hash("Alder")` is a
+different number every time the game starts: an asset derived from it would change
+on every run, and the bug would present as a rendering glitch rather than as a seed.
+It is also the kind of failure a single process cannot see, so the test starts a
+*fresh interpreter with a different `PYTHONHASHSEED`* and compares the blazon.
+
+**The key.** `normalise` case-folds and collapses whitespace, so "The Grand Duchy of
+Alder", "the grand duchy of alder" and "The  Grand  Duchy of Alder" are one faction.
+
+The banner is derived from the **coat**, not from the name a second time, and that
+is deliberate: a faction has one crest, and a shield and a flag generated
+independently would sooner or later disagree about it. So the banner flies what the
+shield bears — the same tinctures, and the same ordinary wherever the ordinary has a
+vexillological equivalent, since a cross flies as a cross, a bordure as a border,
+and a bend, a chevron or a pile as a triangle at the hoist. Where there is no
+equivalent the tinctures carry it, which is honest: a pall has no flag layout and
+pretending otherwise would be worse than a bicolour. The test asserts that
+relationship rather than either picture.
+
+`faction()` returns the whole thing as one JSON-serialisable dict — coat, banner,
+both languages, and the validator's warnings, because a generated coat is something
+a person has to be able to review in a sidecar rather than trust.
 
 ### How the rule of tincture is enforced
 
@@ -661,8 +708,12 @@ this package being about *properties* rather than about pixels.
 Generators to sit on top of the core, in the order they become useful:
 
 - **icons** -- resource/unit icons, atlas packing, `--size` sweep for mip levels. *(prototype in `cli.py`)**
-- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~ *(done:
-  `gen/heraldry/`)*; next, a faction's crest derived from its name as the seed.
+- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~ and a
+  ~~faction's crest derived from its name as the seed~~ *(done: `gen/heraldry/`, with
+  `crest.py` deriving the seed from a hash of the name rather than Python's salted
+  `hash()`, and deriving the banner from the coat so the two cannot disagree)*;
+  next, faction shades of the tinctures in a sidecar, so two factions can both be
+  azure and still be told apart.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
   clipping~~ *(done: `gen/heraldry/flags.py`)*; next, cloth folds as sinusoidal
   normal displacement, so a flag hangs rather than sits.

@@ -523,9 +523,11 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         cli.demo_ui(d / "ui.png", seed=3, count=1, scale=1, style="slate")
         cli.demo_maps(d / "maps.png", seed=3, count=1, cols=12, rows=8, size=8.0)
         cli.demo_tiles(d / "tiles.png", seed=3, size=64, sim=24, steps=60)
+        cli.demo_factions(d / "factions.png", names=["Alder", "Brythmark"], size=48)
         images = {p.name for p in d.glob("*.png")}
         assert images == {"icons.png", "shapes.png", "texture.png", "palette.png",
-                          "portraits.png", "ui.png", "maps.png", "tiles.png"}
+                          "portraits.png", "ui.png", "maps.png", "tiles.png",
+                          "factions.png"}
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images
 

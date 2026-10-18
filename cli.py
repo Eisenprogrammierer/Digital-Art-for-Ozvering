@@ -41,6 +41,7 @@ from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import png  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
+from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
@@ -72,6 +73,17 @@ SHIELD = np.array(
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
+def _ratio(text) -> tuple:
+    """``"3:2"`` (or ``3x2``) into a proportion, for the flag-shaped commands."""
+    parts = str(text).replace(":", "x").split("x")
+    if len(parts) != 2:
+        raise ValueError(f"a proportion looks like 3:2, not {text!r}")
+    w, h = (int(v) for v in parts)
+    if w < 1 or h < 1:
+        raise ValueError("a proportion needs two positive numbers")
+    return w, h
+
+
 def _font(size: int = 13):
     """Pillow's bundled bitmap font, for development previews only.
 
@@ -941,6 +953,59 @@ def _repeat_canvas(canvas, n: int = 2):
     return out
 
 
+def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
+                  ratio=(3, 2)) -> Path:
+    """Contact sheet of factions, each with its shield and the banner it flies.
+
+    The names are hand-written and everything else is derived from them, which is
+    the point of the exercise: a faction's identity is a *name*, and the demo has to
+    be handed names because that is the only input the generator takes.  Pass your
+    own with ``--name`` and the sheet is your game's factions.
+    """
+    if not names:
+        names = ["Kingdom of Alder", "The Mirefen League", "Brythmark",
+                 "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
+                 "Vale of Craymoor", "House Delvane"]
+    factions = [crestlib.faction(name, ratio=ratio) for name in names]
+
+    tiles = []
+    for f in factions:
+        tiles.append(heraldry.render(f["arms"], size=size))
+        tiles.append(flaglib.render(f["flag"], size=size))
+
+    gap = 46
+    sheet = render.sheet(tiles, cols=4, gap=gap, background=(0.90, 0.91, 0.94))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, f in enumerate(factions):
+        # Two tiles per faction, four to a row, so a faction's caption belongs under
+        # the *pair*, and the gap between rows is what it is drawn in.
+        x = gap + (2 * i) % 4 * (size + gap)
+        y = gap + (i // 2) * (size + gap) + size + 5
+        _wrap_label(img, (x, y), f["name"], width=2 * size + gap - 6, font=_font(13))
+        _wrap_label(img, (x, y + 16), f["blazon"]["en"], width=2 * size + gap - 6)
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.heraldry.crest.faction",
+             names=[f["name"] for f in factions],
+             factions=[
+        {
+            "name": f["name"],
+            "key": f["key"],
+            "seed": f["seed"],
+            "blazon_en": f["blazon"]["en"],
+            "blazon_ru": f["blazon"]["ru"],
+            "banner_en": f["description"]["en"],
+            "banner_ru": f["description"]["ru"],
+            "warnings": f["warnings"],
+            "arms": f["arms"],
+            "flag": f["flag"],
+        }
+        for f in factions
+    ])
+    return _report(out)
+
+
 def demo(out: Path, seed: int = 7) -> None:
     """Render everything into ``out/`` -- the smoke test for the whole core."""
     print(f"ozart demo  (seed={seed}, out={out})")
@@ -955,6 +1020,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed)
+    demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
     print("done.")
@@ -1046,6 +1112,14 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--sim", type=int, default=80, help="cells the reaction-diffusion runs on")
     t.add_argument("--steps", type=int, default=5000, help="steps of reaction-diffusion, at most")
 
+    fa = sub.add_parser("factions", help="a faction from its name: shield, banner, blazon")
+    fa.add_argument("--out", default="out/factions.png", type=Path)
+    fa.add_argument("--seed", type=int, default=7, help="only labels the sheet; the names decide")
+    fa.add_argument("--size", type=int, default=168, help="pixels per tile")
+    fa.add_argument("--ratio", default="3:2", help="flag proportion, e.g. 3:2 or 5:8")
+    fa.add_argument("--name", action="append", default=None,
+                    help="a faction name; repeat it for several (default: a built-in demo set)")
+
     u = sub.add_parser("ui", help="UI kit sheet: panels, frames, buttons, nine-slice cuts")
     u.add_argument("--out", default="out/ui.png", type=Path)
     u.add_argument("--seed", type=int, default=7)
@@ -1096,9 +1170,8 @@ def main(argv=None) -> int:
         demo_arms(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
                   shield=args.shield)
     elif args.cmd == "flags":
-        ratio = tuple(int(v) for v in str(args.ratio).replace(":", "x").split("x"))
         demo_flags(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
-                   ratio=ratio, shape=args.shape)
+                   ratio=_ratio(args.ratio), shape=args.shape)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":
@@ -1115,6 +1188,9 @@ def main(argv=None) -> int:
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
                   rows=args.rows, size=args.size, sea=args.sea,
                   provinces=args.provinces, rivers=args.river)
+    elif args.cmd == "factions":
+        demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
+                      ratio=_ratio(args.ratio))
     elif args.cmd == "tiles":
         demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim, steps=args.steps)
     elif args.cmd == "credits":
