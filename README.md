@@ -59,7 +59,7 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
-python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8
+python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction-diffusion
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
@@ -67,7 +67,7 @@ python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
-python tests/test_maps.py                       # 46 tests
+python tests/test_maps.py                       # 54 tests
 python tests/test_textures.py                   # 23 tests
 python tests/test_icons.py                      # 19 tests
 ```
@@ -892,6 +892,7 @@ kept strictly apart:
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names. |
+| `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. |
 | `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the coast and the frame. |
 
 ### Why axial coordinates, and what they buy
@@ -1034,6 +1035,63 @@ and a picture of one. The sea level is a **quantile**, so `--sea 0.42` means 42%
 the hexes are water for any seed; and the biome table keeps the *rules* -- what a
 cell costs to walk through -- in the same row as its colour, so the art and the
 gameplay cannot drift apart.
+
+### A province is not just owned, it is worn
+
+A province answers "where does this end". A realm answers a different question --
+"who" -- and a map that answers it in flat colours is no longer a map of the
+ground. So the realms arrive as a second sheet of meaning over the same geography,
+and the provinces do not move by a pixel when they do.
+
+Ownership is grown exactly the way provinces are, and for the same reason: give
+each province to the realm with the nearest capital and you get realms in two
+pieces, because a bay does not care how close two capitals are. So the realms are
+seeds on the *province* graph and grow by breadth-first search, which makes each
+realm connected by construction -- and the seeds are spread by graph distance
+rather than by straight line, because two capitals that look close across a
+mountain range are not two places to start from. Two landmasses never touch, so
+the realms are shared out between them *before* they are shared out by size: a
+realm cannot be grown onto an island from across the water, and an island given no
+realm would be a hole in the map rather than a small realm.
+
+The colour is where a map meets the heraldry, and it is one function. A faction's
+arms decide a tincture and a livery; the map takes the tincture's hue -- Azure on
+a map has to still be the blue the player calls Azure -- normalises its chroma to
+a wash, so a metal lends no hue and wears a grey, which is the truth about Or and
+Argent and the reason the two metals are told apart by lightness everywhere else
+in this project; and spends the livery's lightness step. That last one is the
+interesting one, and it is the whole reason the module exists:
+
+> A livery's step is one whole number of OKLab, because that is what a step has to
+> be to show on a shield. At map size it goes on at half opacity over terrain that
+> is busy with relief and ink, so the same step arrives at a third of its size and
+> vanishes.
+
+So the map does not pass the step through, it **spends** it -- stretched, and
+passed through a saturating map rather than a clip, because a clip would push two
+different liveries onto the same colour and lose exactly the distinction the band
+was there to protect. The constant follows from the claim rather than being picked:
+
+```python
+WASH_FILL = 0.5
+WASH_STEP = 0.04 / WASH_FILL     # "a different tint", at the opacity it goes on at
+```
+
+Two realms can still draw the same tincture *and* the same livery -- seven
+tinctures and more factions than that -- so a **roster** is drawn against the
+colour and not merely sliced off the name stream: a name is taken only if its realm
+is `WASH_STEP` away from every realm already on the map. The test does not check
+the table, it renders the same map twice with the two closest realms swapped and
+measures the pixels at a 13 px hex; everything else in the two pictures is
+identical, so every difference between them is the colour of the realm.
+
+One colour is already spent: the sea's. A realm wearing the shallows has no
+coastline, so a chromatic wash is kept away from every colour the water is drawn
+in -- and a wash with no chroma keeps out of the way by itself, which is why a
+metal is never refused for being near the colour the sea is nearest to. Borders
+inside a realm are damped for the same reason a realm exists: a realm drawn as one
+block is a realm a player can see, and the provinces are still there underneath,
+faintly, which is what a province is on a map of realms.
 
 ## Tiling textures (`gen/textures/`)
 
@@ -1234,8 +1292,15 @@ Generators to sit on top of the core, in the order they become useful:
   walks; a coastline is the edge of the land rather than a marching-squares contour
   of a field, because the land already knows where it ends; and rivers are followed
   down the gradient rather than searched for with Dijkstra, because once the pits
-  are filled the gradient is the answer and nothing is left to search*; next, roads
-  between capitals, sea provinces, and a campaign-friendly export of the sidecar.
+  are filled the gradient is the answer and nothing is left to search)*; ~~faction
+  colours in the sidecar so that a province is not just owned but worn~~ *(done:
+  `gen/maps/politics.py` -- realms drawn against their own coats until they are
+  `WASH_STEP` apart and grown over the province graph so each is one block, and a
+  wash per province that keeps the livery's hue, class and lightness step while
+  spending it to survive being laid over terrain at half opacity; `WASH_STEP` is
+  `0.04 / WASH_FILL` rather than a constant, and the claim is measured on the
+  pixels of a 13 px hex rather than on the table)*; next, roads between capitals,
+  sea provinces, and a campaign-friendly export of the sidecar.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

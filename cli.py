@@ -19,7 +19,7 @@ Usage
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
     python cli.py ui         --seed 7 --count 3 --scale 2
-    python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8
+    python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -49,6 +49,7 @@ from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
+from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
@@ -858,9 +859,51 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     return _report(out)
 
 
+def _realm_record(name: str, colour) -> dict:
+    """One realm in the map's sidecar: what it is called, and what it wears.
+
+    The key is the arms' own identity, so a game can find the coat this colour came
+    off -- and the one shade entry is the livery that made it, because the colour is
+    the *field tincture's* step and not the other six.  A sidecar that carries the
+    field, the step and the colour is a sidecar the picture can be reproduced from.
+    """
+    field = str(crestlib.arms(name)["field"]["tinctures"][0])
+    return {
+        "name": name,
+        "key": crestlib.normalise(name),
+        "tincture": field,
+        "shade": crestlib.shade(name).get(field, {}),
+        "colour": palette.srgb_to_hex(colour),
+    }
+
+
+def _realms(res, count: int, seed: int) -> dict | None:
+    """The realms on one map's provinces, or ``None`` if there is nowhere to put them.
+
+    The roster is drawn before the ownership is grown, because a set of realms that
+    cannot be told apart is not worth assigning: the colour is the roster's, and the
+    borders only decide where it stops.
+    """
+    if res is None or count <= 0 or not res["count"]:
+        return None
+    names = map_politics.factions(res, count, seed=seed)
+    if not names:
+        return None
+    owners = map_politics.owners(res, len(names), seed=seed)
+    table = map_politics.washes(names)
+    return {
+        "names": names,
+        "owners": owners,
+        "washes": table,
+        "tints": map_politics.tint_table(res, owners, table),
+        "record": [_realm_record(name, table[i]) for i, name in enumerate(names)],
+    }
+
+
 def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
               size: float = 13.0, sea: float = 0.42, provinces: int = 8,
-              rivers: float = 0.92, names: bool = True) -> Path:
+              rivers: float = 0.92, names: bool = True, factions: int = 4,
+              faction_fill: float = map_politics.WASH_FILL) -> Path:
     """Contact sheet of maps: the geography is the seed, and nothing else.
 
     Each tile is labelled with the seed that makes it, the grid it is played on, the
@@ -869,6 +912,14 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     asset: this project ships exactly one font, Pillow's, and a game has its own,
     so text belongs to the preview while the sidecar carries the data a game would
     label with.
+
+    ``factions`` puts realms on the provinces, which is a second sheet of meaning
+    over the same geography: the provinces are grown as they always were, the realms
+    are drawn and grown over them, and the map fills with what each realm *wears* --
+    its arms' tincture taken to a wash, at its own livery's lightness.  The fill is
+    heavier than a province wash because it has to survive the same trip, and the
+    sidecar carries the roster with the ownership, so a game can put the same
+    colours on the same provinces.
     """
     tiles = []
     for i in range(count):
@@ -878,9 +929,15 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         st = map_terrain.stats(f["biome"])
         courses, _threshold = map_paint.river_courses(g, f) if rivers > 0.0 else ([], 0.0)
         res = map_region.provinces(g, f, count=provinces, seed=s) if provinces > 0 else None
+        realms = _realms(res, factions, s)
+        political = {} if realms is None else {
+            "province_fill": faction_fill,
+            "province_tints": realms["tints"],
+            "province_owners": realms["owners"],
+        }
         img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
-                                  provinces=provinces, river=rivers)
-        tiles.append((s, img, st, courses, res, g))
+                                  provinces=provinces, river=rivers, **political)
+        tiles.append((s, img, st, courses, res, g, realms))
 
     gap = 24
     sheet = render.sheet([t[1] for t in tiles], cols=min(2, len(tiles)), gap=gap,
@@ -891,7 +948,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     ch = max(t[1].h for t in tiles)
     per_row = min(2, len(tiles))
     font = _font(11)
-    for i, (s, tile, st, courses, res, g) in enumerate(tiles):
+    for i, (s, tile, st, courses, res, g, realms) in enumerate(tiles):
         r, col = divmod(i, per_row)
         tx = gap + col * (cw + gap) + (cw - tile.w) // 2
         ty = gap + r * (ch + gap) + (ch - tile.h) // 2
@@ -903,6 +960,8 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             counts.append(f"{res['count']} provinces"
                           + (f" of {res['count'] - res['islands']}"
                              if res["islands"] else ""))
+        if realms:
+            counts.append(f"{len(realms['names'])} realms")
         _label(img, (tx + 3, ty + tile.h + 4),
                f"seed {s}   {cols}x{rows} hexes at {size:g} px   " + "   ".join(counts))
         if names and res is not None:
@@ -924,14 +983,16 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             "sea_target": sea, "water": st["water"], "biomes": st,
             "rivers": [{"cells": int(c["cells"]), "drainage": round(float(c["flux"]), 1)}
                        for c in courses],
+            "factions": (realms["record"] if realms else []),
             "provinces": ([
                 {"name": p["name"], "area": int(p["area"]), "capital": [int(p["capital"][0]),
                                                                        int(p["capital"][1])],
                  "neighbours": [int(n) for n in p["neighbours"]], "ground": p["ground"],
-                 "coastal": bool(p["coastal"])}
-                for p in res["provinces"]] if res is not None else []),
+                 "coastal": bool(p["coastal"]),
+                 "owner": (int(realms["owners"][i]) if realms else -1)}
+                for i, p in enumerate(res["provinces"])] if res is not None else []),
         }
-        for s, _, st, courses, res, _g in tiles
+        for s, _, st, courses, res, _g, realms in tiles
     ])
     return _report(out)
 
@@ -1211,6 +1272,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--sea", type=float, default=0.42, help="fraction of the map that is water")
     m.add_argument("--provinces", type=int, default=8, help="provinces per map, 0 for none")
     m.add_argument("--river", type=float, default=0.92, help="river strength, 0 for none")
+    m.add_argument("--factions", type=int, default=4, help="realms holding the provinces, 0 for none")
 
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
@@ -1261,7 +1323,8 @@ def main(argv=None) -> int:
     elif args.cmd == "maps":
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
                   rows=args.rows, size=args.size, sea=args.sea,
-                  provinces=args.provinces, rivers=args.river)
+                  provinces=args.provinces, rivers=args.river,
+                  factions=args.factions)
     elif args.cmd == "factions":
         demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
                       ratio=_ratio(args.ratio))

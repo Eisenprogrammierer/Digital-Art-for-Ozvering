@@ -271,12 +271,19 @@ def province_tints(n: int, L: float = 0.73, C: float = 0.13, hue0: float = 0.03)
 
 
 def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
-                   fill: float = 0.22, frontier: float = 1.0, tints=None) -> None:
+                   fill: float = 0.22, frontier: float = 1.0, tints=None,
+                   owners=None, internal: float = 0.35) -> None:
     """The political map: a wash per province, and a line where two meet.
 
     Both are drawn per pixel, and the frontier is drawn from the labels on either
     side of the edge a pixel is nearest to -- so the boundary of a province is not
     a polygon that was fitted to the cells, it is the cells.
+
+    ``owners`` (one realm index per province) makes the frontier *political*: a
+    border between two provinces of the same realm is damped to ``internal``,
+    because a realm that is drawn as one block is a realm a player can see.  The
+    provinces are still there -- faintly, which is what a province is on a map of
+    realms.
     """
     labels = np.asarray(res["labels"])
     if not res["count"]:
@@ -289,30 +296,75 @@ def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
         colour = table[np.clip(lab, 0, len(table) - 1)]
         canvas.over_srgb(colour, float(fill) * (lab >= 0) * cell.ok)
     if frontier > 0.0:
-        canvas.over_srgb(INK, float(frontier)
-                         * region.frontier_alpha(grid, labels, cell, dx=canvas.dx))
+        a = float(frontier) * region.frontier_alpha(grid, labels, cell, dx=canvas.dx)
+        if owners is not None and internal < 1.0:
+            a = a * _border_weight(grid, labels, cell, owners, internal)
+        canvas.over_srgb(INK, a)
+
+
+def _border_weight(grid: HexGrid, labels, cell, owners, internal: float):
+    """Per pixel: ``internal`` where both sides of the border are one realm.
+
+    A cell is *internal* when every province bordering it is its own realm.  That
+    is a property of the cell rather than of the edge a pixel is nearest to, and
+    the difference is invisible: the extra half-hex of a full frontier at the last
+    internal cell is a pixel wide at the width a frontier is drawn.
+    """
+    labels = np.asarray(labels)
+    n = len(owners)
+    weight = np.ones(labels.shape, dtype=np.float64)
+    for r in range(labels.shape[0]):
+        for c in range(labels.shape[1]):
+            lab = int(labels[r, c])
+            if lab < 0 or lab >= n:
+                continue
+            mine = int(owners[lab])
+            same = True
+            for rr, cc in grid.nbr[r, c]:
+                rr, cc = int(rr), int(cc)
+                if rr < 0 or cc < 0:
+                    continue            # off the sheet: a map edge is not a border
+                other = int(labels[rr, cc])
+                if other >= 0 and other < n and int(owners[other]) != mine:
+                    same = False
+                    break
+            if same:
+                weight[r, c] = internal
+    r = cell.rc[..., 0].astype(np.int64)
+    c = cell.rc[..., 1].astype(np.int64)
+    return weight[np.clip(r, 0, labels.shape[0] - 1),
+                  np.clip(c, 0, labels.shape[1] - 1)] * cell.ok
 
 
 def capital_marks(canvas: Canvas, grid: HexGrid, res: dict, size: float | None = None,
-                  alpha: float = 0.95) -> None:
+                  alpha: float = 0.95, colours=None) -> None:
     """A small dark boss with a pale centre, at every province capital.
 
     A filled dot rather than a star: at a 13 px hex a star is a smudge, and the
     point that has to survive is only "here is where the province is run from".
+
+    ``colours`` gives a province's centre its own colour -- which a political map
+    spends: the boss is the ink, the centre is whose province it is.  The boss
+    keeps its own colour whatever it holds, because the mark has to be findable on
+    the pale washes as well as on the dark ones.
     """
     if not res["count"]:
         return
+    if colours is not None:
+        colours = np.asarray(colours, dtype=np.float64)
     rad = float(0.30 * grid.size if size is None else size)
     X, Y = canvas.grid()
-    for p in res["provinces"]:
+    for i, p in enumerate(res["provinces"]):
         cx, cy = grid.centre_of(p["capital"])
         x0, y0, x1, y1 = _window(canvas, (cx - rad, cy - rad), (cx + rad, cy + rad))
         if x1 <= x0 or y1 <= y0:
             continue
         d = np.hypot(X[y0:y1, x0:x1] - cx, Y[y0:y1, x0:x1] - cy)
         canvas.over_srgb(INK, render.coverage(d - rad, canvas.dx) * float(alpha), x0, y0)
-        canvas.over_srgb((0.94, 0.91, 0.85),
-                         render.coverage(d - rad * 0.42, canvas.dx), x0, y0)
+        cap = (0.94, 0.91, 0.85)
+        if colours is not None and i < len(colours):
+            cap = colours[i]
+        canvas.over_srgb(cap, render.coverage(d - rad * 0.42, canvas.dx), x0, y0)
 
 
 def map_image(
@@ -329,6 +381,9 @@ def map_image(
     river_fraction: float | None = None,
     provinces: int = 0,
     province_fill: float = 0.22,
+    province_tints=None,
+    province_owners=None,
+    province_internal: float = 0.35,
     frontier: float = 1.0,
     capitals: bool = True,
     shadow: float = 0.34,
@@ -366,14 +421,17 @@ def map_image(
     res = None
     if provinces > 0 and (~f["water"]).any():
         res = region.provinces(grid, f, count=int(provinces), seed=seed)
-        province_layer(canvas, grid, res, cell, fill=province_fill, frontier=frontier)
+        province_layer(canvas, grid, res, cell, fill=province_fill,
+                       tints=province_tints, owners=province_owners,
+                       internal=province_internal, frontier=frontier)
 
     if river > 0.0 and (~f["water"]).any():
         courses, threshold = river_courses(grid, f, river_fraction)
         river_layer(canvas, grid, courses, threshold, alpha=river)
 
     if res is not None and capitals:
-        capital_marks(canvas, grid, res, size=0.30 * size)
+        marks = province_tints if province_owners is not None else None
+        capital_marks(canvas, grid, res, size=0.30 * size, colours=marks)
 
     # The lattice, from the per-pixel distance to the pixel's own hex border --
     # the one thing a per-hex stroke could not do without seams.

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
-from gen.maps import coast, grid as gridlib, paint, region, rivers, terrain  # noqa: E402
+from gen.maps import (coast, grid as gridlib, paint, politics, region,  # noqa: E402
+                      rivers, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -678,6 +680,196 @@ def test_a_map_with_provinces_and_rivers_paints_the_same_bytes_twice():
            hashlib.sha256(b.to_uint8().tobytes()).hexdigest()
     c = paint.map_image(seed=5, cols=20, rows=14, size=10.0, provinces=0, river=0.0)
     assert not np.array_equal(a.to_uint8(), c.to_uint8())
+
+
+# ----------------------------------------------------------------- politics
+def _map(seed=11, cols=20, rows=14, size=13.0, provinces=6):
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    return g, f, region.provinces(g, f, count=provinces, seed=seed)
+
+
+def _painted(seed=11, cols=20, rows=14, size=13.0, provinces=6, realms=4):
+    """One political map: the grid, the provinces, the roster and what it wears."""
+    g, _f, res = _map(seed, cols, rows, size, provinces)
+    names = politics.factions(res, realms, seed=seed)
+    owners = politics.owners(res, names, seed=seed)
+    table = politics.washes(names)
+    return g, res, names, owners, table
+
+
+def test_a_realms_provinces_are_one_block():
+    """Ownership grown over the province graph is connected by construction.
+
+    The same claim ``region`` makes about provinces is made here about realms, and
+    for the same reason: a realm in two pieces is not one a player can march across.
+    """
+    for seed in (0, 3, 11):
+        for realms in (2, 3, 5):
+            _g, res, names, owners, _table = _painted(seed=seed, realms=realms)
+            nbr = [p["neighbours"] for p in res["provinces"]]
+            for realm in range(len(names)):
+                held = {j for j, o in enumerate(owners) if o == realm}
+                assert held, f"seed {seed}: realm {realm} holds nothing"
+                seen = {min(held)}
+                q = deque([min(held)])
+                while q:
+                    j = q.popleft()
+                    for k in nbr[j]:
+                        if owners[k] == realm and k not in seen:
+                            seen.add(k)
+                            q.append(k)
+                assert seen == held, \
+                    f"seed {seed} realm {realm}: holds {len(held)}, reaches {len(seen)}"
+
+
+def test_every_province_is_held_exactly_once():
+    for seed in (0, 3, 11):
+        _g, res, names, owners, table = _painted(seed=seed)
+        assert len(names) == 4
+        assert len(owners) == res["count"]
+        assert sorted(set(owners)) == list(range(len(names)))
+        tints = politics.tint_table(res, owners, table)
+        assert tints.shape == (res["count"], 3)
+        for i, o in enumerate(owners):
+            assert np.allclose(tints[i], table[o])
+
+
+def test_a_landmass_is_never_left_unowned():
+    """Fewer realms than islands: the largest keep theirs, and nobody is nobody's.
+
+    A realm cannot be grown onto an island from across the water, so a landmass
+    without a realm of its own is a hole in the map rather than a small realm --
+    which is why the realms are shared between landmasses before they are shared
+    by size.
+    """
+    res = {"count": 3, "provinces": [
+        {"name": "A", "neighbours": [1]},
+        {"name": "B", "neighbours": [0]},
+        {"name": "C", "neighbours": []}]}
+    two = politics.owners(res, 2, seed=1)
+    assert two[2] >= 0, "the island was left to nobody"
+    assert sorted(set(two)) == [0, 1]
+    one = politics.owners(res, 1, seed=1)
+    assert one[0] == one[1] == 0 and one[2] == -1
+    assert politics.owners(res, 0, seed=1) == [-1, -1, -1]
+
+
+def test_a_roster_is_a_palette_and_not_a_sample():
+    """The realms on one map are a step apart, and the draw is a function of the seed.
+
+    Seven tinctures and more factions than that means two realms will pick the same
+    one, so the roster is *drawn against the colour*: a name is taken only when the
+    map can tell it apart from every name already on the map.
+    """
+    for seed in range(6):
+        _g, res, names, _owners, table = _painted(seed=seed, realms=5)
+        assert len(names) == 5
+        assert politics.factions(res, 5, seed=seed) == names
+        assert not set(names) & {p["name"] for p in res["provinces"]}
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                assert palette.delta_e(table[i], table[j]) >= politics.WASH_STEP, \
+                    (seed, names[i], names[j])
+        assert politics.factions(res, 0, seed=seed) == []
+
+
+def test_a_realm_never_wears_the_colour_of_the_sea():
+    """The sea is a colour on this map too, and the roster keeps out of its way.
+
+    A wash with no chroma is never refused: a grey has no hue to be confused with
+    the sea's, which is how a metal gets to keep its lightness.
+    """
+    hues = [float(palette.srgb_to_oklch(c)[2])
+            for c in list(paint.SEA_RAMP) + [paint.RIVER]]
+    middle = 0.5 * (min(hues) + max(hues))
+    half = 0.5 * (max(hues) - min(hues))
+    for seed in range(6):
+        _g, _res, _names, _owners, table = _painted(seed=seed)
+        for colour in table:
+            _l, chroma, hue = palette.srgb_to_oklch(colour)
+            if float(chroma) < politics.SEA_CHROMA:
+                continue
+            d = abs(float(hue) - middle)
+            assert min(d, 1.0 - d) >= half + politics.SEA_GUARD - 1e-9, \
+                (seed, palette.srgb_to_hex(colour))
+
+
+def test_a_wash_stays_in_the_band_its_terrain_is_read_in():
+    """The map *spends* a livery's step; it does not clip it.
+
+    A province dark enough to swallow a mountain range is a province that has
+    stopped being a map, so a wash is bounded -- and bounded *smoothly*, because a
+    clip would push two different liveries onto the same colour and lose exactly the
+    distinction the band was there to protect.
+    """
+    for seed in range(8):
+        _g, _res, _names, _owners, table = _painted(seed=seed, realms=5)
+        for colour in table:
+            light, chroma, _h = palette.srgb_to_oklch(colour)
+            assert politics.WASH_L - politics.WASH_SPAN - 1e-9 <= float(light) \
+                <= politics.WASH_L + politics.WASH_SPAN + 1e-9, palette.srgb_to_hex(colour)
+            assert float(chroma) <= politics.WASH_C + 1e-9, palette.srgb_to_hex(colour)
+
+
+def test_a_realms_colour_survives_being_scaled_down_to_a_hex():
+    """The claim the roster exists for, measured on pixels rather than on the table.
+
+    The same map is drawn twice, with the two realms the roster put closest together
+    swapped.  Everything else in the two pictures is identical -- the terrain, the
+    relief, the rivers, the ink -- so every difference between them is the realm's
+    colour, at a 13 px hex, through the wash and over the ground.  The *median* cell
+    is checked rather than the worst one: a pixel under a frontier or a coastline is
+    the same pixel in both pictures and shows nothing, which is what ink is for.
+    """
+    for seed in (0, 3, 11):
+        g, res, names, owners, table = _painted(seed=seed, cols=20, rows=14,
+                                                provinces=6, realms=4)
+        _d, i, j = min((palette.delta_e(table[a], table[b]), a, b)
+                       for a in range(len(names)) for b in range(a + 1, len(names)))
+        order = list(range(len(names)))
+        order[i], order[j] = order[j], order[i]
+        kw = dict(seed=seed, cols=20, rows=14, size=13.0, provinces=6,
+                  province_fill=politics.WASH_FILL, province_owners=owners)
+        a = paint.map_image(province_tints=politics.tint_table(res, owners, table),
+                            **kw).to_uint8()
+        b = paint.map_image(province_tints=politics.tint_table(res, owners, table[order]),
+                            **kw).to_uint8()
+        for realm in (i, j):
+            cells = []
+            for k, p in enumerate(res["provinces"]):
+                if owners[k] != realm:
+                    continue
+                for cell in p["cells"]:
+                    r, c = divmod(int(cell), g.cols)
+                    x, y = g.centre_of((r, c))
+                    px = int(round(x + a.shape[1] / 2.0 - 0.5))
+                    py = int(round(a.shape[0] / 2.0 - 0.5 - y))
+                    cells.append(palette.delta_e(a[py, px, :3].astype(float) / 255.0,
+                                                 b[py, px, :3].astype(float) / 255.0))
+            assert cells, f"seed {seed} realm {realm} holds no cell"
+            assert np.median(cells) >= 0.04, (seed, realm, float(np.median(cells)))
+
+
+def test_a_border_inside_a_realm_is_not_a_frontier():
+    """A realm drawn as one block is a realm a player can see.
+
+    The same picture with everyone holding one province each, and with one realm
+    holding them all: the tints are the same in both, so the difference is the ink
+    on the *internal* borders -- and ink only ever darkens, which is what makes this
+    a comparison and not a hash.
+    """
+    g, res, names, owners, table = _painted(seed=11, realms=1)
+    assert len(names) == 1 and set(owners) == {0}
+    tints = politics.tint_table(res, owners, table)
+    kw = dict(seed=11, cols=20, rows=14, size=13.0, provinces=6)
+    whole = paint.map_image(province_tints=tints, province_owners=[0] * res["count"],
+                            **kw).to_uint8()
+    split = paint.map_image(province_tints=tints,
+                            province_owners=list(range(res["count"])), **kw).to_uint8()
+    assert not np.array_equal(whole, split)
+    assert np.all(whole >= split), "damping a frontier put ink on, not off"
+    assert int(whole.sum()) > int(split.sum())
 
 
 if __name__ == "__main__":
