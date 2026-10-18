@@ -15,9 +15,10 @@ of flat shapes is what makes it drawable, and the stack is always the same:
 8. a thin **lower lid** line that stops short of the inner corner, and a **crease**.
 
 Every shape is built once in a local frame -- the eye's centre at the origin, the
-corners at ``±eye_w/2`` -- and then placed.  The left eye is the right eye with
-``sx = -1``, so the pair is exactly symmetric without being authored twice, and a
-turned head only has to narrow the eye on the receding side.
+corners at ``±eye_w/2`` -- and then placed.  The left eye is the right eye mirrored
+(``sx = -1``), so the pair is exactly symmetric without being authored twice, and a
+turned head places both of an eye's corners on the skull's surface and lets the
+chord it makes decide where the eye lands and how narrow it is.
 """
 from __future__ import annotations
 
@@ -103,11 +104,18 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None):
         from . import expression
         expr = expression.neutral()
     closed = side in tuple(expr.get("closed", ()))
-    cx, cy = head.turn_point(side * st.eye_dx, st.eye_y, turn, st.head_w)
-    t = abs(float(turn))
-    far = (side * turn) < 0.0
-    squash = 1.0 - (0.42 * np.sin(t) if far else 0.0)
-    kw = dict(cx=float(cx), cy=float(cy), sx=side * squash, sy=squash, rot=side * st.eye_tilt)
+    # An eye is a chord on a curved surface, so both its corners are placed and
+    # nothing else is scaled: the lid to lid height does not change, because a
+    # surface turning away compresses sideways and not downwards.  The far eye
+    # narrows hard and the near eye widens a little, which is what the geometry says
+    # and -- unlike the constant squeeze this replaces -- what a drawing does.
+    hw = st.eye_w * 0.5
+    centre = side * st.eye_dx
+    x_in, _ = head.turn_point(centre - side * hw, st.eye_y, turn, st)
+    x_out, _ = head.turn_point(centre + side * hw, st.eye_y, turn, st)
+    cx = 0.5 * (float(x_in) + float(x_out))
+    width_scale = (float(x_out) - float(x_in)) / st.eye_w
+    kw = dict(cx=cx, cy=float(st.eye_y), sx=width_scale, sy=1.0, rot=side * st.eye_tilt)
 
     g = shapes(st, expr)
     P = lambda sh: sh.place(**kw)  # noqa: E731

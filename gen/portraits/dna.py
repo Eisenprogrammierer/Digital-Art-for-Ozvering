@@ -49,7 +49,8 @@ GENES = CATEGORICAL + COLOUR_GENES + SHAPE_GENES
 
 #: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
 _SHAPE_MODS = {
-    "head_w": [("head_w", 0.038), ("cheek_w", 0.038), ("top_w", 0.030), ("neck_w", 0.012)],
+    "head_w": [("head_w", 0.038), ("cheek_w", 0.038), ("top_w", 0.030), ("neck_w", 0.012),
+               ("head_d", 0.10)],
     "head_len": [("jaw_y", -0.028), ("chin_w", 0.026), ("top_y", 0.012)],
     "jaw": [("jaw_w", 0.046), ("jaw_y", 0.022), ("chin_w", -0.020)],
     "eye_w": [("eye_w", 0.028), ("iris_r", 0.013), ("hl_r", 0.005)],

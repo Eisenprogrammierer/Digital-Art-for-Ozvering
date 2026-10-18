@@ -13,8 +13,9 @@ than their geometry:
   The weight profile is the difference between a mouth and a scratch.
 
 Every feature is placed with :func:`gen.portraits.head.turn_point`, so a turned
-head slides the nose to one side and foreshortens the brows by itself -- the
-depth model in the head module is the only place a three-quarter view is coded.
+head slides the nose to one side and foreshortens whatever runs across the face --
+the depth model in :mod:`gen.portraits.turn` is the only place a three-quarter view
+is coded.
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ def brows(st, turn: float = 0.0, expr=None) -> list:
             rot = np.array([[ca, -sa], [sa, ca]], dtype=np.float64)
             centre = spine.mean(axis=0)
             spine = (spine - centre) @ rot.T + centre
-        spine[:, 0], spine[:, 1] = head.turn_point(spine[:, 0], spine[:, 1], turn, st.head_w)
+        spine[:, 0], spine[:, 1] = head.turn_point(spine[:, 0], spine[:, 1], turn, st)
         thick = st.brow_thick
         out.append(S.lock(spine, w0=0.80 * thick, w1=0.12 * thick, bulge=0.34 * thick,
                           per_segment=7))
@@ -66,11 +67,11 @@ def paint_brows(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
 # ears: a curve inside the silhouette, which is exactly how a front view draws them
 # --------------------------------------------------------------------------
 def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
+    sk = head.skull(st)
     for side in (+1, -1):
-        near = (side * turn) > 0.0
-        if not near and turn != 0.0:
+        if turn != 0.0 and sk.receding(side, turn):
             continue  # the receding ear is hidden by the jaw
-        ex, ey = head.turn_point(side * st.head_w * 0.80, st.eye_y + 0.015, turn, st.head_w)
+        ex, ey = head.turn_point(side * st.head_w * 0.80, st.eye_y + 0.015, turn, st)
         r = st.head_w * 0.17
         inner = S.arc((ex - r * 0.25 * side, ey + r), (ex - r * 0.30 * side, ey - r),
                       -side * r * 0.85, 0.5, 14)
@@ -84,7 +85,7 @@ def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
 # --------------------------------------------------------------------------
 def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
     """A dot, a wedge or a line -- three traditions, one coordinate."""
-    nx, ny = head.turn_point(0.0, st.nose_y, turn, st.head_w)
+    nx, ny = head.turn_point(0.0, st.nose_y, turn, st)
     nx, ny = float(nx), float(ny)
     w, hh = st.nose_w, st.nose_h
     style = st.nose_style
@@ -197,7 +198,7 @@ def paint_blush(canvas, st, h, turn: float = 0.0, expr=None, clip: Shape | None 
         return
     for side in (+1, -1):
         bx, by = head.turn_point(side * (st.eye_dx + st.eye_w * 0.10), st.blush_y,
-                                 turn, st.head_w)
+                                 turn, st)
         pool = S.ellipse(st.eye_w * 0.50, st.eye_w * 0.25, float(bx), float(by))
         shape = pool if clip is None else (pool & clip)
         brush.paint(canvas, shape, h.blush, alpha=min(strength * 0.62, 0.32), soft=2.6)

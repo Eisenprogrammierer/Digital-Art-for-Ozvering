@@ -41,6 +41,12 @@ DEFAULTS = dict(
     jaw_y=-0.305,
     chin_w=0.140,
     chin_y=-0.500,
+    # The head as a *solid*: ``head_d`` is its half-depth at the deepest, as a
+    # multiple of its own half-width, and that one number is the whole of what a
+    # style adds to the turn model.  One is a head as deep as it is wide -- round,
+    # and their turned outlines do not change width; more is a deeper skull, which
+    # widens its outline towards profile and slides its features further.
+    head_d=1.05,
     # -- eyes (both, in head units) --------------------------------------
     eye_dx=0.205,      # half the centre-to-centre distance
     eye_y=-0.065,
@@ -97,6 +103,7 @@ STYLES = {
     "chibi": dict(
         head_w=0.480, top_w=0.370, top_y=0.450, wide_y=0.095,
         cheek_w=0.455, cheek_y=-0.170, jaw_w=0.402, jaw_y=-0.262, chin_w=0.238,
+        head_d=0.98,
         eye_dx=0.205, eye_y=-0.105, eye_w=0.375, eye_up=0.190, eye_down=0.145,
         eye_tilt=4.0, iris_r=0.152, iris_squash=1.06, pupil_r=0.062, hl_r=0.052,
         lash=0.036, lid_w=0.014, crease_w=0.014, lid_shadow=0.50,
@@ -111,6 +118,7 @@ STYLES = {
     "shoujo": dict(
         head_w=0.393, top_w=0.255, top_y=0.448, wide_y=0.105,
         cheek_w=0.388, cheek_y=-0.200, jaw_w=0.312, jaw_y=-0.310, chin_w=0.118,
+        head_d=1.02,
         eye_dx=0.192, eye_y=-0.075, eye_w=0.232, eye_up=0.108, eye_down=0.090,
         eye_tilt=8.0, iris_r=0.088, iris_squash=1.30, pupil_r=0.034, hl_r=0.031,
         lash=0.029, lid_w=0.009, crease_w=0.012, lid_shadow=0.36,
@@ -126,6 +134,7 @@ STYLES = {
     "seinen": dict(
         head_w=0.402, top_w=0.250, top_y=0.448, wide_y=0.110,
         cheek_w=0.412, cheek_y=-0.190, jaw_w=0.372, jaw_y=-0.300, chin_w=0.176,
+        head_d=1.18,
         eye_dx=0.198, eye_y=-0.040, eye_w=0.196, eye_up=0.078, eye_down=0.058,
         eye_tilt=5.0, iris_r=0.070, iris_squash=1.18, pupil_r=0.028, hl_r=0.019,
         lash=0.024, lid_w=0.010, crease_w=0.013, lid_shadow=0.46,

@@ -82,10 +82,16 @@ def _hull(st, vol: float):
 
 
 def _root(st, vol: float, theta: float, turn: float, inset: float = 0.0) -> np.ndarray:
+    """A root on the hair's own hull: an ellipse around the head, so it turns too.
+
+    The hull is a shell *around* the skull, so the root rides the surface with the
+    hair's volume as its offset -- which is what makes a lock's root follow the head
+    rather than sit where the cap used to be.
+    """
     rx, ry = _hull(st, vol - inset)
     x = rx * np.cos(theta)
     y = ry * np.sin(theta) + 0.015
-    x, y = head.turn_point(x, y, turn, st.head_w)
+    x, y = head.turn_point(x, y, turn, st, vol=max(vol - inset, 0.0))
     return np.array([float(x), float(y)], dtype=np.float64)
 
 
@@ -227,9 +233,10 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
     n = int(p["sides"])
     sw, drop, vol = float(p["sw"]), float(p["sdrop"]), float(p["vol"])
     straight = bool(p.get("straight", False))
+    sk = head.skull(st)
     out, roots, strands = [], [], []
     for sign in (+1, -1):
-        if turn != 0.0 and (sign * turn) < 0.0:
+        if turn != 0.0 and bool(sk.receding(sign, turn)):
             continue  # the receding side's locks are behind the jaw
         for k in range(n):
             th = np.pi * ((0.19 + 0.055 * k) if sign > 0 else (1.0 - 0.19 - 0.055 * k))

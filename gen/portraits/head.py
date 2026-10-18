@@ -9,12 +9,11 @@ mistake, while a face that is *perfectly* symmetric and then slightly broken by
 hair reads as a drawing.  So the shape is built from one half and mirrored, and
 every asymmetry in a portrait comes from the hair, the brows or the expression.
 
-``turn`` leaves the front view.  It is a genuine rotation for the *features* --
-each surface point is moved by the depth of an ellipsoid at that point, which is
-what slides a nose to one side and pulls the far eye towards the centre -- and an
-approximation for the silhouette, which additionally narrows on the receding
-side.  A true three-quarter needs its own outline template; this reads correctly
-without one.
+``turn`` leaves the front view, and it is a rotation of a *solid*: the head is a
+stack of cross-sections (:mod:`gen.portraits.turn`), so the outline is the support
+of a cross-section rather than a squeeze, the features are projected onto the
+surface they actually sit on, and the jaw swings because it has a depth of its own.
+This module is where a *style* becomes that solid.
 """
 from __future__ import annotations
 
@@ -22,6 +21,7 @@ import numpy as np
 
 from . import cel
 from . import shape as S
+from . import turn as _turn
 from .shape import Shape
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "HEAD_Y",
     "TURN_MAX",
     "control_points",
+    "skull",
     "turn_point",
     "turn_points",
     "silhouette",
@@ -47,7 +48,8 @@ FRAME = (0.78, 0.825)
 #: Where the head's centre sits inside that box: above the middle, so the room
 #: under the chin goes to the neck and the shoulders.
 HEAD_Y = 0.125
-#: The largest turn the silhouette approximation stays honest at, in radians.
+#: The largest turn the model is asked for, in radians.  Past it the near eye's
+#: outer corner reaches the silhouette, and a turn that far is a profile view.
 TURN_MAX = 0.55
 
 
@@ -73,40 +75,40 @@ def _half(st) -> list:
     ]
 
 
+def skull(st) -> _turn.Skull:
+    """The head as a solid: the same profile the silhouette is drawn from.
+
+    ``head_d`` is the one number the style adds -- how deep the head is, as a
+    multiple of its own half-width -- and the depth *profile* is the model's, so a
+    round chibi and a long seinen differ in one parameter and not in eight.
+    """
+    pts = np.asarray(_half(st), dtype=np.float64)
+    order = np.argsort(pts[:, 1], kind="stable")
+    return _turn.Skull(pts[order, 1], pts[order, 0], st.head_d)
+
+
 def control_points(st, turn: float = 0.0) -> np.ndarray:
     """The full closed control loop, symmetric by construction before ``turn``."""
     right = _half(st)
     loop = np.vstack([right, S.mirror_x(np.asarray(right[1:-1], dtype=np.float64))[::-1]])
-    return turn_points(loop, turn, st.head_w) if turn else loop
+    return turn_points(loop, turn, st) if turn else loop
 
 
-def turn_point(x, y, turn: float, rx: float, ry: float = 0.55):
-    """Where a front-view surface point ends up when the head turns.
+def turn_point(x, y, turn: float, st, vol: float = 0.0):
+    """Where a front-view point on the skull's surface ends up when the head turns.
 
-    ``z = sqrt(1 - (x/rx)^2 - (y/ry)^2)`` is the depth of an ellipsoid at that
-    point, so ``x' = x cos t + z rx sin t`` rotates the surface.  Points at the
-    horizontal extremes have zero depth and do not move, which is correct: an
-    ellipsoid's silhouette does not change width when it rotates.
+    The point is taken to lie *on* the skull at its own height: the depth is the
+    cross-section's there, so the middle of the face -- which has the most depth --
+    slides furthest, and a point at the temple barely moves at all.  ``vol`` rides
+    the shell a hair's breadth out from the surface, which is where the ears and the
+    hair's roots sit.
     """
-    t = float(turn)
-    if t == 0.0:
-        return x, y
-    x = np.asarray(x, dtype=np.float64)
-    y = np.asarray(y, dtype=np.float64)
-    depth = np.sqrt(np.maximum(1.0 - (x / rx) ** 2 - (y / ry) ** 2, 0.0))
-    return x * np.cos(t) + rx * depth * np.sin(t), y
+    return skull(st).project(x, y, turn, vol)
 
 
-def turn_points(pts, turn: float, rx: float, ry: float = 0.55) -> np.ndarray:
-    """Rotate a point array, and narrow whichever side is now receding."""
-    p = np.asarray(pts, dtype=np.float64).copy()
-    t = float(turn)
-    if t == 0.0:
-        return p
-    p[:, 0], p[:, 1] = turn_point(p[:, 0], p[:, 1], t, rx, ry)
-    far = (np.sign(p[:, 0]) != np.sign(t)) & (np.abs(p[:, 0]) > 1e-9)
-    p[far, 0] *= 1.0 - 0.30 * abs(np.sin(t))
-    return p
+def turn_points(pts, turn: float, st) -> np.ndarray:
+    """Rotate a silhouette: every point of it is on the outline at its own height."""
+    return skull(st).turn_loop(pts, turn)
 
 
 def silhouette(st, turn: float = 0.0, detail: int = 56) -> Shape:
@@ -116,12 +118,18 @@ def silhouette(st, turn: float = 0.0, detail: int = 56) -> Shape:
 
 
 def volume(st, turn: float = 0.0):
-    """The skull as a height field, so cel shading has normals to work with."""
+    """The skull as a height field, so cel shading has normals to work with.
+
+    The dome is a stand-in -- a style's surface is not a paraboloid -- but the one
+    thing a turn moves that the light can read is where the surface comes nearest
+    the camera, and that is the model's to say, so the stand-in's peak goes there
+    instead of sitting on the midline.
+    """
     return cel.dome(
         rx=st.head_w * 0.99,
         ry=0.62,
         height=0.40,
-        cx=0.11 * np.sin(float(turn)) * st.head_w,
+        cx=skull(st).crest(0.02, turn),
         cy=0.02,
     )
 

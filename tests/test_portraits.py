@@ -167,6 +167,150 @@ def test_a_head_is_a_head_for_every_style():
         assert shape.f(0.0, 0.60) > 0.0, f"{name}: the skull reaches past the crown"
 
 
+# ------------------------------------------------------------------- the turn
+def test_a_turn_of_zero_is_the_identity():
+    """A front view is not an approximation of the solid: it *is* the solid."""
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        assert np.array_equal(head.control_points(st, 0.0), head.control_points(st)), name
+        sk = head.skull(st)
+        x = np.array([-0.30, 0.0, 0.205, 0.44])
+        y = np.array([-0.465, -0.065, 0.10, 0.30])
+        px, py = sk.project(x, y, 0.0)
+        assert np.array_equal(px, x), f"{name}: a zero turn moved x"
+        assert np.array_equal(py, y), f"{name}: a zero turn moved y"
+        assert sk.crest(0.02, 0.0) == 0.0, f"{name}: the crest left the midline"
+        assert abs(float(sk.support(-0.065, 0.0)) - float(sk.width(-0.065))) < 1e-12, name
+
+
+def test_the_outline_of_a_turn_is_the_support_of_its_cross_sections():
+    """The silhouette is the solid's, not a template: it ends where the body does.
+
+    Sampled as densely as a render would and checked against the support the model
+    claims, so a silhouette that has drifted away from the solid fails here instead
+    of looking subtly wrong in a picture.  Both faces of a section are sampled: the
+    near edge of a turned outline is the *face* of the head and the far edge is the
+    back of the skull.
+    """
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        sk = head.skull(st)
+        for turn in (0.22, -0.40, head.TURN_MAX):
+            for y in (-0.30, -0.065, 0.10):
+                rx = float(sk.width(y))
+                if rx <= 1e-6:
+                    continue
+                u = np.linspace(-1.0, 1.0, 1201)
+                z = float(sk.semi_depth(y)) * np.sqrt(np.clip(1.0 - u * u, 0.0, 1.0))
+                x = u * rx
+                front = x * np.cos(turn) + (float(sk.centre(y)) + z) * np.sin(turn)
+                back = x * np.cos(turn) + (float(sk.centre(y)) - z) * np.sin(turn)
+                shift = float(sk.centre(y)) * np.sin(turn)
+                reach = float(sk.support(y, turn))
+                where = f"{name} turn {turn:.2f} y {y}"
+                edge = np.concatenate([front, back])
+                assert abs(float(edge.max()) - (shift + reach)) < 2e-3, f"{where}: near outline"
+                assert abs(float(edge.min()) - (shift - reach)) < 2e-3, f"{where}: far outline"
+
+
+def test_the_two_ends_of_a_face_turn_less_than_the_middle_of_it():
+    """The depth profile, not the width profile, is what a turn reads.
+
+    A jaw that swung as far as a nose is a mask: the chin and the crown are the
+    shallow ends of the skull, and the eye line is the deep middle.
+    """
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        sk = head.skull(st)
+        turn = 0.5
+        slide = lambda y: float(sk.project(0.0, y, turn)[0])  # noqa: E731
+        mid = slide(0.02)
+        assert mid > 0.10, f"{name}: the middle of the face barely moved"
+        assert slide(-0.465) < mid, f"{name}: the chin swung as far as the eye line"
+        assert slide(0.42) < mid, f"{name}: the crown swung as far as the eye line"
+        assert slide(-0.20) > slide(-0.465), f"{name}: the jaw turns no more than the chin"
+
+
+def test_the_receding_side_is_the_one_that_goes_back():
+    """``receding`` is derived rather than declared, so it must agree with depth.
+
+    Getting this backwards is invisible at a small angle and plain at a large one --
+    the eyes, the ears and the side locks all ask.
+    """
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        sk = head.skull(st)
+        for turn in (0.30, -0.30, head.TURN_MAX):
+            for side in (-1.0, 1.0):
+                x = side * 0.8 * float(sk.width(0.02))
+                here = float(sk.depth_at(x, 0.02, turn))
+                there = float(sk.depth_at(-x, 0.02, turn))
+                where = f"{name} turn {turn:.2f} x {side:+.0f}"
+                assert (here < there) == bool(sk.receding(x, turn)), \
+                    f"{where}: receding disagrees with the depth"
+
+
+def test_a_turned_eye_narrows_by_the_surface_it_sits_on():
+    """An eye is a chord on the skull: both corners are placed, nothing is squashed.
+
+    A surface turning away compresses sideways and not downwards, so the eye keeps
+    its height -- and the far eye narrows hard while the near one widens a little,
+    which is what the geometry says and what a drawing does.
+    """
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        sk = head.skull(st)
+        hw = st.eye_w * 0.5
+        for turn in (0.10, 0.30, 0.45, head.TURN_MAX):
+            for side in (+1, -1):
+                centre = side * st.eye_dx
+                x_in, y_in = sk.project(centre - side * hw, st.eye_y, turn)
+                x_out, y_out = sk.project(centre + side * hw, st.eye_y, turn)
+                width = abs(float(x_out) - float(x_in))
+                where = f"{name} turn {turn:.2f} side {side:+d}"
+                assert abs(float(y_in) - st.eye_y) < 1e-12, f"{where}: the eye moved up or down"
+                assert abs(float(y_out) - float(y_in)) < 1e-12, f"{where}: the eye tilted"
+                if side * turn > 0:      # the far eye: its surface turns away
+                    assert width < st.eye_w, f"{where}: the far eye did not narrow"
+                else:                    # the near eye: its surface turns towards the camera
+                    assert width > st.eye_w, f"{where}: the near eye collapsed"
+
+
+def test_a_turned_head_neither_collapses_nor_explodes():
+    """The outline changes width by the support of the sections and no more."""
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        straight = head.silhouette(st, 0.0).bbox
+        w0 = straight[2] - straight[0]
+        for turn in (-head.TURN_MAX, -0.3, 0.3, head.TURN_MAX):
+            x0, y0, x1, y1 = head.silhouette(st, turn).bbox
+            where = f"{name} at turn {turn:.2f}"
+            assert np.isfinite([x0, y0, x1, y1]).all(), f"{where}: unbounded skull"
+            assert -0.62 < x0 < x1 < 0.62 and -0.55 < y0 and y1 < 0.56, \
+                f"{where}: the skull has left the frame"
+            width = x1 - x0
+            assert 0.90 * w0 <= width <= 1.15 * w0, f"{where}: width {width:.3f} vs {w0:.3f}"
+
+
+def test_the_skull_is_finite_everywhere_it_is_asked():
+    """Off the profile, past the crown, into the neck: no invented divide by zero."""
+    px = np.array([-1.2, -0.6, -0.31, 0.0, 0.31, 0.6, 1.2])
+    py = np.array([-0.90, -0.60, -0.465, -0.065, 0.30, 0.505, 0.60])
+    X, Y = np.meshgrid(px, py)
+    for name in style_mod.names():
+        st = style_mod.get(name)
+        sk = head.skull(st)
+        assert st.head_d > 0.5, f"{name}: a head with no depth"
+        for turn in (0.0, 0.30, -head.TURN_MAX):
+            x, y = sk.project(X, Y, turn)
+            depth, reach = sk.depth_at(X, Y, turn), sk.support(Y, turn)
+            for values, what in ((x, "x"), (y, "y"), (depth, "depth"), (reach, "support")):
+                assert np.isfinite(values).all(), f"{name}: a non-finite {what}"
+            assert (reach >= -1e-12).all(), f"{name}: a negative half-width"
+        assert np.isfinite(sk.crest(0.02, 0.30)), f"{name}: crest"
+        assert np.isfinite(sk.width(0.9)) and np.isfinite(sk.semi_depth(-2.0)), name
+
+
 def test_the_framing_is_a_headshot():
     """The crown near the top edge, the chin about two thirds down, bust below."""
     _, hh = head.FRAME
@@ -193,11 +337,23 @@ def test_the_framing_is_a_headshot():
 
 # -------------------------------------------------------------------- hair
 def test_the_fringe_leaves_the_eyes_clear():
-    """A lock over an eye is the difference between a face and a curtain."""
+    """A lock over an eye is the difference between a face and a curtain.
+
+    Sampled where the eyes *are*, not where they would be looking straight ahead:
+    a turn slides them, and the eye it slides inwards is the one a stray lock is
+    most likely to land on.
+    """
     for seed in range(90):
         g = _genes(seed)
         st, h = _hair(g)
-        pts = np.array([[st.eye_dx, st.eye_y], [-st.eye_dx, st.eye_y], [0.0, st.eye_y]])
+        turn = float(g["turn"])
+        pts = []
+        for side in (+1, -1):
+            x, y = head.turn_point(side * st.eye_dx, st.eye_y, turn, st)
+            pts.append((float(x), float(y)))
+        x, y = head.turn_point(0.0, st.eye_y, turn, st)
+        pts.append((float(x), float(y)))
+        pts = np.asarray(pts)
         d = h.front_mass.f(pts[:, 0], pts[:, 1])
         assert (d < -0.002).sum() == 0, f"seed {seed} ({g['hair_style']}): hair over an eye"
 

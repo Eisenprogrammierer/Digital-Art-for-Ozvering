@@ -65,7 +65,7 @@ python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
-python tests/test_portraits.py                  # 25 tests
+python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 46 tests
 python tests/test_textures.py                   # 23 tests
@@ -543,11 +543,12 @@ of flat tones, and "simple" is a style rather than a compromise.
 | Module | What it provides |
 | --- | --- |
 | `style` | Four presets (chibi, shoujo, shounen, seinen) in one parameter table, with the face's vertical layout *derived* from the eye position rather than typed in beside it. |
+| `turn` | The head as a solid: a half-profile and a depth, the cross-sections they imply, and the rotation that turns a front view into a three-quarter. |
 | `head` | Skull silhouette, neck, trapezius, collar and hairline: control points → closed Catmull-Rom loop → distance field. |
 | `shape` | The vocabulary a face is written in -- `lock` (a variable-width tapered stroke), `lens`, `arc`, `poly`, `smooth_loop` -- over `core.sdf`. |
 | `brush` | Painting a *field* rather than a rectangle: `Surface` binds a shape to its window and its coverage, so a fill, a band or a stroke is one pass over the pixels that can see it. |
 | `ink` | Contour strokes that live on the field: `abs(d + inset) - w/2` is a band along the zero set, so an outline costs no new geometry. |
-| `cel` | The quantised Lambert term, the two colour rules, and the ellipsoid that stands in for a skull. |
+| `cel` | The quantised Lambert term, the two colour rules, and the dome that stands in for a skull's height field. |
 | `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
 | `eyes`, `face`, `hair`, `expression` | The features themselves. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
@@ -558,8 +559,8 @@ of flat tones, and "simple" is a style rather than a compromise.
 1. **Line art carries the form.** Every silhouette is inked along its own contour,
    with a taper that thins the stroke where the form turns away from the viewer.
    Shading is secondary: if the ink is right, the face reads at 64 px.
-2. **Cel shading is a hybrid height.** A cheap ellipsoid gives the normals a real
-   head would, and a couple of pixels of bevel off the silhouette give the rim. The
+2. **Cel shading is a hybrid height.** A cheap dome gives the normals a real head
+   would, and a couple of pixels of bevel off the silhouette give the rim. The
    Lambert term is then *quantised*, because a smooth gradient reads as CG and a
    hard terminator reads as animation.
 3. **A shadow is a colour, not a darkness.** As lightness falls the chroma *rises*
@@ -615,6 +616,59 @@ produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
 the genome may only push a preset around inside limits a `_clamp_params` pass then
 re-checks.
 
+### A turn is a rotation, not a squeeze
+
+For a long time `turn` was an ellipsoid inside `head`: one surface, one depth, plus
+a constant squeeze on "whichever side was receding". It slid the nose correctly at
+the eye line and lied everywhere else. The depth came out of the same ellipsoid in
+*y* as in *x*, so the chin -- half a head below the equator -- had almost none, and
+a jaw that does not move when the head turns is the difference between a portrait
+and a mask. The squeeze was worse than an approximation: an ellipsoid's outline does
+not change width when it rotates, so the squeeze was a drawing convention dressed up
+as geometry. And it was applied to the side with a negative `x`, which for a
+positive yaw is the side the head turns *towards*.
+
+`turn` now says what a head is: a stack of horizontal cross-sections, one per
+height, each an ellipse of half-width `rx(y)` -- the same profile the silhouette is
+drawn from -- and half-depth `rz(y)`, centred a little in front of the **ear axis**,
+the vertical line a head actually pivots about. Two conventions fix the rest. The
+face plane is further from that axis than the back of the skull is (`FRONT_SHARE`),
+which is what tilts a three-quarter outline; and the depth tapers towards the crown
+and the chin (`DOME_Y`, `DOME_SPAN`), so the two ends of a face turn *less* than
+the middle of it. A style adds exactly one number, `head_d`, its half-depth as a
+multiple of its own half-width -- and the width gene nudges it, because a wider head
+is a deeper one.
+
+Everything else is a caller, and each caller asks for the thing it is:
+
+* **a feature** is a point on the surface, so its depth is the section's at its own
+  height and width: the middle of the face has the most and slides furthest, a
+  temple point barely moves at all, and the jaw swings because it has a depth of its
+  own;
+* **the outline** is the *support* of a section in the view direction --
+  `sqrt((rx cos t)^2 + (rz sin t)^2)`, edged by the ear axis's own offset. A round
+  section keeps the same width at every angle, which is why a chibi's turned
+  silhouette is its front-on one to a per cent, and a deep one widens towards
+  profile. A test samples both faces of each section and holds the silhouette the
+  renderer draws against the projection the features use;
+* **an eye** is a chord, not a point: both its corners are placed and nothing else
+  is scaled. It narrows by exactly what the surface foreshortens and keeps its
+  height, because a plane turning away compresses it sideways and not downwards.
+  The far eye narrows hard and the near one widens a little -- which is what the
+  geometry says, and, unlike a constant squeeze, what a drawing does;
+* **the hair and the ears** ride a shell a hair's breadth out from the surface, so a
+  lock's root follows the head instead of sitting where the cap used to be.
+
+The side a head turns away from is *derived* rather than declared. It is the side
+the nose is pointing at, which is the opposite of what it looks like, and getting it
+backwards is invisible at a small angle and plain at a large one -- so it lives in
+one method (`receding`) that the eyes, the ears and the side locks all ask, and a
+test ties it to the depth it claims to describe. The lighting dome is still a
+stand-in for a skull's surface, but a turn moves one thing the light can read --
+where the surface comes nearest the camera -- so the stand-in's peak goes to the
+model's answer for it, and the terminator swings with the turn instead of staying
+where the front view put it.
+
 ### A portrait is a genome
 
 The strategic asset is not the pixels, it is the string:
@@ -663,6 +717,17 @@ The strands that lie inside the clumps get a test of their own, and it is a
 containment test: a strand is built from its clump's spine with less width, and
 "built to be inside" survives two resamplers and a bulge term only if someone
 checks. Ink that leaves the silhouette draws on skin.
+
+The turn has seven tests of its own, and they are all the same shape: an invariant
+of a solid that a 2-D approximation cannot have. A turn of zero is the identity *bit
+for bit*, so the front view is not an approximation of the model. The outline a
+renderer draws is the projection of the body's cross-sections, sampled densely. The
+chin and the crown swing less than the eye line. `receding` agrees with the depth it
+claims to describe. An eye's corners move and its height does not, and the far eye
+is narrower than the front view while the near one is wider. A turned head neither
+collapses nor explodes -- its width stays within fifteen per cent of its front-on
+one -- and nothing anywhere in the model is infinite, including at heights where the
+profile has no width left.
 
 ## UI chrome (`gen/ui/`)
 
@@ -1141,9 +1206,12 @@ Generators to sit on top of the core, in the order they become useful:
   *hanging* rather than a second pole.
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
   heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
-  line~~ *(done: a collar stroke, three kinds, one per seed)*; next, turn the head
-  in depth (a proper 3-D skull projected to 2-D, not a 2-D face that fakes a turn),
-  and expressions that move the whole face rather than three features.
+  line~~ *(done: a collar stroke, three kinds, one per seed)*; ~~turn the head in
+  depth~~ *(done: `gen/portraits/turn.py` -- the head is a stack of cross-sections,
+  so the outline is a support rather than a squeeze, an eye is a chord on the
+  surface, the jaw swings because it has a depth of its own, and the side a head
+  turns away from is derived rather than declared)*; next, expressions that move the
+  whole face rather than three features.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function~~, ~~asymmetric insets for title bars~~ and ~~wood/stone
   material bodies via fBm + domain warping~~ *(done: `gen/ui/`, with the series
