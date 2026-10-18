@@ -51,6 +51,7 @@ from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
+from gen.maps import roads as map_roads  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
@@ -903,7 +904,7 @@ def _realms(res, count: int, seed: int) -> dict | None:
 def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
               size: float = 13.0, sea: float = 0.42, provinces: int = 8,
               rivers: float = 0.92, names: bool = True, factions: int = 4,
-              faction_fill: float = map_politics.WASH_FILL) -> Path:
+              road: float = 0.85, faction_fill: float = map_politics.WASH_FILL) -> Path:
     """Contact sheet of maps: the geography is the seed, and nothing else.
 
     Each tile is labelled with the seed that makes it, the grid it is played on, the
@@ -920,6 +921,10 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     heavier than a province wash because it has to survive the same trip, and the
     sidecar carries the roster with the ownership, so a game can put the same
     colours on the same provinces.
+
+    ``road`` draws the roads the capitals are joined by, which are routed by the
+    biome table's own movement costs: what the picture shows is what an army would
+    actually pay to march, so the map can be argued with.
     """
     tiles = []
     for i in range(count):
@@ -935,9 +940,10 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             "province_tints": realms["tints"],
             "province_owners": realms["owners"],
         }
+        routes = map_roads.network(g, f, res) if (res is not None and road > 0.0) else []
         img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
-                                  provinces=provinces, river=rivers, **political)
-        tiles.append((s, img, st, courses, res, g, realms))
+                                  provinces=provinces, river=rivers, road=road, **political)
+        tiles.append((s, img, st, courses, res, g, realms, routes))
 
     gap = 24
     sheet = render.sheet([t[1] for t in tiles], cols=min(2, len(tiles)), gap=gap,
@@ -948,7 +954,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     ch = max(t[1].h for t in tiles)
     per_row = min(2, len(tiles))
     font = _font(11)
-    for i, (s, tile, st, courses, res, g, realms) in enumerate(tiles):
+    for i, (s, tile, st, courses, res, g, realms, routes) in enumerate(tiles):
         r, col = divmod(i, per_row)
         tx = gap + col * (cw + gap) + (cw - tile.w) // 2
         ty = gap + r * (ch + gap) + (ch - tile.h) // 2
@@ -962,6 +968,8 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
                              if res["islands"] else ""))
         if realms:
             counts.append(f"{len(realms['names'])} realms")
+        if routes:
+            counts.append(f"{len(routes)} roads")
         _label(img, (tx + 3, ty + tile.h + 4),
                f"seed {s}   {cols}x{rows} hexes at {size:g} px   " + "   ".join(counts))
         if names and res is not None:
@@ -983,6 +991,9 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             "sea_target": sea, "water": st["water"], "biomes": st,
             "rivers": [{"cells": int(c["cells"]), "drainage": round(float(c["flux"]), 1)}
                        for c in courses],
+            "roads": [{"from": int(r["from"]), "to": int(r["to"]),
+                       "cells": int(r["cells"]), "cost": round(float(r["cost"]), 1)}
+                      for r in routes],
             "factions": (realms["record"] if realms else []),
             "provinces": ([
                 {"name": p["name"], "area": int(p["area"]), "capital": [int(p["capital"][0]),
@@ -992,7 +1003,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
                  "owner": (int(realms["owners"][i]) if realms else -1)}
                 for i, p in enumerate(res["provinces"])] if res is not None else []),
         }
-        for s, _, st, courses, res, _g, realms in tiles
+        for s, _, st, courses, res, _g, realms, routes in tiles
     ])
     return _report(out)
 
@@ -1272,6 +1283,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--sea", type=float, default=0.42, help="fraction of the map that is water")
     m.add_argument("--provinces", type=int, default=8, help="provinces per map, 0 for none")
     m.add_argument("--river", type=float, default=0.92, help="river strength, 0 for none")
+    m.add_argument("--road", type=float, default=0.85, help="road opacity, 0 for none")
     m.add_argument("--factions", type=int, default=4, help="realms holding the provinces, 0 for none")
 
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
@@ -1324,7 +1336,7 @@ def main(argv=None) -> int:
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
                   rows=args.rows, size=args.size, sea=args.sea,
                   provinces=args.provinces, rivers=args.river,
-                  factions=args.factions)
+                  factions=args.factions, road=args.road)
     elif args.cmd == "factions":
         demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
                       ratio=_ratio(args.ratio))

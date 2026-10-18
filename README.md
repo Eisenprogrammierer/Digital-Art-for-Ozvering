@@ -67,7 +67,7 @@ python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
-python tests/test_maps.py                       # 54 tests
+python tests/test_maps.py                       # 60 tests
 python tests/test_textures.py                   # 23 tests
 python tests/test_icons.py                      # 19 tests
 ```
@@ -893,7 +893,8 @@ kept strictly apart:
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. |
-| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the coast and the frame. |
+| `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
+| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads, the coast and the frame. |
 
 ### Why axial coordinates, and what they buy
 
@@ -1092,6 +1093,40 @@ metal is never refused for being near the colour the sea is nearest to. Borders
 inside a realm are damped for the same reason a realm exists: a realm drawn as one
 block is a realm a player can see, and the provinces are still there underneath,
 faintly, which is what a province is on a map of realms.
+
+### A road is a claim about the ground
+
+"You can march from Aldmere to Dunfell in four days" is a statement about the
+*map*, and the picture of it is a line. So the roads are routed before they are
+drawn: Dijkstra over the lattice, one hex step at a time, and the cost of a cell is
+the cost the biome table already gives it -- the same number a game charges an army
+to move there. Which decides what the roads look like, and it is worth saying out
+loud:
+
+> The road is the cheapest walk by the map's own rules, not a civil engineer's
+> road. Hills cost three a hex and plains cost one, so a road will cross a narrow
+> range rather than go round a wide valley -- and that is the answer the movement
+> costs give, not a bug in the routing. A road that disagreed with them would be a
+> road an army could not follow.
+
+Water is *impassable* rather than expensive, and that difference is not pedantry: a
+price is a price a search will pay, and a road across an ocean is exactly what a
+very expensive ocean buys. Infinity is not a price. The network is then a
+**minimum spanning tree** over the capitals, because a spanning tree is the cheapest
+set of roads that joins them all and every other road is a loop somebody would
+build and never need; crossing without meeting is not a thing on a hex map, so the
+tree is grown over the hex graph on distances that are already path costs. Since
+landmasses do not touch, what comes out is a spanning *forest* -- one tree per
+landmass, never a bridge.
+
+Two of those decisions are measured rather than asserted. The route is checked
+against Bellman-Ford, which is the definition of a shortest path and knows nothing
+about heaps -- a search that agrees with it is right for the right reason. And
+because a hex centre to a hex centre is a *spline* once it is drawn, the road is
+sampled along the curve it actually is: a Catmull-Rom bend bulges sideways, and on
+a coast that would put the road in the water. The pixels are checked too, since a
+stroke is a hex wide -- the same map is drawn with the roads off and on, and every
+pixel that changed has to be a pixel of a land cell.
 
 ## Tiling textures (`gen/textures/`)
 
@@ -1299,8 +1334,13 @@ Generators to sit on top of the core, in the order they become useful:
   wash per province that keeps the livery's hue, class and lightness step while
   spending it to survive being laid over terrain at half opacity; `WASH_STEP` is
   `0.04 / WASH_FILL` rather than a constant, and the claim is measured on the
-  pixels of a 13 px hex rather than on the table)*; next, roads between capitals,
-  sea provinces, and a campaign-friendly export of the sidecar.
+  pixels of a 13 px hex rather than on the table)*; ~~roads between the
+  capitals~~ *(done: `gen/maps/roads.py` -- Dijkstra over the lattice on the biome
+  table's own movement costs, water impassable rather than expensive, and the
+  cheapest set that joins every capital on a landmass as a spanning forest; the
+  route is checked against Bellman-Ford and the drawn spline, pixel by pixel,
+  against the water)*; next, sea provinces, and a campaign-friendly export of the
+  sidecar.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

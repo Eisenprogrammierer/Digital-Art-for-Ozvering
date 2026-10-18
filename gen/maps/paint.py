@@ -27,18 +27,21 @@ import numpy as np
 from core import noise, palette, render, sdf
 from core.canvas import Canvas
 
-from . import coast, region, rivers, terrain
+from . import coast, region, rivers, roads, terrain
 from .grid import HexGrid
 
 __all__ = [
     "INK",
     "LIGHT",
     "RIVER",
+    "ROAD",
+    "ROAD_EDGE",
     "SEA_RAMP",
     "map_image",
     "province_layer",
     "province_tints",
     "river_layer",
+    "road_layer",
     "stroke_paths",
     "stroke_polyline",
     "terrain_layer",
@@ -61,6 +64,12 @@ SEA_RAMP = tuple(palette.hex_to_srgb(h) for h in ("#59a3bd", "#2a6a8c", "#122c44
 #: Rivers are lighter than the sea they empty into: on a map with a coast in ink,
 #: a river in the deep-sea colour reads as a crack rather than as water.
 RIVER = palette.hex_to_srgb("#5f9cc0")
+
+#: A road is two strokes: a pale one for the made surface and a dark one for its
+#: edge.  One colour cannot do it -- a pale line vanishes on a snowcap and a dark
+#: one in forest -- and a road has to be followable across both.
+ROAD = palette.hex_to_srgb("#ecdcb0")
+ROAD_EDGE = palette.hex_to_srgb("#4a3826")
 
 _AMBIENT = 0.66
 _DIFFUSE = 0.52
@@ -250,6 +259,22 @@ def river_layer(canvas: Canvas, grid: HexGrid, courses, threshold: float,
     stroke_paths(canvas, paths, RIVER, alpha=alpha)
 
 
+def road_layer(canvas: Canvas, grid: HexGrid, roads, width: float = 0.15,
+               edge: float = 0.11, alpha: float = 0.85) -> None:
+    """The roads, drawn as a pale line with a darker one under it.
+
+    Two strokes over the same path, merged the same way the rivers are: everything
+    at one width goes down in one pass, so a road junction is a junction and not a
+    darker spot where two roads happen to overlap.
+    """
+    if not roads:
+        return
+    paths = [(road["points"], float(width + edge) * grid.size) for road in roads]
+    stroke_paths(canvas, paths, ROAD_EDGE, alpha=0.55 * float(alpha))
+    paths = [(road["points"], float(width) * grid.size) for road in roads]
+    stroke_paths(canvas, paths, ROAD, alpha=alpha)
+
+
 def province_tints(n: int, L: float = 0.73, C: float = 0.13, hue0: float = 0.03) -> np.ndarray:
     """``n`` pale washes, spaced round the hue circle by the golden angle.
 
@@ -379,6 +404,7 @@ def map_image(
     cliff: float = 0.55,
     river: float = 0.92,
     river_fraction: float | None = None,
+    road: float = 0.0,
     provinces: int = 0,
     province_fill: float = 0.22,
     province_tints=None,
@@ -389,7 +415,7 @@ def map_image(
     shadow: float = 0.34,
     **kw,
 ) -> Canvas:
-    """A finished map at one seed: terrain, rivers, provinces, coast and frame.
+    """A finished map at one seed: terrain, rivers, roads, provinces, coast and frame.
 
     ``seed`` and the grid shape are the whole specification of the *geography*;
     ``size`` and ``margin`` only decide how many pixels it is drawn in, so a map
@@ -397,6 +423,10 @@ def map_image(
     from the geography obeys the same rule: turning rivers off or asking for eight
     provinces changes what is drawn on the map and not one pixel of where the land
     is.
+
+    The roads need capitals to run between, so they exist only with provinces --
+    and they are routed by the biome table's own movement costs, which is why they
+    belong to the geography rather than to the picture of it.
     """
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
@@ -428,6 +458,12 @@ def map_image(
     if river > 0.0 and (~f["water"]).any():
         courses, threshold = river_courses(grid, f, river_fraction)
         river_layer(canvas, grid, courses, threshold, alpha=river)
+
+    # Roads go on after the rivers and before the capitals: a road crosses a river
+    # at a ford and the ford is where the river is, and a road ends at a capital,
+    # which has a mark of its own sitting on top of it.
+    if road > 0.0 and res is not None:
+        road_layer(canvas, grid, roads.network(grid, f, res), alpha=road)
 
     if res is not None and capitals:
         marks = province_tints if province_owners is not None else None

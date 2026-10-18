@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from gen.maps import (coast, grid as gridlib, paint, politics, region,  # noqa: E402
-                      rivers, terrain)
+                      rivers, roads, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -870,6 +870,172 @@ def test_a_border_inside_a_realm_is_not_a_frontier():
     assert not np.array_equal(whole, split)
     assert np.all(whole >= split), "damping a frontier put ink on, not off"
     assert int(whole.sum()) > int(split.sum())
+
+
+# -------------------------------------------------------------------- roads
+def _roadmap(seed=7, cols=22, rows=15, size=11.0, provinces=8, sea=0.42):
+    """A map with capitals on it, and the roads between them."""
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed, sea_fraction=sea)
+    res = region.provinces(g, f, count=provinces, seed=seed)
+    return g, f, res, roads.network(g, f, res)
+
+
+def test_a_route_is_a_walk_from_one_hex_to_another():
+    """Every step is a step: the path is hexes an army could march through.
+
+    That is the whole difference between a road and a straight line, so it is
+    checked on the answer rather than trusted from the search: consecutive cells are
+    neighbours, nothing is walked through twice, no cell is water, and the cost
+    reported is the cost of the cells entered and nothing else.
+    """
+    g, f, res, _net = _roadmap()
+    cost = roads.cost_field(g, f)
+    flat = cost.reshape(-1)
+    caps = [(int(p["capital"][0]), int(p["capital"][1])) for p in res["provinces"]]
+    for a in caps:
+        for b in caps:
+            if a >= b:
+                continue
+            c, cells = roads.route(g, cost, a, b)
+            assert cells, (a, b)
+            assert cells[0] == a[0] * g.cols + a[1]
+            assert cells[-1] == b[0] * g.cols + b[1]
+            assert len(set(cells)) == len(cells), "a road walked a hex twice"
+            for j, k in zip(cells, cells[1:]):
+                r, cc = divmod(j, g.cols)
+                rr, kk = divmod(k, g.cols)
+                assert [rr, kk] in [list(n) for n in g.nbr[r, cc]], (a, b, (r, cc), (rr, kk))
+            assert np.isfinite(flat[cells]).all()
+            assert abs(c - float(flat[cells[1:]].sum())) < 1e-9
+
+
+def test_a_route_is_the_cheapest_walk_and_not_a_walk():
+    """Checked against brute force, not against the shape of the queue.
+
+    Bellman-Ford relaxes every edge until nothing moves, which is the definition of
+    a shortest path and knows nothing about heaps; a search that agrees with it on
+    every pair of capitals is a search that is right for the right reason.
+    """
+    g, f, res, _net = _roadmap()
+    cost = roads.cost_field(g, f)
+    flat = cost.reshape(-1)
+    n = g.rows * g.cols
+    caps = [(int(p["capital"][0]), int(p["capital"][1])) for p in res["provinces"]]
+    edges = [(j, k) for r in range(g.rows) for c in range(g.cols)
+             for rr, cc in g.nbr[r, c] if rr >= 0
+             for j, k in [(r * g.cols + c, int(rr) * g.cols + int(cc))]
+             if np.isfinite(flat[k])]
+    for a in caps:
+        best = np.full(n, np.inf)
+        best[a[0] * g.cols + a[1]] = 0.0
+        for _ in range(n):
+            moved = False
+            for j, k in edges:
+                if best[j] + flat[k] < best[k] - 1e-12:
+                    best[k] = best[j] + flat[k]
+                    moved = True
+            if not moved:
+                break
+        for b in caps:
+            c, _cells = roads.route(g, cost, a, b)
+            assert abs(c - float(best[b[0] * g.cols + b[1]])) < 1e-9, (a, b)
+
+
+def test_the_roads_join_every_capital_on_its_own_landmass():
+    """A spanning forest, and no bridge.
+
+    Capitals are grouped by flood-filling the land, which is a different algorithm
+    from the one that built the roads; the roads must join the capitals of one
+    landmass to each other and must never join two landmasses -- a road across open
+    water is a bridge nobody built.
+    """
+    g, f, res, net = _roadmap()
+    water = np.asarray(f["water"], dtype=bool)
+    land = ~water
+    label = np.full((g.rows, g.cols), -1, dtype=np.int64)
+    parts = 0
+    for r, c in g.flat():
+        if not land[r, c] or label[r, c] >= 0:
+            continue
+        label[r, c] = parts
+        q = deque([(int(r), int(c))])
+        while q:
+            rr, cc = q.popleft()
+            for r2, c2 in g.nbr[rr, cc]:
+                r2, c2 = int(r2), int(c2)
+                if r2 >= 0 and land[r2, c2] and label[r2, c2] < 0:
+                    label[r2, c2] = parts
+                    q.append((r2, c2))
+        parts += 1
+
+    caps = [(int(p["capital"][0]), int(p["capital"][1])) for p in res["provinces"]]
+    home = [int(label[r, c]) for r, c in caps]
+    parent = list(range(len(caps)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for road in net:
+        a, b = find(road["from"]), find(road["to"])
+        assert home[road["from"]] == home[road["to"]], "a road crossed open water"
+        parent[a] = b
+
+    for i in range(len(caps)):
+        for j in range(i + 1, len(caps)):
+            assert (find(i) == find(j)) == (home[i] == home[j]), (i, j)
+    assert len(net) == len(caps) - parts
+
+
+def test_a_road_never_crosses_the_sea_even_where_the_spline_goes():
+    """The smoothing invents points, so the invented ones are checked too.
+
+    A Catmull-Rom curve between two hexes bulges sideways; on a coast that would put
+    the road in the water, which is why this is a test and not a faith.
+    """
+    for seed in range(4):
+        g, f, _res, net = _roadmap(seed=seed, sea=0.5)
+        water = np.asarray(f["water"], dtype=bool)
+        for road in net:
+            cell = g.cell(road["points"][:, 0], road["points"][:, 1])
+            assert cell.ok.all(), (seed, road["from"], road["to"])
+            assert not water[cell.rc[..., 0], cell.rc[..., 1]].any(), (seed, road["from"], road["to"])
+
+
+def test_the_roads_are_drawn_only_on_the_land_they_walked():
+    """The pixels, not the polyline: the stroke is a hex wide, so it counts most.
+
+    The same map is drawn twice, with the roads off and on, and every pixel that
+    changed has to be a pixel of a land cell -- which is the claim at the size it is
+    actually read, where a stroke can spill over the ground its centre line is on.
+    """
+    g = gridlib.HexGrid(22, 15, 11.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.42)
+    kw = dict(seed=7, cols=22, rows=15, size=11.0, sea_fraction=0.42, provinces=8)
+    off = paint.map_image(road=0.0, **kw)
+    on = paint.map_image(road=0.95, **kw)
+    a, b = off.to_uint8(), on.to_uint8()
+    assert not np.array_equal(a, b), "the roads were not drawn"
+    changed = np.any(a != b, axis=-1)
+    assert 0.001 < changed.mean() < 0.12, changed.mean()
+    w, h = g.extent
+    canvas = Canvas(int(np.ceil(w + 2 * 7.0)), int(np.ceil(h + 2 * 7.0)), scale=1.0)
+    assert (canvas.w, canvas.h) == (a.shape[1], a.shape[0])
+    cell = g.cell(*canvas.grid())
+    water = np.asarray(f["water"], dtype=bool)[cell.rc[..., 0], cell.rc[..., 1]] & cell.ok
+    assert not (changed & water).any(), "a road was painted over water"
+
+
+def test_the_same_map_lays_the_same_roads():
+    g, f, res, net = _roadmap()
+    again = roads.network(g, f, res)
+    assert [(r["from"], r["to"], r["cost"], r["cells"]) for r in net] == \
+           [(r["from"], r["to"], r["cost"], r["cells"]) for r in again]
+    for one, two in zip(net, again):
+        assert np.array_equal(one["points"], two["points"])
 
 
 if __name__ == "__main__":
