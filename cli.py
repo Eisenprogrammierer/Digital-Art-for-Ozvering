@@ -46,6 +46,10 @@ from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
+from gen.textures import reaction as tex_reaction  # noqa: E402
+from gen.textures import tile as tilelib  # noqa: E402
+from gen.textures import truchet as tex_truchet  # noqa: E402
+from gen.textures import wang as tex_wang  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
@@ -876,6 +880,67 @@ def _json_style(spec: dict) -> dict:
     return out
 
 
+def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
+               steps: int = 5000) -> Path:
+    """Contact sheet of tiling textures: Truchet, Wang and reaction-diffusion.
+
+    Every cell is the tile laid down **four times** rather than shown once.  That is
+    the only way to see whether a texture tiles: one copy of it is seamless by
+    definition, and a seam only exists between two of them.  The sidecar records the
+    seam error of each tile, which is the number this sheet is here to justify.
+    """
+    half = int(size) // 2
+    panels = [
+        ("truchet, arcs", tex_truchet.texture(seed=seed, size=half, grains=4, kinds=("arcs",))),
+        ("truchet, mixed", tex_truchet.texture(seed=seed + 1, size=half, grains=4, kinds=("arcs", "lines"),
+                                           mix=0.5)),
+        ("wang, meadow", tex_wang.texture(seed=seed, size=half, cells=half // 16, colours=3)),
+        ("wang, stone", tex_wang.texture(seed=seed + 2, size=half, cells=half // 16, colours=4,
+                                     palette_name="stone")),
+        ("reaction, worms", tex_reaction.texture(seed=seed, size=half, sim=sim,
+                                             preset_name="worms", steps=steps)),
+        ("reaction, holes", tex_reaction.texture(seed=seed, size=half, sim=sim,
+                                             preset_name="holes", steps=steps)),
+    ]
+
+    gap = 22
+    per_row = 3
+    sheet = render.sheet([_repeat_canvas(panel, 2) for _name, panel in panels], cols=per_row,
+                         gap=gap, background=(0.90, 0.90, 0.93))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    cw = int(size)
+    ch = int(size)
+    for i, (name, _cv) in enumerate(panels):
+        r, col = divmod(i, per_row)
+        tx = gap + col * (cw + gap)
+        ty = gap + r * (ch + gap)
+        _label(img, (tx + 3, ty + ch + 4), f"{name}   seed {seed}   {cw}x{ch}")
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.textures", tiles=[
+        {
+            "name": name,
+            "size": cw,
+            "seed": seed,
+            "seam_error": round(tilelib.seam_error(
+                tilelib.luminance(np.tile(panel.to_uint8(), (2, 2, 1)))), 3),
+        }
+        for name, panel in panels
+    ])
+    return _report(out)
+
+
+def _repeat_canvas(canvas, n: int = 2):
+    """A canvas laid out ``n`` by ``n``: the picture that shows a tile wraps."""
+    out = Canvas(canvas.w * int(n), canvas.h * int(n), scale=canvas.scale,
+                 y_up=canvas.y_up)
+    for i in range(int(n)):
+        for j in range(int(n)):
+            out.blit(canvas.rgb, canvas.a, j * canvas.w, i * canvas.h)
+    return out
+
+
 def demo(out: Path, seed: int = 7) -> None:
     """Render everything into ``out/`` -- the smoke test for the whole core."""
     print(f"ozart demo  (seed={seed}, out={out})")
@@ -889,6 +954,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
+    demo_tiles(out / "tiles.png", seed=seed)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
     print("done.")
@@ -973,6 +1039,13 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--size", type=int, default=208)
     ln.add_argument("--children", type=int, default=6)
 
+    t = sub.add_parser("tiles", help="tiling textures: Truchet, Wang tiles, reaction-diffusion")
+    t.add_argument("--out", default="out/tiles.png", type=Path)
+    t.add_argument("--seed", type=int, default=7)
+    t.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")
+    t.add_argument("--sim", type=int, default=80, help="cells the reaction-diffusion runs on")
+    t.add_argument("--steps", type=int, default=5000, help="steps of reaction-diffusion, at most")
+
     u = sub.add_parser("ui", help="UI kit sheet: panels, frames, buttons, nine-slice cuts")
     u.add_argument("--out", default="out/ui.png", type=Path)
     u.add_argument("--seed", type=int, default=7)
@@ -1042,6 +1115,8 @@ def main(argv=None) -> int:
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
                   rows=args.rows, size=args.size, sea=args.sea,
                   provinces=args.provinces, rivers=args.river)
+    elif args.cmd == "tiles":
+        demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim, steps=args.steps)
     elif args.cmd == "credits":
         if args.out is None:
             print(creditslib.credits(args.manifest), end="")

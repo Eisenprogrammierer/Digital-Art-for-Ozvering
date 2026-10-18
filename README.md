@@ -30,10 +30,10 @@ python cli.py demo --out out --seed 7
 
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
-`out/lineage.png`, `out/ui.png` and `out/maps.png`, each with a `.json` sidecar
-recording the seed, the spec, the blazon, the genome of every portrait tile, the
-corner insets of every UI part, and for every map its biome census, its rivers and
-its provinces, plus
+`out/lineage.png`, `out/ui.png`, `out/maps.png` and `out/tiles.png`, each with a
+`.json` sidecar recording the seed, the spec, the blazon, the genome of every
+portrait tile, the corner insets of every UI part, for every map its biome census,
+its rivers and its provinces, and for every tiling texture its seam error, plus
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -54,6 +54,7 @@ python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8
+python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction-diffusion
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
@@ -61,6 +62,7 @@ python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 22 tests
 python tests/test_maps.py                       # 46 tests
+python tests/test_textures.py                   # 23 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -520,6 +522,140 @@ the hexes are water for any seed; and the biome table keeps the *rules* -- what 
 cell costs to walk through -- in the same row as its colour, so the art and the
 gameplay cannot drift apart.
 
+## Tiling textures (`gen/textures/`)
+
+Every other asset here is a picture of one thing at one size: an icon, a portrait,
+a panel that will be stretched, a map of a particular grid. A tiling texture is the
+first one that is asked a question about its *edges*:
+
+> Lay it down next to itself, four times, and there must be no line where they meet.
+
+The modules in this package exist because that question has three different
+answers, and each one is a different *kind* of guarantee -- one that is geometric,
+one that is searched for, and one that is never created in the first place.
+
+| Module | What it provides |
+| --- | --- |
+| `tile` | What "seamless" means as a number (`seam_error`), the per-pixel tile lookup, the periodic noise and periodic blur that keep a wrap, and the project's one light applied to a height field. |
+| `truchet` | Truchet tiles: two arcs on a square, an arrangement with nothing to search, and the carved-stone material that comes out of it. |
+| `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus, and the bilinear blend of those corners into ground. |
+| `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
+
+### Seamless is a number, not a compliment
+
+`tile.seam_error` divides the step across the wrap by the mean step inside the tile.
+A field built to wrap comes out at about 1 -- the last row really is one pixel away
+from the first -- and a field that does not, at about 10. That turns the word into
+something a test can hold a generator to, and the demo sheet records it per tile, so
+a texture that stopped tiling would be visible in the sidecar as well as on the page.
+
+Getting to about 1 is where the interesting failures live. The first Truchet texture
+had a *pattern* that wrapped perfectly and visible lines all the same, because the
+grain on it was `core.noise` evaluated in pixel coordinates: two tiles apart the
+grain hashes a different lattice cell, so the material changed character at the seam
+even though the shapes met exactly. It cannot be fixed by choosing a round cell
+size -- the value at `x` and the value at `x + width` are different hashes by
+construction. What works is to stop asking for noise at a *point* and ask for noise
+at a *frequency* instead: damp the spectrum of seeded white noise with a Gaussian.
+That is smooth, and it is exactly periodic, because every basis function of a DFT
+already is. The same trick does the periodic blur, and for the same reason.
+
+### Truchet has nothing to check; Wang has everything to check
+
+A Truchet tile is two arcs, and **every arc ends at the midpoint of an edge**. The
+tile on the other side of that edge sends one of its own arcs to the same point, so
+the paths join whatever the neighbour decided, and *any* arrangement is seamless.
+There is no constraint to satisfy and nothing to search, which is why the generator
+is three lines and a seeded random choice. The package offers two kinds of path, the
+arcs and the maze-like lines meeting at the centre; they join the same midpoints, so
+they can be mixed in one arrangement without breaking the argument -- and the test
+measures the distance field exactly there, at the middle of every edge, because that
+is the fact the module rests on.
+
+A Wang tile carries its edges instead, so the choice *is* the problem: put two tiles
+next to each other and the shared edge has to agree. The form used here carries the
+four **corners**, which reads as terrain rather than as plumbing, and it makes the
+checking collapse: two neighbours agree when the two corners they share are equal,
+and then a colour field that is the *bilinear blend* of the four corner colours is
+continuous at every edge -- the blend at a tile's right-hand edge is the average of
+its two right corners, the blend at the neighbour's left-hand edge is the average of
+its two left corners, and those are the same two numbers, because that is what
+agreeing means. Nothing else needs to be checked, and that is the whole reason the
+module can afford a plain depth-first search.
+
+The wrap is part of the constraint, because a texture has to tile on a torus: the
+last column must agree with the first. A scanline search gets that almost for free --
+the tile it must agree with was laid down a whole row ago -- so the search is a
+depth-first walk with a stack, and it can say honestly that a set either tiles or
+does not. The `complete` set (all `colours**4` tiles) never backtracks; the
+`diagonal` set does, which is why the stack is there; and a set that cannot tile
+raises rather than hanging. One number is a rule rather than a knob: `margin`, the
+fraction of a tile spent blending, has to stay at or below a half, because past that
+the blend reaches the opposite corner and agreeing about the shared corners stops
+being enough.
+
+Where Wang is *not* clever is the look, and it is worth saying so: a bilinear blend
+is continuous but its *slope* jumps where a flat cell meets a graded one, and a
+normal computed from an unsmoothed height turns that kink into a visible edge. So
+the relief is blurred before it is lit, the grain on it is gentle, and the colour
+gets a pixel of blur too. It still reads as patchwork -- that is what a Wang tiling
+of random corner colours is -- so it belongs on ground, and the Truchet and the
+reaction are the ones to reach for when the material is the point.
+
+### The reaction runs on a torus, and that is the whole design
+
+Gray-Scott is two chemicals, one reaction, and a diffusion term each:
+
+```
+du/dt = Du * lap(u) - u*v**2 + F * (1 - u)
+dv/dt = Dv * lap(v) + u*v**2 - (F + k) * v
+```
+
+and the only decision that matters here is that the Laplacian **wraps**. The field is
+periodic by construction, so the texture tiles and there is no seam to fix,
+apologise for or test for -- the same move the map makes when it evaluates terrain in
+normalised coordinates, and the same reason: the boundary condition is the asset.
+The test asserts it as algebra rather than as a picture, because a boundary condition
+is exactly the kind of thing a picture hides: translating the field translates its
+Laplacian, exactly, to the last bit.
+
+The rest is engineering around two facts. A pattern has no detail finer than a few
+cells, so it is simulated at 96 and sampled up on the torus -- sixteen times cheaper
+for a picture nobody could tell apart; and the *upsample* has to wrap as well, since
+a clamped edge would put back exactly the border the simulation had removed. And the
+initial condition is not a detail: the seeding density decides how much of the tile
+the pattern has covered by the time the run ends, because the pattern grows outwards
+from wherever it started. A sparse start is a picture of dots however long it runs; a
+generous one is a material. The lumps are round for much the same reason -- a square
+lump is a square shape at the scale the instability selects, and the first version of
+this module grew squares out of it and looked like a low-resolution voxel game.
+
+The five presets are the standard corners of the `(F, k)` plane, and the tests treat
+them as what they are: different patterns from the same seed. "The pattern formed" is
+measured as coverage and gradient energy rather than as standard deviation, which is
+worth stating because the obvious statistic is a trap -- a sparse seed and a finished
+stripe network are both two-valued fields, and the deviation can even *fall* as the
+pattern eats the lumps it grew from.
+
+### The bug that did not raise
+
+`smooth` had to blur a three-channel field, and the first version reshaped the field
+so that the channels led, built a kernel from the last two axes, and multiplied. That
+looks like the same operation and is not: `reshape` reinterprets the memory order, so
+the planes it produced were interleaved slices of all three channels at once, and the
+kernel came out `(height, 3)` instead of `(height, width)`. Nothing raised -- a
+`(256, 256, 3)` array times a `(256, 3)` kernel broadcasts perfectly happily -- and
+nothing ran slower. The only symptom was a texture that had gone slightly grey, and
+the fix is to make the two-dimensional plane the primitive and map over channels,
+which cannot do that.
+
+The Truchet module had the same shape of bug: `kinds` was validated, and the drawing
+keyed off the *index* (`kind == 0` meant arcs), so every grain drew arcs and asking
+for `("lines",)` returned a picture identical to `("arcs",)`. Both were found by
+tests, not by looking at output -- one asserting that a red-only field stays red-only,
+one asserting that the two kinds differ -- and that is the argument for the tests in
+this package being about *properties* rather than about pixels.
+
 ## Roadmap
 
 Generators to sit on top of the core, in the order they become useful:
@@ -552,8 +688,17 @@ Generators to sit on top of the core, in the order they become useful:
   down the gradient rather than searched for with Dijkstra, because once the pits
   are filled the gradient is the answer and nothing is left to search*; next, roads
   between capitals, sea provinces, and a campaign-friendly export of the sidecar.
-- **textures** -- Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
-  reaction-diffusion for organic patterns.
+- **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
+  reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
+  arrangements, which are seamless for any choice; Wang tilings searched for on a
+  torus, seamless because the four corner colours of a tile agree with its
+  neighbours' and the blend between them is continuous; and a reaction-diffusion
+  simulated on a torus, which is seamless because it never had an edge. All three
+  are held to a measured seam error, and the same number goes into the sidecar)*;
+  next, a Wang set whose corner colours come from a quantised height field rather
+  than at random, which is what would make it read as terrain instead of as
+  patchwork; anisotropic tiles for a floor that is stretched along one axis; and a
+  texture atlas.
 - **export extras** -- SVG for vector UI, atlas packing, and an ~~`assets.yaml`
   registry carrying `source/license/attribution/seed` for every asset~~
   *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
