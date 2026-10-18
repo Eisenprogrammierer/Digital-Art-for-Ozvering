@@ -9,7 +9,9 @@
 ``wang``
     Tiles that carry their edges, so the seamlessness *is* the problem: the choice
     at every cell is constrained by the choice before it, and the generator solves
-    it with a scanline search.
+    it with a scanline search -- or sidesteps it entirely, by reading the tiles off a
+    quantised height field, where two neighbours agreeing is reading one number
+    twice.
 ``reaction``
     Gray-Scott reaction-diffusion, run on a torus so that it wraps by construction,
     for organic patterns nothing hand-drawn gets close to.

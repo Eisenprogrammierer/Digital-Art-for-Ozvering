@@ -30,6 +30,19 @@ The ``complete`` set is all ``colours**4`` tiles, which tiles everything and nev
 backtracks: after the two neighbours have pinned two corners, the other two are free.
 The ``diagonal`` set is the four tiles whose opposite corners match, and it *does*
 dead-end, which is why the search has a stack at all.
+
+There is a second way to get a tiling out of this module, and it is the opposite one:
+:func:`from_field` *reads* the tiles off a quantised periodic height field.  Sample
+the field at the corners of the grid, round each sample to one of ``colours`` levels,
+and let a tile be the four levels at its four corners.  Two neighbours share two
+corners, which are the same two samples of the same field -- so they agree, and they
+agree because reading one number twice gives one number.  Nothing is searched for,
+nothing can fail, and the field can be read at any size.
+
+What that buys is a picture rather than a guarantee.  A tile's four colours are then
+four *heights* of one landscape, so what comes out is a country -- bands at a height,
+with a ragged edge where two bands meet -- instead of the patchwork a set of corner
+colours chosen at random makes however carefully it is glued together.
 """
 from __future__ import annotations
 
@@ -40,7 +53,19 @@ from core.canvas import Canvas
 
 from . import tile as tiling
 
-__all__ = ["PALETTES", "fill", "tile_set", "texture"]
+__all__ = ["PALETTES", "corner_samples", "fill", "from_field", "height_field", "levels",
+           "tile_set", "texture"]
+
+#: How many octaves :func:`height_field` sums.  One octave of smooth noise quantised
+#: into bands is a handful of blobs and a coastline; three is a country, with ridges
+#: inside the plateaus and a ragged edge between two bands.
+FIELD_OCTAVES = 3
+
+#: How many features :func:`height_field` lays across the tile.  Eight, so one is
+#: four tiles wide and a tiling of sixteen cells shows four of them: at three the
+#: blobs were a third of the tile, which reads as a picture of a landscape rather
+#: than as a piece of ground.
+FIELD_FEATURES = 8.0
 
 #: Corner colours and the height each stands for, which is what gives the blobs
 #: their relief.  Named for what they look like, because a texture is chosen by eye.
@@ -56,6 +81,15 @@ PALETTES = {
     "marsh": {
         "colours": ("#3f6b57", "#6f9163", "#8e9a5a", "#3b5570"),
         "heights": (0.5, 0.6, 0.65, 0.15),
+    },
+    # A *ramp*: ordered low to high, which is what :func:`from_field` needs, because
+    # there the colour index is a level of the landscape and not a name.  Its heights
+    # are the level positions themselves, which is what makes the ramp a ramp -- though
+    # the relief of a tiling read off a field is the field and not these numbers, since
+    # a level is a staircase and lighting a staircase shades only its steps.
+    "highland": {
+        "colours": ("#3d5544", "#5f7d4a", "#93a05e", "#c9b98d"),
+        "heights": (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0),
     },
 }
 
@@ -73,6 +107,109 @@ def tile_set(colours: int = 2, kind: str = "complete"):
                 for bl in range(k) for br in range(k)
                 if tl == br and tr == bl]
     raise ValueError(f"unknown tile set {kind!r}")
+
+
+def height_field(seed: int = 0, cells: int = 16, octaves: int = FIELD_OCTAVES):
+    """A periodic height field, one sample per tile corner, in ``[0, 1]``.
+
+    Fractal, because one band of a single octave is a coastline and three is a
+    country.  Every octave is :func:`gen.textures.tile.periodic_noise`, so the sum
+    wraps exactly -- and it is sampled at the corner lattice rather than at some
+    finer grid, because the corners are the only places it is ever read.
+
+    The features are a fixed fraction of the tile rather than a fixed number of
+    pixels, so a finer ``cells`` samples the same kind of landscape rather than a
+    smaller one; and the sum is stretched to fill ``[0, 1]``, which is the same thing
+    each octave already does to itself.  That stretch is not tidying: an average of
+    three octaves has most of its values near the middle whatever the seed, so a sum
+    that peaks at 0.66 has no top band at all and every field would come out as
+    lowland with a talkative coast.
+    """
+    n = int(cells)
+    if n < 2:
+        raise ValueError("a height field needs at least two cells")
+    out = np.zeros((n, n), dtype=np.float64)
+    ampl = 1.0
+    total = 0.0
+    for o in range(max(int(octaves), 1)):
+        out += ampl * tiling.periodic_noise((n, n), seed=int(seed) + 97 * o,
+                                            scale=max(n / (FIELD_FEATURES * (2 ** o)), 1.2))
+        total += ampl
+        ampl *= 0.5
+    out /= total
+    out -= float(out.min())
+    return out / max(float(out.max()), 1e-12)
+
+
+def levels(field, colours: int) -> np.ndarray:
+    """A height field quantised into ``colours`` bands, low to high.
+
+    Equal *height* bands rather than equal-population ones: what a tree line is
+    drawn on is a height, and a quantile boundary would move every time the seed
+    changed.
+    """
+    f = np.clip(np.asarray(field, dtype=np.float64), 0.0, 1.0)
+    return np.rint(f * (int(colours) - 1)).astype(np.int64)
+
+
+def corner_samples(field, cells: int | None = None) -> np.ndarray:
+    """A height field sampled at the corners of a tile grid, on the torus.
+
+    ``cells`` is how many tiles across, defaulting to the field's own resolution, in
+    which case every sample is used and the corner lattice *is* the field.  The
+    result is ``(cells + 1)`` square and its last row and column repeat the first,
+    which is the field's own wrap and the reason a tiling read off it needs no seam
+    checking: the corners two tiles share are one sample, read once.
+    """
+    field = np.asarray(field, dtype=np.float64)
+    if field.ndim != 2:
+        raise ValueError("a height field is two-dimensional")
+    h, w = field.shape
+    n = int(cells) if cells is not None else h
+    if n < 1:
+        raise ValueError("a tiling needs at least one tile")
+    ri = (np.arange(n + 1) * h // n) % h
+    ci = (np.arange(n + 1) * w // n) % w
+    return field[np.ix_(ri, ci)]
+
+
+def from_field(field, colours: int = 4, cells: int | None = None):
+    """Read a tiling off a quantised periodic height field, and the tiles it used.
+
+    Every tiling this module produced before now was *found*: a set of tiles was
+    searched for an arrangement whose shared corners agreed.  This one is not found,
+    because it is not chosen.  The four corners of a tile are four samples of one
+    field, so two neighbours share two samples and agree; the wrap is the field's own
+    wrap, so the last column agrees with the first.  Nothing was searched for and
+    nothing can fail -- and that is not a weaker guarantee than the search, it is a
+    stronger one, because there is no arrangement left that could be wrong.
+
+    ``cells`` is how many tiles across, defaulting to the field's own resolution, in
+    which case every sample is used and the corner lattice *is* the field.
+
+    Returns ``(grid, tiles)``: tile indices and the tiles, in the same form
+    :func:`fill` returns and :func:`texture` paints, so the two are interchangeable.
+    """
+    field = np.asarray(field, dtype=np.float64)
+    if field.ndim != 2:
+        raise ValueError("a height field is two-dimensional")
+    k = int(colours)
+    if k < 2:
+        raise ValueError("a Wang set needs at least two colours")
+    corner = levels(corner_samples(field, cells), k)
+
+    seen = {}
+    grid = np.zeros((corner.shape[0] - 1, corner.shape[1] - 1), dtype=np.int64)
+    for r in range(grid.shape[0]):
+        for c in range(grid.shape[1]):
+            t = (int(corner[r, c]), int(corner[r, c + 1]),
+                 int(corner[r + 1, c]), int(corner[r + 1, c + 1]))
+            idx = seen.get(t)
+            if idx is None:
+                idx = len(seen)
+                seen[t] = idx
+            grid[r, c] = idx
+    return grid, list(seen)
 
 
 def _agrees(tiles, grid, cols, rows, r: int, c: int, idx: int) -> bool:
@@ -148,7 +285,7 @@ def fill(cols: int, rows: int, tiles, seed: int = 0, budget: int = 200000):
 
 def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
             kind: str = "complete", palette_name: str = "meadow", margin: float = 0.42,
-            relief: float = 7.0, grain: float = 0.05) -> Canvas:
+            relief: float = 7.0, grain: float = 0.05, source: str = "search") -> Canvas:
     """A finished Wang tiling: corner colours blended into blobs, with relief.
 
     ``margin`` is how much of each tile is spent blending between its corners.  At
@@ -158,6 +295,19 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
     The grid wants to be fine -- sixteen cells across rather than four -- because
     what makes a Wang tiling look like terrain is that the blobs are *smaller* than
     the eye expects tiles to be.
+
+    ``source`` is where the tiling comes from, and it is a parameter rather than a
+    second function because everything after it is identical.  ``"search"`` is a set
+    of tiles and a scanline walk to arrange them, and wants a palette of corner
+    colours; ``"field"`` reads the tiles off a quantised height field, and wants a
+    palette that is a *ramp*, since a corner colour is then a band of the landscape
+    and its index has to mean a height.  The two make genuinely different pictures
+    from the same seed, which is the point of having both.
+
+    ``relief`` is the height the terrain is lit at, and the field wants more of it:
+    a staircase packs its whole change into the steps, so lighting it finds slopes
+    even at a small relief, while the field spreads the same change across a hill.
+    The demo asks for twenty on the field panel and takes the default of seven here.
     """
     size, cells = int(size), int(cells)
     if size % cells:
@@ -171,8 +321,15 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
     pal = PALETTES[palette_name]
     if colours > len(pal["colours"]):
         raise ValueError(f"{palette_name} has only {len(pal['colours'])} colours")
-    tset = tile_set(colours, kind)
-    grid = fill(cells, cells, tset, seed=seed)
+    if source == "search":
+        tset = tile_set(colours, kind)
+        grid = fill(cells, cells, tset, seed=seed)
+        read = None
+    elif source == "field":
+        read = height_field(seed, cells)
+        grid, tset = from_field(read, colours, cells)
+    else:
+        raise ValueError(f"unknown source {source!r}")
 
     colour_of = np.array([palette.hex_to_srgb(c) for c in pal["colours"]][:colours])
     height_of = np.array(pal["heights"], dtype=np.float64)[:colours]
@@ -185,6 +342,17 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
     codes = np.array(tset, dtype=np.int64)          # (tiles, 4)
     idx = grid[i, j]
     tl, tr, bl, br = (codes[idx, k] for k in range(4))
+
+    # And the four corner *heights*, which for a tiling read off a field are the
+    # field's own samples.  A level is a staircase, and lighting a staircase shades
+    # only its steps; the field the levels are levels *of* is smooth, so the colour
+    # posterises and the light does not -- which is what a painted texture does, and
+    # what turns a ring of bands into the shaded flank of a hill.
+    if read is None:
+        heights = (height_of[tl], height_of[tr], height_of[bl], height_of[br])
+    else:
+        corner = corner_samples(read, cells)
+        heights = (corner[i, j], corner[i, j + 1], corner[i + 1, j], corner[i + 1, j + 1])
 
     # A partition of unity that depends on nothing but the offset inside the tile,
     # so it is the same on both sides of every edge and takes the same value at
@@ -199,9 +367,9 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
     canvas = Canvas(size, size, scale=1.0, y_up=False)
     srgb = np.zeros((size, size, 3), dtype=np.float64)
     height = np.zeros((size, size), dtype=np.float64)
-    for w, code in zip(weights, (tl, tr, bl, br)):
+    for w, code, h in zip(weights, (tl, tr, bl, br), heights):
         srgb += w[..., None] * colour_of[code]
-        height += w * height_of[code]
+        height += w * h
 
     speck = tiling.periodic_noise((size, size), seed=int(seed) + 913, scale=2.5)
     # A hair of blur on the colour as well as on the relief.  The blend is

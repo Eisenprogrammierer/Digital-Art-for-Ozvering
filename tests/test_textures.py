@@ -12,6 +12,10 @@ The claims worth a test here are the ones the *word* seamless hides:
 * a Wang tiling's shared corners agree on a torus, which is what makes the bilinear
   blend of the corner colours continuous across every edge -- and where it fails,
   it fails visibly, so the check is on the finished tiling and not on the search;
+* a tiling read off a quantised height field agrees for a different reason, and the
+  difference is worth a test: nothing was searched for, so it holds for a field no
+  set of tiles could be searched into at all, and it holds because the corners two
+  neighbours share are one sample of one field, read twice;
 * the reaction-diffusion Laplacian wraps, which is checked as an exact algebraic
   property (translating the field translates the Laplacian) rather than by looking
   at a picture, because a boundary condition is exactly the kind of thing a picture
@@ -276,6 +280,150 @@ def test_a_margin_that_reaches_the_opposite_corner_is_refused():
             pass
         else:
             raise AssertionError(f"a margin of {bad} should be refused")
+
+
+def test_a_height_field_fills_its_range_and_wraps():
+    """The field is what the levels are levels *of*, so it has to use its range.
+
+    An average of three octaves has most of its values near the middle whatever the
+    seed, so a sum that peaks at 0.66 has no top band at all and every landscape comes
+    out as lowland with a talkative coast.  Stretching the sum to fill ``[0, 1]`` --
+    the same thing each octave already does to itself -- is what gives every band an
+    edge, and it is measured rather than assumed here and in the band test below.
+    """
+    f = wang.height_field(seed=5, cells=32)
+    assert f.shape == (32, 32)
+    assert abs(float(f.min())) < 1e-9 and abs(float(f.max()) - 1.0) < 1e-9
+    assert 0.0 <= float(f.min()) and float(f.max()) <= 1.0
+    assert tile.seam_error(f) < 1.4
+    assert np.array_equal(f, wang.height_field(seed=5, cells=32))
+    assert not np.array_equal(f, wang.height_field(seed=6, cells=32))
+
+
+def test_a_tiling_read_off_a_field_agrees_because_it_was_never_chosen():
+    """The whole reason this second way of getting a tiling exists.
+
+    A searched arrangement agrees because the search made it agree.  This one agrees
+    because two neighbours share two samples of one field, so the question "do the two
+    corners match" is the question "is one number equal to itself".  That is a
+    *stronger* guarantee, not a weaker one, and the checkerboard is here to show what
+    stronger means: it is a field that no search over any set of tiles could be
+    arranged into without a mistake, and it needs no search at all.
+    """
+    grid, tiles = wang.from_field(wang.height_field(seed=3, cells=16), 4, 16)
+    rows, cols = grid.shape
+    assert (rows, cols) == (16, 16)
+    codes = np.array(tiles)
+    for r in range(rows):
+        for c in range(cols):
+            tl, tr, bl, br = codes[grid[r, c]]
+            right = codes[grid[r, (c + 1) % cols]]
+            down = codes[grid[(r + 1) % rows, c]]
+            assert (tr, br) == (right[0], right[2]), (r, c)
+            assert (bl, br) == (down[0], down[1]), (r, c)
+
+    checker = np.add.outer(np.arange(8), np.arange(8)) % 2.0
+    cgrid, ctiles = wang.from_field(checker, 2, 8)
+    assert sorted(ctiles) == [(0, 1, 1, 0), (1, 0, 0, 1)]
+    assert cgrid.shape == (8, 8)
+
+
+def test_the_corner_colours_of_a_tiling_are_the_levels_of_the_field():
+    # Round trip: the tiling is the field and nothing else.  A tile's four numbers are
+    # its four corner samples, quantised -- so reading a field at half rate is the
+    # same field sampled less finely, and the last corner of a row is the first,
+    # because the field is the thing that wraps.
+    f = wang.height_field(seed=11, cells=16)
+    corner = wang.corner_samples(f, None)
+    assert corner.shape == (17, 17)
+    assert np.array_equal(corner[-1], corner[0]) and np.array_equal(corner[:, -1], corner[:, 0])
+    assert np.allclose(wang.corner_samples(f, 8), corner[::2, ::2])
+
+    grid, tiles = wang.from_field(f, 4, 16)
+    levels = wang.levels(corner, 4)
+    codes = np.array(tiles)
+    for r in (0, 5, 15):
+        for c in (0, 7, 15):
+            assert tuple(codes[grid[r, c]]) == (levels[r, c], levels[r, c + 1],
+                                               levels[r + 1, c], levels[r + 1, c + 1])
+
+
+def test_a_tiling_read_off_a_field_is_a_subset_of_the_set_and_uses_few_of_it():
+    """What reading a field buys, as a number rather than as a compliment.
+
+    A search places a tile per cell and almost never repeats one, because a corner
+    colour chosen at random is unlikely to come round again: 256 cells hold 168
+    distinct tiles, which is what patchwork is.  Read off a field the corners are
+    correlated, so the landscape walks through a handful of the set's tiles and
+    repeats them.  Same set, same seed, same cells -- and a quarter as many tiles.
+    """
+    cells, colours = 16, 4
+    complete = wang.tile_set(colours, "complete")
+    searched = wang.fill(cells, cells, complete, seed=7)
+    _grid, tiles = wang.from_field(wang.height_field(7, cells), colours, cells)
+    assert all(t in complete for t in tiles)
+    assert len(tiles) < 0.5 * len(set(searched.reshape(-1).tolist()))
+
+
+def test_every_band_of_a_field_is_used_and_a_ramp_palette_is_ordered():
+    # Equal *height* bands, not equal-population ones, so a band can go unused if the
+    # field does not reach it -- which is exactly what the stretch is for, and this is
+    # where it is measured.  And the palette a field is painted with has to be a ramp:
+    # there the colour index is a level of the landscape and not a name.
+    for seed in range(12):
+        levels = wang.levels(wang.height_field(seed, 32), 4)
+        assert set(np.unique(levels).tolist()) == {0, 1, 2, 3}, seed
+    heights = wang.PALETTES["highland"]["heights"]
+    assert all(b > a for a, b in zip(heights, heights[1:]))
+
+
+def _no_worse_than_an_interior_seam(f, size: int) -> None:
+    """The wrap's step is no worse than the worst step *inside* one copy of it.
+
+    ``seam_error`` on its own is a threshold, and a texture with a strong relief has
+    large steps everywhere: the ratio of the wrap to the average rises with the relief
+    even when nothing is wrong at the edge.  What would mean a seam is the wrap
+    standing out among the same texture's own boundaries, so it is measured against
+    those -- every column boundary of one copy, which is every place a seam could be.
+    """
+    worst = max(tile.seam_error(np.roll(f, k, axis=1)) for k in range(1, size))
+    assert tile.seam_error(f) <= worst, (tile.seam_error(f), worst)
+
+
+def test_a_field_texture_wraps_is_byte_identical_twice_and_is_not_a_searched_one():
+    canvas = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
+                          source="field", relief=20.0)
+    _no_worse_than_an_interior_seam(tile.luminance(np.tile(canvas.to_uint8(), (2, 2, 1))), 128)
+    again = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
+                         source="field", relief=20.0)
+    assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
+           hashlib.sha256(_canvas_bytes(again)).hexdigest()
+    searched = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
+                            source="search", relief=20.0)
+    assert not np.array_equal(canvas.to_uint8(), searched.to_uint8())
+
+
+def test_a_field_that_is_not_two_dimensional_or_cannot_be_read_is_refused():
+    for bad in (np.zeros(8), np.zeros((8, 8, 1))):
+        try:
+            wang.from_field(bad, 4)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a height field is two-dimensional")
+    for bad in (1, 0, -3):
+        try:
+            wang.from_field(np.zeros((8, 8)), bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{bad} colours should be refused")
+    try:
+        wang.texture(seed=1, size=64, cells=8, source="vibes")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown source should be refused")
 
 
 # ------------------------------------------------------------------- reaction

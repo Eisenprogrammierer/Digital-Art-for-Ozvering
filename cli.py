@@ -1071,6 +1071,24 @@ def _json_style(spec: dict) -> dict:
     return out
 
 
+def _wang_tiles(cells: int, colours: int, seed: int, source: str,
+                kind: str = "complete") -> int:
+    """How many distinct tiles a tiling uses -- measured, not promised.
+
+    The interesting number about the two ways of getting a tiling out of ``wang`` is
+    this one.  A search has to find an arrangement in which every shared corner
+    agrees, and there are not many ways to do that with corner colours that were
+    chosen at random, so it ends up using most of the set.  A tiling read off a field
+    uses whatever the landscape happens to walk through -- a fraction of it -- which
+    is why it looks like a landscape and not like a set of tiles.
+    """
+    if source == "field":
+        grid, _tiles = tex_wang.from_field(tex_wang.height_field(seed, cells), colours, cells)
+    else:
+        grid = tex_wang.fill(cells, cells, tex_wang.tile_set(colours, kind), seed=seed)
+    return len(set(int(v) for v in grid.reshape(-1)))
+
+
 def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
                steps: int = 5000) -> Path:
     """Contact sheet of tiling textures: Truchet, Wang and reaction-diffusion.
@@ -1079,30 +1097,50 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     the only way to see whether a texture tiles: one copy of it is seamless by
     definition, and a seam only exists between two of them.  The sidecar records the
     seam error of each tile, which is the number this sheet is here to justify.
+
+    The two Wang rows are the two answers to the same question.  ``meadow`` and
+    ``stone`` are tilings *searched* for over a set of corner colours; ``highland`` is
+    read off a quantised height field, so its corners are heights of one landscape and
+    its seamlessness is not a property of the search at all.  Its grid is twice as
+    fine, because there the tiles carry samples rather than being the picture.
     """
     half = int(size) // 2
+    wang_cells = half // 16
     panels = [
-        ("truchet, arcs", tex_truchet.texture(seed=seed, size=half, grains=4, kinds=("arcs",))),
-        ("truchet, mixed", tex_truchet.texture(seed=seed + 1, size=half, grains=4, kinds=("arcs", "lines"),
-                                           mix=0.5)),
-        ("wang, meadow", tex_wang.texture(seed=seed, size=half, cells=half // 16, colours=3)),
-        ("wang, stone", tex_wang.texture(seed=seed + 2, size=half, cells=half // 16, colours=4,
-                                     palette_name="stone")),
+        ("truchet, arcs", tex_truchet.texture(seed=seed, size=half, grains=4,
+                                             kinds=("arcs",)), {}),
+        ("truchet, mixed", tex_truchet.texture(seed=seed + 1, size=half, grains=4,
+                                              kinds=("arcs", "lines"), mix=0.5), {}),
+        ("truchet, lines", tex_truchet.texture(seed=seed + 2, size=half, grains=8,
+                                              kinds=("lines",)), {}),
+        ("wang, meadow", tex_wang.texture(seed=seed, size=half, cells=wang_cells, colours=3),
+         {"source": "search", "palette": "meadow", "colours": 3,
+          "set": len(tex_wang.tile_set(3)), "used": _wang_tiles(wang_cells, 3, seed, "search")}),
+        ("wang, stone", tex_wang.texture(seed=seed + 3, size=half, cells=wang_cells, colours=4,
+                                        palette_name="stone"),
+         {"source": "search", "palette": "stone", "colours": 4,
+          "set": len(tex_wang.tile_set(4)),
+          "used": _wang_tiles(wang_cells, 4, seed + 3, "search")}),
+        ("wang, highland", tex_wang.texture(seed=seed, size=half, cells=half // 8, colours=4,
+                                           palette_name="highland", source="field", relief=20.0),
+         {"source": "field", "palette": "highland", "colours": 4,
+          "set": len(tex_wang.tile_set(4)),
+          "used": _wang_tiles(half // 8, 4, seed, "field")}),
         ("reaction, worms", tex_reaction.texture(seed=seed, size=half, sim=sim,
-                                             preset_name="worms", steps=steps)),
+                                               preset_name="worms", steps=steps), {}),
         ("reaction, holes", tex_reaction.texture(seed=seed, size=half, sim=sim,
-                                             preset_name="holes", steps=steps)),
+                                               preset_name="holes", steps=steps), {}),
     ]
 
     gap = 22
-    per_row = 3
-    sheet = render.sheet([_repeat_canvas(panel, 2) for _name, panel in panels], cols=per_row,
-                         gap=gap, background=(0.90, 0.90, 0.93))
+    per_row = 4
+    sheet = render.sheet([_repeat_canvas(panel, 2) for _name, panel, _facts in panels],
+                         cols=per_row, gap=gap, background=(0.90, 0.90, 0.93))
     sheet.save(out)
     img = png.to_image(sheet)
     cw = int(size)
     ch = int(size)
-    for i, (name, _cv) in enumerate(panels):
+    for i, (name, _cv, _facts) in enumerate(panels):
         r, col = divmod(i, per_row)
         tx = gap + col * (cw + gap)
         ty = gap + r * (ch + gap)
@@ -1116,8 +1154,9 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
             "seed": seed,
             "seam_error": round(tilelib.seam_error(
                 tilelib.luminance(np.tile(panel.to_uint8(), (2, 2, 1)))), 3),
+            **facts,
         }
-        for name, panel in panels
+        for name, panel, facts in panels
     ])
     return _report(out)
 

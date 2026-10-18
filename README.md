@@ -35,7 +35,7 @@ The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for every map its biome census, its rivers, its roads, its realms, its
 provinces and the sea provinces with the realms that hold them, for every tiling
-texture its seam error, for the icon atlas the
+texture its seam error and how many tiles its tiling used, for the icon atlas the
 rectangle each sprite occupies and how densely the sheet packed, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
@@ -73,7 +73,7 @@ python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
-python tests/test_textures.py                   # 23 tests
+python tests/test_textures.py                   # 30 tests
 python tests/test_icons.py                      # 19 tests
 ```
 
@@ -1228,15 +1228,16 @@ first one that is asked a question about its *edges*:
 
 > Lay it down next to itself, four times, and there must be no line where they meet.
 
-The modules in this package exist because that question has three different
-answers, and each one is a different *kind* of guarantee -- one that is geometric,
-one that is searched for, and one that is never created in the first place.
+The modules in this package exist because that question has four different answers,
+and each one is a different *kind* of guarantee -- one that is geometric, one that is
+searched for, one that is never chosen at all, and one that is never created in the
+first place.
 
 | Module | What it provides |
 | --- | --- |
 | `tile` | What "seamless" means as a number (`seam_error`), the per-pixel tile lookup, the periodic noise and periodic blur that keep a wrap, and the project's one light applied to a height field. |
 | `truchet` | Truchet tiles: two arcs on a square, an arrangement with nothing to search, and the carved-stone material that comes out of it. |
-| `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus, and the bilinear blend of those corners into ground. |
+| `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus or read off a quantised height field, and the bilinear blend of those corners into ground. |
 | `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
 
 ### Seamless is a number, not a compliment
@@ -1297,8 +1298,57 @@ is continuous but its *slope* jumps where a flat cell meets a graded one, and a
 normal computed from an unsmoothed height turns that kink into a visible edge. So
 the relief is blurred before it is lit, the grain on it is gentle, and the colour
 gets a pixel of blur too. It still reads as patchwork -- that is what a Wang tiling
-of random corner colours is -- so it belongs on ground, and the Truchet and the
-reaction are the ones to reach for when the material is the point.
+of *random* corner colours is -- so this one belongs on ground, and the Truchet and
+the reaction are the ones to reach for when the material is the point. What changes
+that is not a better search but a different answer to where the corners come from.
+
+### The tiling that was never chosen
+
+A search arranges tiles until the corners agree. The second way to get an arrangement
+removes the search instead of solving it: sample a **periodic height field** at the
+corners of the grid, round each sample into one of `colours` levels, and let a tile be
+the four levels at its four corners. Two neighbours share two corners, which are the
+same two samples of the same field -- so they agree, and they agree because reading
+one number twice gives one number. The wrap is not a special case either: the last
+sample of a row is the first, because the field is the thing that wraps.
+
+That an agreement cannot fail is the smaller half of the point. A search has a budget
+and can honestly fail on a set that does not tile; reading a field cannot fail on any
+field at all, which the test shows with a checkerboard -- a field whose every corner
+disagrees with the corner beside it, and which comes out as two tiles with nothing
+searched for. The larger half is that a search answers a different question: it finds
+*a* tiling that agrees, where a field says *which* tiling. The four numbers on a tile
+are four heights of one landscape, so the tiles stop being a set and become bands of
+ground, with a ragged edge where two bands meet. The demo draws one of each from the
+same seed and the same sixteen-by-sixteen grid, and the sidecar records what
+separates them: the search uses 168 distinct tiles for its 256 cells and the field
+uses 40. Same set, same cells, four times as much repetition -- which is the
+difference between a picture of tiles and a picture of ground.
+
+Three details are what make it read as ground rather than as a contour map. The first
+is that the relief is the **field** and not the band it was rounded to. A level is a
+staircase, and lighting a staircase shades only its steps; the field the levels are
+levels *of* is smooth, so the colour posterises and the light does not -- which is
+exactly what a painted texture does, and what turns a ring of nested bands into the
+shaded flank of a hill. It also means the palette wants more relief than a staircase
+does, because a staircase packs its whole height change into the steps while the field
+spreads it across the hill: `highland` asks for twenty where the searched palettes are
+happy with seven.
+
+The second is that the field is stretched to fill `[0, 1]` before anything is read off
+it. An average of octaves has most of its values near the middle whatever the seed, so
+a sum that peaks at 0.66 has no top band at all -- and then every seed would come out
+as lowland with a talkative coast. The stretch, which is the same thing each octave
+already does to itself, is what gives every band an edge, and the test measures that
+all four bands are used rather than trusting that they are.
+
+The third is the palette, which has to be a **ramp**: there a colour index is a level
+of the landscape and not a name, so `highland` runs from low wet green through grass
+to bare ground and is the only palette here whose heights climb. And the grid wants to
+be finer than a searched tiling's -- eight-pixel cells rather than sixteen -- because
+these tiles are carrying samples and are not the picture; the features are a fixed
+fraction of the tile rather than a fixed number of pixels, so a finer grid samples the
+same kind of landscape rather than a smaller one.
 
 ### The reaction runs on a torus, and that is the whole design
 
@@ -1453,9 +1503,13 @@ Generators to sit on top of the core, in the order they become useful:
   neighbours' and the blend between them is continuous; and a reaction-diffusion
   simulated on a torus, which is seamless because it never had an edge. All three
   are held to a measured seam error, and the same number goes into the sidecar)*;
-  next, a Wang set whose corner colours come from a quantised height field rather
-  than at random, which is what would make it read as terrain instead of as
-  patchwork; anisotropic tiles for a floor that is stretched along one axis; and a
+  ~~a Wang set whose corner colours come from a quantised height field rather than at
+  random~~ *(done: `wang.from_field` reads the tiling off a field -- the corners are
+  samples of one periodic landscape rounded into bands, so two neighbours agreeing is
+  one number read twice and no search exists to fail; the relief is the field rather
+  than the band it was rounded to, because a staircase shades only its steps, and the
+  demo draws the two ways side by side with the tiles each one used in the sidecar)*;
+  next, anisotropic tiles for a floor that is stretched along one axis; and a
   texture atlas.
 - **export extras** -- SVG for vector UI, ~~atlas packing~~ *(done, as
   `export/atlas.py` and shared with the icons sheet)*, and an ~~`assets.yaml`
