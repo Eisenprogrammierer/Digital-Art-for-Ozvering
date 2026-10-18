@@ -15,9 +15,8 @@ it and run the map.
   the political map can be redrawn without re-deriving the livery;
 * **where the sea is divided**, because a fleet moves from sea province to sea
   province the way an army moves from province to province: the water is divided by
-  the same code, and each sea province is named and carries its cells.  The owner
-  of a sea province is ``-1`` -- nobody holds the water yet -- and the field is
-  there because somebody will;
+  the same code, and each sea province is named and carries its cells.  Its owner is
+  the realm with the longest coast on it, or ``-1`` for the high seas;
 * **where the roads go**, as the hexes they walk and what they cost to walk --
   because a road is a claim about the ground, and a client has to be able to check
   that claim against the same costs;
@@ -83,7 +82,8 @@ def _parts(res: dict | None, owner, cols: int) -> list:
 
 
 def campaign(grid: HexGrid, f: dict, res: dict | None = None, *, seed: int = 0,
-             owner=(), realms=(), routes=(), courses=(), seas: dict | None = None) -> dict:
+             owner=(), realms=(), routes=(), courses=(), seas: dict | None = None,
+             sea_owner=()) -> dict:
     """One map, as the dict that becomes the campaign file.
 
     Everything is passed in rather than derived here, because every caller already
@@ -113,7 +113,7 @@ def campaign(grid: HexGrid, f: dict, res: dict | None = None, *, seed: int = 0,
         "water": round(float(water.mean()), 3),
         "cells": [int(v) for v in np.asarray(f["biome"]).reshape(-1)],
         "provinces": _parts(res, owner, grid.cols),
-        "seas": _parts(seas, (), grid.cols),
+        "seas": _parts(seas, sea_owner, grid.cols),
         "realms": [dict(r) for r in realms],
         "roads": [],
         "rivers": [],

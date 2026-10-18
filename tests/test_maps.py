@@ -1130,6 +1130,71 @@ def test_charting_the_sea_does_not_touch_the_land():
     assert (changed & ~water).sum() == 0, "a sea province was drawn on the land"
 
 
+def test_a_realm_holds_the_water_off_its_own_coast():
+    """Claimed, not grown -- and claimed by the realm with the longest coast.
+
+    The rule is deliberately coarse: a sea province is one zone and goes to one
+    realm, so the tally of coast is checked against a second tally taken here, and
+    the ties have to fall the same way, by the lower realm, or the answer depends on
+    the order the coast was walked in.
+    """
+    g, f, res, sea = _waters(count=9)
+    names = politics.factions(res, 4, 7)
+    own = politics.owners(res, names, 7)
+    held = politics.waters(g, res, sea, own)
+    land = np.asarray(res["labels"]).reshape(-1)
+    for i, p in enumerate(sea["provinces"]):
+        coast = {}
+        for j in p["cells"]:
+            r, c = divmod(int(j), g.cols)
+            for rr, cc in g.nbr[r, c]:
+                rr, cc = int(rr), int(cc)
+                if rr < 0:
+                    continue
+                other = int(land[rr * g.cols + cc])
+                if other >= 0 and int(own[other]) >= 0:
+                    o = int(own[other])
+                    coast[o] = coast.get(o, 0) + 1
+        if coast:
+            assert held[i] == min(coast, key=lambda o: (-coast[o], o)), p["name"]
+        else:
+            assert held[i] == -1, p["name"]
+    assert (held >= 0).any(), "no realm holds any water on a map full of coasts"
+
+
+def test_the_high_seas_are_nobody_s():
+    """With no realm holding a coast there is nobody to claim anything."""
+    g, f, res, sea = _waters(count=9)
+    held = politics.waters(g, res, sea, [-1] * res["count"])
+    assert (held == -1).all()
+
+
+def test_a_realm_wears_its_water_without_redrawing_the_land():
+    """The sea layer's own claim, now with the water *owned*.
+
+    A territorial sea is the realm's, so it is drawn in the realm's colour rather
+    than in a neutral one -- and it is still only water that changes.
+    """
+    g = gridlib.HexGrid(22, 15, 11.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.42)
+    res = region.provinces(g, f, count=8, seed=7)
+    names = politics.factions(res, 4, 7)
+    own = politics.owners(res, names, 7)
+    kw = dict(seed=7, cols=22, rows=15, size=11.0, sea_fraction=0.42, provinces=8, road=0.85,
+              province_fill=politics.WASH_FILL, province_tints=politics.washes(names),
+              province_owners=own)
+    plain = paint.map_image(seas=0, **kw).to_uint8()
+    held = paint.map_image(seas=8, **kw).to_uint8()
+    changed = np.any(plain != held, axis=-1)
+    assert changed.any(), "territorial waters were not drawn"
+    assert 0.0 < changed.mean() < 0.04, changed.mean()
+    w, h = g.extent
+    canvas = Canvas(int(np.ceil(w + 2 * 7.0)), int(np.ceil(h + 2 * 7.0)), scale=1.0)
+    cell = g.cell(*canvas.grid())
+    water = np.asarray(f["water"], dtype=bool)[cell.rc[..., 0], cell.rc[..., 1]] & cell.ok
+    assert (changed & ~water).sum() == 0, "owning the water redrew the land"
+
+
 # ---------------------------------------------------------------- campaign
 def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=0.42,
               sea_provinces=8):
@@ -1147,8 +1212,10 @@ def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=
     courses, _thr = paint.river_courses(g, f)
     routes = roads.network(g, f, res) if res is not None else []
     seas = region.seas(g, f, count=sea_provinces, seed=seed) if sea_provinces else None
+    held = (politics.waters(g, res, seas, own)
+            if (seas is not None and res is not None and own) else ())
     doc = campaign.campaign(g, f, res, seed=seed, owner=own, realms=record,
-                            routes=routes, courses=courses, seas=seas)
+                            routes=routes, courses=courses, seas=seas, sea_owner=held)
     return g, f, res, own, routes, courses, doc
 
 
@@ -1164,6 +1231,7 @@ def test_the_sea_sails_into_the_campaign_file_too():
     sea = region.seas(g, f, count=8, seed=7)
     water = np.asarray(f["water"], dtype=bool).reshape(-1)
     assert len(doc["seas"]) == sea["count"] >= 8
+    known = set(range(len(doc["realms"])))
     seen = np.zeros(g.count, dtype=bool)
     for p in doc["seas"]:
         mine = np.zeros(g.count, dtype=bool)
@@ -1171,9 +1239,10 @@ def test_the_sea_sails_into_the_campaign_file_too():
         assert water[p["cells"]].all(), "a sea province was given a hex of land"
         assert int(mine.sum()) == int(mine[water].sum()) == p["area"]
         assert not (mine & seen).any()
+        assert p["owner"] == -1 or p["owner"] in known, p
         seen |= mine
-        assert p["owner"] == -1
     assert np.array_equal(seen, water), "the sea is not in the file exactly once"
+    assert any(p["owner"] >= 0 for p in doc["seas"]), "nobody was given a coast"
 
 
 def test_the_campaign_file_is_the_whole_map_in_numbers():

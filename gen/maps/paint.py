@@ -27,7 +27,7 @@ import numpy as np
 from core import noise, palette, render, sdf
 from core.canvas import Canvas
 
-from . import coast, region, rivers, roads, terrain
+from . import coast, politics, region, rivers, roads, terrain
 from .grid import HexGrid
 
 __all__ = [
@@ -304,7 +304,7 @@ def province_tints(n: int, L: float = 0.73, C: float = 0.13, hue0: float = 0.03)
 def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
                    fill: float = 0.22, frontier: float = 1.0, tints=None,
                    owners=None, internal: float = 0.35, line: float = 0.26,
-                   ink=INK) -> None:
+                   ink=INK, ink_tints=None) -> None:
     """The political map: a wash per province, and a line where two meet.
 
     Both are drawn per pixel, and the frontier is drawn from the labels on either
@@ -321,15 +321,22 @@ def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
     because the water is a depth ramp and a wash over it would be mud, a thinner
     line than a land frontier, because the sea is not divided by walls, and a pale
     ink, because the sea is dark.
+
+    ``ink_tints`` is one colour per province for that line when a caller wants the
+    line *worn* rather than drawn: territorial waters are the realm's, so the
+    boundary of a sea province is painted in the colour of whoever holds it, and a
+    zone nobody holds keeps the caller's ``ink``.
     """
     labels = np.asarray(res["labels"])
     if not res["count"]:
         return
-    if fill > 0.0:
-        table = province_tints(res["count"]) if tints is None else np.asarray(tints)
+    lab = None
+    if fill > 0.0 or ink_tints is not None:
         r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
         c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
         lab = labels[r, c]
+    if fill > 0.0:
+        table = province_tints(res["count"]) if tints is None else np.asarray(tints)
         colour = table[np.clip(lab, 0, len(table) - 1)]
         canvas.over_srgb(colour, float(fill) * (lab >= 0) * cell.ok)
     if frontier > 0.0:
@@ -337,7 +344,11 @@ def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
                                                     dx=canvas.dx)
         if owners is not None and internal < 1.0:
             a = a * _border_weight(grid, labels, cell, owners, internal)
-        canvas.over_srgb(ink, a)
+        if ink_tints is None:
+            canvas.over_srgb(ink, a)
+        else:
+            table = np.asarray(ink_tints)
+            canvas.over_srgb(table[np.clip(lab, 0, len(table) - 1)], a * (lab >= 0))
 
 
 def _border_weight(grid: HexGrid, labels, cell, owners, internal: float):
@@ -476,8 +487,18 @@ def map_image(
 
     if seas > 0 and f["water"].any():
         charted = region.seas(grid, f, count=int(seas), seed=seed)
+        ink_tints = None
+        if province_owners is not None and province_tints is not None:
+            held = politics.waters(grid, res, charted, province_owners)
+            # One colour per realm, taken from any province of that realm: an owner
+            # always wears the same wash, so the first province of theirs will do.
+            realm = {}
+            for i, o in enumerate(province_owners):
+                if int(o) >= 0 and int(o) not in realm:
+                    realm[int(o)] = province_tints[i]
+            ink_tints = np.array([realm.get(int(o), SEA_BORDER) for o in held])
         province_layer(canvas, grid, charted, cell, fill=0.0, frontier=0.58,
-                       line=0.19, ink=SEA_BORDER)
+                       line=0.19, ink=SEA_BORDER, ink_tints=ink_tints)
 
     if river > 0.0 and (~f["water"]).any():
         courses, threshold = river_courses(grid, f, river_fraction)

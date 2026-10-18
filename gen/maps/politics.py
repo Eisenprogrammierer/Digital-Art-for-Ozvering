@@ -62,6 +62,7 @@ __all__ = [
     "tint_table",
     "wash",
     "washes",
+    "waters",
 ]
 
 #: Where a province's wash sits on the sheet, and how far a livery's step can take
@@ -130,6 +131,44 @@ def _tincture(name: str) -> tinctures.Tincture:
     if base.fur:
         return tinctures.get(base.fur[0])
     return base
+
+
+def waters(grid, res: dict, seas: dict, owners) -> np.ndarray:
+    """Who holds the water: the realm with the longest coast on each sea province.
+
+    Land is *grown*; water is *claimed*.  A sea province is not somewhere a realm
+    marches into, so it is not grown into either: a zone goes to whichever realm
+    holds the most of its coast, and a zone no realm's coast touches stays the high
+    seas and stays ``-1``.  That is a coarser rule than the median line a chart
+    draws down the middle of a bay, and it is the honest one at this size -- a
+    median line needs the bay's own geometry, and what a game asks of a sea zone is
+    who to ask permission from.
+
+    The land's division is not consulted beyond its *borders*: this reads the land's
+    labels and its owners and writes a separate array over the sea's, so adding
+    territorial waters cannot move a capital or a border on land by one hex.
+    """
+    owners = [int(o) for o in owners]
+    land = np.asarray(res["labels"]).reshape(-1)
+    out = np.full(int(seas["count"]), -1, dtype=np.int64)
+    for i, p in enumerate(seas["provinces"]):
+        coast = {}
+        for j in p["cells"]:
+            r, c = divmod(int(j), grid.cols)
+            for rr, cc in grid.nbr[r, c]:
+                rr, cc = int(rr), int(cc)
+                if rr < 0:
+                    continue
+                other = int(land[rr * grid.cols + cc])
+                if other >= 0:
+                    o = owners[other]
+                    if o >= 0:
+                        coast[o] = coast.get(o, 0) + 1
+        if coast:
+            # Ties go to the lower realm index, so the answer is a function of the
+            # map rather than of the order the coast happened to be walked in.
+            out[i] = min(coast, key=lambda o: (-coast[o], o))
+    return out
 
 
 def wash(name: str) -> np.ndarray:

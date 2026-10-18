@@ -33,15 +33,16 @@ The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
 `out/tiles.png` and `out/factions.png`, each with a `.json` sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
-every UI part, for every map its biome census, its rivers, its roads, its realms and
-its provinces, for every tiling texture its seam error, for the icon atlas the
+every UI part, for every map its biome census, its rivers, its roads, its realms, its
+provinces and the sea provinces with the realms that hold them, for every tiling
+texture its seam error, for the icon atlas the
 rectangle each sprite occupies and how densely the sheet packed, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
 as a *picture*, and `out/maps.campaign.<seed>.json` is the map as **data** -- the
-ground, the owners, the roads and the rivers as hexes, with the biome table in the
-file, which is what a game without this generator loads. Then
+ground, the owners, the roads, the rivers and the sea as hexes, with the biome table
+in the file, which is what a game without this generator loads. Then
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -71,7 +72,7 @@ python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
-python tests/test_maps.py                       # 70 tests
+python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 23 tests
 python tests/test_icons.py                      # 19 tests
 ```
@@ -896,7 +897,7 @@ kept strictly apart:
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names -- and, by the same code, the *sea* provinces a fleet moves between. |
-| `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. |
+| `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. Then who holds the *water*: each sea province goes to the realm with the longest coast on it, and a zone no realm's coast touches stays the high seas. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
 | `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads, the coast and the frame. |
@@ -1152,15 +1153,33 @@ the stem is the province's number; the ending is the whole of what tells them
 apart, so the two sets of endings are disjoint and a test insists on it.
 
 The sea is drawn as a **maritime boundary and nothing else**: no wash, because the
-water is a depth ramp and a wash over it would be mud, a thinner line than a land
-frontier, because the sea is not divided by walls, and a pale ink rather than the
-map's ink, because the sea under it is dark. So the claim is exact and the test
-measures it on the pixels: turning the sea provinces on changes water and not one
-pixel of land.
+water is a depth ramp and a wash over it would be mud, and a thinner line than a
+land frontier, because the sea is not divided by walls. Its ink is where the
+ownership shows: a zone that belongs to a realm is drawn in that realm's own wash --
+the same colour its provinces wear on land -- and a zone nobody holds is drawn in the
+neutral pale blue of a chart. So the claim is exact and the tests measure it on the
+pixels: turning the sea provinces on changes water and not one pixel of land, with
+the water owned as much as without it.
 
-Nobody owns the sea. The campaign file carries every sea province with its cells
-and an owner of ``-1``, which is what "nobody" means everywhere else in this
-project -- and the field is there because one day somebody will.
+### Land is grown; water is claimed
+
+A realm's land is *grown* over the province graph by breadth-first search, because
+the land is somewhere an army walks and a realm in two pieces is a defect. A sea
+province is not somewhere a realm marches into, so it is not grown into either: it
+goes to whichever realm holds the most of its coast, and a zone no realm's coast
+touches stays the high seas and stays ``-1``. That is coarser than the median line a
+chart draws down the middle of a bay -- a median line needs the bay's own geometry --
+and it is the honest rule at this size, because what a game asks of a sea zone is who
+to ask permission from.
+
+It is also deliberately not a second growth over the land's. ``waters`` reads the
+land's labels and owners and writes a separate array over the sea's, and it counts
+coast in *edges* rather than in provinces, so the realm with the longer coast takes
+the bigger water and no answer depends on the order the coast was walked in: ties go
+to the lower realm index. So adding territorial waters cannot move a capital or a
+border on land by one hex, and both the campaign file and the sidecar carry the
+answer -- the sea provinces go in with an owner, and the owner is a realm in the same
+file, or ``-1`` for the water that is nobody's.
 
 ### A map is data, and the picture is one of its outputs
 
@@ -1180,9 +1199,11 @@ not a photograph of one:
 * **where the roads go**, as the hexes they walk, and what they cost to walk --
   because the road is a claim about the ground, and a client has to be able to check
   that claim against the same numbers the generator checked it against;
-* **where the sea is divided**, because a fleet needs somewhere to be: the sea
-  provinces go in with their cells exactly as the land ones do, and the client does
-  not have to re-implement the whole of `region` to move a ship.
+* **where the sea is divided and who holds it**, because a fleet needs somewhere to
+  be: the sea provinces go in with their cells exactly as the land ones do, each with
+  the realm that holds its coast or ``-1`` for the high seas, so the client does not
+  have to re-implement the whole of `region` to move a ship or the whole of
+  `politics` to know whose water it is in.
 
 Cells are named the way the generator names them, `r * cols + c`, row by row, so a
 client indexes the same arrays this project indexes. And nothing in the file is a
@@ -1418,9 +1439,13 @@ Generators to sit on top of the core, in the order they become useful:
   is divided by the same code as the land -- `region.seas`, one stream of seeds for
   the water, water endings on the names, drawn as a maritime boundary and nothing
   else so that charting the sea changes water and not one pixel of land, and carried
-  in the campaign file with an owner of `-1`)*; next, territorial waters: the realm
-  that holds a coast is the realm that should hold the sea it can reach from it, and
-  the field is already in the file waiting for it.
+  in the campaign file with an owner of `-1`)*; ~~territorial waters~~ *(done:
+  `politics.waters` -- land is grown and water is *claimed*, so a sea province goes
+  to the realm with the longest coast on it and a zone no coast touches stays the
+  high seas; the count is in coast *edges* so a longer coast takes a bigger water,
+  ties fall to the lower realm so the answer is a function of the map, and the land's
+  own division is not touched, which is measured on the pixels -- the water is owned
+  and not one pixel of land moves)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

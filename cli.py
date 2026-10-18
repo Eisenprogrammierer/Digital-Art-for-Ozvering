@@ -906,7 +906,8 @@ def _realms(res, count: int, seed: int) -> dict | None:
 #: One tile of the maps sheet.  A tuple would do and did, until the file for a
 #: campaign needed the terrain as well -- a name is how a caller says which field
 #: it means instead of counting commas.
-_MapTile = namedtuple("_MapTile", "seed image stats courses res grid realms roads field seas")
+_MapTile = namedtuple("_MapTile",
+                      "seed image stats courses res grid realms roads field seas waters")
 
 
 def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
@@ -956,6 +957,8 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         res = map_region.provinces(g, f, count=provinces, seed=s) if provinces > 0 else None
         seas = map_region.seas(g, f, count=sea_provinces, seed=s) if sea_provinces > 0 else None
         realms = _realms(res, factions, s)
+        waters = (map_politics.waters(g, res, seas, realms["owners"])
+                  if (seas is not None and realms is not None) else None)
         political = {} if realms is None else {
             "province_fill": faction_fill,
             "province_tints": realms["tints"],
@@ -965,7 +968,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
                                   provinces=provinces, river=rivers, road=road,
                                   seas=sea_provinces, **political)
-        tiles.append(_MapTile(s, img, st, courses, res, g, realms, routes, f, seas))
+        tiles.append(_MapTile(s, img, st, courses, res, g, realms, routes, f, seas, waters))
 
     gap = 24
     sheet = render.sheet([t.image for t in tiles], cols=min(2, len(tiles)), gap=gap,
@@ -1022,8 +1025,9 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
                       for r in t.roads],
             "factions": (t.realms["record"] if t.realms else []),
             "seas": ([{"name": p["name"], "area": int(p["area"]), "ground": p["ground"],
-                       "capital": [int(p["capital"][0]), int(p["capital"][1])]}
-                      for p in t.seas["provinces"]] if t.seas else []),
+                       "capital": [int(p["capital"][0]), int(p["capital"][1])],
+                       "owner": int(t.waters[i])}
+                      for i, p in enumerate(t.seas["provinces"])] if t.seas else []),
             "provinces": ([
                 {"name": p["name"], "area": int(p["area"]), "capital": [int(p["capital"][0]),
                                                                        int(p["capital"][1])],
@@ -1042,7 +1046,8 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             t.grid, t.field, t.res, seed=t.seed,
             owner=(t.realms["owners"] if t.realms else ()),
             realms=(t.realms["record"] if t.realms else ()),
-            routes=t.roads, courses=t.courses, seas=t.seas)
+            routes=t.roads, courses=t.courses, seas=t.seas,
+            sea_owner=(t.waters if t.waters is not None else ()))
         path = out.with_name(f"{out.stem}.campaign.{t.seed}.json")
         path.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
         _report(path)
