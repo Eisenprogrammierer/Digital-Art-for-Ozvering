@@ -1619,9 +1619,10 @@ Generators to sit on top of the core, in the order they become useful:
   from the coat so the two cannot disagree, and deriving a **livery** from the same
   name -- three integers per tincture, spent only where the colour has room, so two
   factions that both chose Azure are two Azures and a shade is either a visible step
-  or no step at all)*; next, meeting heraldry on the map: faction colours in the map
-  sidecar, so a province is not just owned but *worn*, which is the first place the
-  livery has to survive being scaled down to a hex.
+  or no step at all)*; ~~meeting heraldry on the map~~ *(done, in the maps:
+  `gen/maps/politics.py` washes a realm's provinces in its own field tincture down
+  to a 13 px hex, which is the first place the livery had to survive being spent)*
+  -- the heraldry is whole, and the next thing to wear it is a faction's icons.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
   clipping~~, ~~cloth folds as sinusoidal normal displacement~~, ~~a pole and a fly
   that trails~~ and ~~a gonfalon hung from a crossbar~~ *(done: `gen/heraldry/`,
