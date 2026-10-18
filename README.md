@@ -28,14 +28,16 @@ pip install -r requirements.txt
 python cli.py demo --out out --seed 7
 ```
 
-The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
-`out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
-`out/lineage.png`, `out/ui.png`, `out/maps.png`, `out/tiles.png` and
-`out/factions.png`, each with a `.json` sidecar recording the seed, the spec, the
-blazon, the genome of every portrait tile, the corner insets of every UI part, for
-every map its biome census, its rivers and its provinces, for every tiling texture
-its seam error, and for the factions the *names* they were derived from -- which,
-for that sheet, are the input rather than the seed -- plus
+The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
+`out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
+`out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
+`out/tiles.png` and `out/factions.png`, each with a `.json` sidecar recording the
+seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
+every UI part, for every map its biome census, its rivers and its provinces, for
+every tiling texture its seam error, for the icon atlas the rectangle each sprite
+occupies and how densely the sheet packed, and for the factions the *names* they
+were derived from -- which, for that sheet, are the input rather than the seed --
+plus
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -44,7 +46,8 @@ the sidecars are *for*.
 
 ```bash
 python cli.py demo    --out out --seed 7        # everything
-python cli.py icons   --out out/icons.png --seed 3 --count 8 --size 192 --cols 4
+python cli.py icons   --out out/icons.png --seed 3 --count 8 --size 192 \
+                      --sizes 32,64,128 --cols 9   # set, seeds, mip sweep, atlas
 python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
@@ -66,6 +69,7 @@ python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 46 tests
 python tests/test_textures.py                   # 23 tests
+python tests/test_icons.py                      # 19 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -79,7 +83,7 @@ python tests/test_textures.py                   # 23 tests
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
 | `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. |
-| `export` | PNG writer (SVG/atlases to come). |
+| `export` | PNG writer, and `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with. |
 
 ### The three ideas worth remembering
 
@@ -99,6 +103,155 @@ python tests/test_textures.py                   # 23 tests
 3. **Mix colour in OKLab, decision-make in OKLCH.** Ramps stay perceptually even
    and palettes get guaranteed separation, which is what stops a generated set
    from turning into a pile of near-identical blues.
+
+## Icons (`gen/icons/`, `export/atlas.py`)
+
+An icon is the asset family with the least room to be clever in. It is thirty-two
+pixels of meaning that a player reads in a glance, sometimes while the rest of the
+screen is moving, so the rules here are the opposite of the heraldry package's: no
+detail that only survives at 512 px, no charge that needs a caption, and one
+construction shared by every icon in the game, because a *set* is the thing that
+gets looked at, not a single icon.
+
+| Module | What it provides |
+| --- | --- |
+| `motifs` | The charge vocabulary -- nine symbols, each a distance field in a normalised box -- the four plate shapes, and `random_spec(seed, kind)`, which turns a seed into a spec without ever changing *which* charge was asked for. |
+| `paint` | `draw(spec, size)`: the five passes. Plus `clamp`/`validate` on the spec, and the two measurements the tests hold an icon to, `silhouette` and `contrast`. |
+| `export.atlas` | `trim`, `pack`, `build`: a set of canvases in, one sheet plus the rectangle table out, with the density of the packing measured rather than asserted. |
+
+```python
+from gen.icons import motifs, paint
+from export import atlas
+
+tile = paint.draw(motifs.canonical("grain"), 128)   # one icon, drawn at 128
+sheet, info = atlas.build([("grain", tile), ("coin", paint.icon(7, 128))])
+info["density"]                                      # 0.9.. how much of it is sprite
+info["members"][0]["rect"]                           # [x, y, w, h] for the engine
+```
+
+### An icon is a plate with a charge on it
+
+The plate is the ground -- a rounded square, a hexagon, a circle or a shield,
+shaded as a solid -- and the charge is the meaning: a coin is a ring, water is a
+drop, a blade is a sword seen flat. The plate is deliberately *not* part of the
+seed's decisions about the symbol: a set shares one plate, and the seed may vary
+the charge's proportions, its colour, and which of the four plates it sits on, but
+never what the symbol *is*. That gives the package its central claim, and the test
+that holds it: **a seed stretches the symbol and never replaces it**. The overlap
+between a seeded charge and its canonical self is about 0.8 for most kinds, and the
+worst case over ten seeds is 0.5 -- a gem whose seed happened to switch it from the
+six-sided brilliant to the three-faced crystal, which is a change of category and
+not of style, and the floor the test uses (0.4) is a floor on *recognition*.
+
+The same measurement runs the other way, over the nine charges against each other.
+The closest pair is water and a flame -- a drop, and a flame drawn with two tongues
+-- which agree on about seven tenths of their area. That is fine, because they are
+six hues apart, and hue is the other half of the answer. It is also exactly the
+kind of collision a small vocabulary has to be *checked* for: the first version of
+`ore` was a five-sided gem, and a five-sided gem sitting alone on a shield plate
+*is* a shield. The vocabulary lost a symbol that day, not a pixel.
+
+Below that, the plates themselves have to be comparable rather than equal -- a
+hexagon that filled its box would be a square -- so the test asks that every plate
+covers between three fifths and a little over what the round one covers. Measured
+against the round plate: the hexagon 0.67, the circle 0.83, the shield 0.64. Every
+charge on the same plate covers the same share of its tile to within a third of a
+percent, which is what makes a row of these read as a *row* -- and that check is
+made on rendered pixels, not on the spec, because it is a claim about what a player
+sees.
+
+### The vocabulary is symbols, not depictions
+
+A sword, drawn honestly, is a thin line; at 32 px a thin line is a smudge. So the
+charges are drawn as *symbols of* their objects rather than as small pictures of
+them: a blade is a wide tapering bar with a heavy crossguard, not a sword with a
+leather grip and a wrapped wire pommel. The rule of thumb here is the one the
+earlier versions of `grain` and `wood` broke and the tests could not have caught --
+a wheat ear whose grains are too small and whose stalk is too long is an *arrow*,
+and two planks crossed at a right angle are a plus sign. Both were found by looking
+at a contact sheet, which is the argument for generating one: a generator that
+quietly draws the wrong symbol is exactly as deterministic as one that draws the
+right one, and no test can tell you that a shape reads the way you hoped.
+
+Hue carries the meaning that shape cannot. Each kind has a base hue -- ore is
+violet, water is blue, flame is red, blade is a cold steel blue -- and the seed
+jitters it by two hundredths of a turn, which is enough to make a set look grown
+and not enough to make a player wonder what the icon meant.
+
+### Five passes and one light
+
+The construction is short enough to state completely, and every icon in the game
+is drawn by it:
+
+1. **shadow** -- the plate's own coverage, blurred and dropped, in world units so
+   the shadow is the same shadow at 16 px and at 512;
+2. **plate** -- the ground, shaded as a rounded solid, with a single bevel width;
+3. **rim** -- a bright stroke inside the plate's edge, so the silhouette has a line
+   to read against whatever the icon is placed on;
+4. **recess** -- the ground knocked *back*, inside the plate and outside the charge
+   grown by a clearance, which is what puts a dark halo around the symbol and is
+   most of why a bright charge reads at 32 px;
+5. **charge** -- the symbol itself, embossed with a shallower bevel than the
+   plate's, because the symbol is small and a deep bevel eats it.
+
+Every one of those passes is lit by the same `LIGHT = (-0.45, 0.65)` as the
+heraldry, the portraits, the UI and the maps, and `tests/test_textures.py` asserts
+it -- one light across the project is most of what makes individually generated
+assets look like one art set rather than one folder.
+
+Nothing in the recipe is in pixels. The margin, the bevel, the clearance, the rim
+width and the shadow offset are all world units on the unit square, which is why
+`--sizes 32,64,128` is worth generating rather than resizing: the small icon is
+*drawn* small, with the same bevel and the same clearance, and the tests check that
+the 256 px render folded back down *is* the 128 px render. And because the margin is
+in world units, an icon never touches the edge of its own tile at any size -- which
+matters more than it sounds, because at 16 px one world unit of margin is a single
+pixel, and an icon that reached its own edge would bleed into its neighbour in an
+atlas.
+
+### An atlas moves sprites; it does not redraw them
+
+The reason the atlas lives in `export/` and not in `gen/icons/` is that it knows
+nothing about icons. It takes a list of `(name, canvas)` pairs, and it is the same
+code for a texture set or a font sheet.
+
+Two decisions in it are worth stating, because both are measurable rather than
+stylistic:
+
+* Members are **trimmed** before they are packed -- the transparent margin around a
+  sprite is not part of a sprite -- and the trim is recorded, so the caller can put
+  the origin back. Trimming counts even the faintest anti-aliased pixel, because an
+  8-bit edge *is* content and a trim that rounds it away is a trim that clips.
+* The layout is **deterministic**: members sorted by name, one bottom-left skyline
+  pass, and a width chosen by trying a handful of candidates and keeping the one
+  whose final sheet is squarest (with the smallest breaking a tie, because the
+  squarest-and-smallest is what fits a texture limit and is worth looking at). The
+  same members always produce the same atlas, byte for byte, from a different
+  dictionary order if need be -- which is the property a content pipeline actually
+  depends on, and the one thing a hand-arranged sprite sheet can never offer.
+
+A skyline rather than a shelf, because a shelf wastes the whole band above a short
+sprite, and a set of icons with one banner in it is exactly the case where that
+shows. The result is that the strongest test in the package is one line long: a
+sprite in an atlas is *moved*, not re-rendered, so every rectangle is compared
+**byte for byte** with the source pixels it came from. A packing bug that softened
+or shifted a sprite cannot survive that.
+
+### Density is what power-of-two rounding costs
+
+The atlas reports its own density -- the fraction of the sheet that is sprite
+rather than gap -- and that number exists for one reason: it is how you find out
+what a convention costs before you agree to it.
+
+Measured on the icon set this package generates -- the nine charges and eight
+seeded icons at 192 px -- the constraint-free packing fills 0.81 of its sheet, while
+the same set rounded up to power-of-two dimensions fills about half of one (0.53).
+Nothing was lost: the pixels are all there, but the texture is twice the size, and
+the reason is not subtle. Each icon's trimmed sprite is 128 px across with two
+pixels of padding, so four of them need 520 px, and a 512 px sheet is eight pixels
+too narrow to hold them. Power-of-two dimensions are still the default, because that
+is what an engine wants, but the density goes into the sidecar so the price is a
+number in the build log instead of a rule nobody questions.
 
 ## Heraldry and flags (`gen/heraldry/`)
 
@@ -835,8 +988,17 @@ this package being about *properties* rather than about pixels.
 
 Generators to sit on top of the core, in the order they become useful:
 
-- **icons** -- resource/unit icons, atlas packing, `--size` sweep for mip levels. *(prototype in `cli.py`)**
-- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~ and a
+- **icons** -- ~~resource/unit icons, atlas packing, `--size` sweep for mip levels~~
+  *(done: `gen/icons/`, where an icon is a plate with a charge on it and a set
+  shares one plate; the charges are symbols rather than depictions because a sword
+  drawn honestly is a smudge at 32 px; the five passes, the margin and the bevel are
+  world units, so the 32 px icon is *drawn* small rather than resized down; and
+  `export/atlas.py` trims, packs and reports the density of the sheet, which is how
+  the cost of power-of-two dimensions became a number in the sidecar instead of a
+  convention nobody questioned)*; next, quantities and tiers drawn as a badge on the
+  plate, and a faction hue table so a faction's icons are its own colours -- the
+  charge already owns a hue, so what is missing is a second source of hue that does
+  not fight the first.- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~ and a
   ~~faction's crest derived from its name as the seed~~ *(done: `gen/heraldry/`, with
   `crest.py` deriving the seed from a hash of the name rather than Python's salted
   `hash()`, and deriving the banner from the coat so the two cannot disagree)*;
@@ -888,7 +1050,8 @@ Generators to sit on top of the core, in the order they become useful:
   than at random, which is what would make it read as terrain instead of as
   patchwork; anisotropic tiles for a floor that is stretched along one axis; and a
   texture atlas.
-- **export extras** -- SVG for vector UI, atlas packing, and an ~~`assets.yaml`
+- **export extras** -- SVG for vector UI, ~~atlas packing~~ *(done, as
+  `export/atlas.py` and shared with the icons sheet)*, and an ~~`assets.yaml`
   registry carrying `source/license/attribution/seed` for every asset~~
   *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
   YAML parser is a dependency this project does not take)*. The registry also

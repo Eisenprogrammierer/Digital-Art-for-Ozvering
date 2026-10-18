@@ -525,9 +525,9 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         cli.demo_tiles(d / "tiles.png", seed=3, size=64, sim=24, steps=60)
         cli.demo_factions(d / "factions.png", names=["Alder", "Brythmark"], size=48)
         images = {p.name for p in d.glob("*.png")}
-        assert images == {"icons.png", "shapes.png", "texture.png", "palette.png",
-                          "portraits.png", "ui.png", "maps.png", "tiles.png",
-                          "factions.png"}
+        assert images == {"icons.png", "icons-atlas.png", "shapes.png", "texture.png",
+                          "palette.png", "portraits.png", "ui.png", "maps.png",
+                          "tiles.png", "factions.png"}
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images
 
@@ -541,6 +541,13 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         for kit in ui["kits"]:
             assert isinstance(kit["panel"]["stretchable"], bool), kit["style"]
             assert kit["panel"]["stretch_error"] >= 0.0, kit["style"]
+
+        # The atlas sidecar is the other half of "an asset is more than a picture":
+        # one image, plus the table of rectangles an engine needs to cut it up.
+        packed = json.loads((d / "icons-atlas.json").read_text(encoding="utf-8"))
+        assert packed["members"] and 0.0 < packed["density"] <= 1.0
+        for entry in packed["members"]:
+            assert len(entry["rect"]) == 4 and len(entry["trim"]) == 4, entry["name"]
 
 
 # ------------------------------------------------------- the credits screen

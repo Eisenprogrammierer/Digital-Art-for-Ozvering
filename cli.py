@@ -39,10 +39,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from core import credits as creditslib  # noqa: E402
 from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
+from export import atlas as atlaslib  # noqa: E402
 from export import png  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
+from gen.icons import motifs as icon_motifs  # noqa: E402
+from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
@@ -63,12 +66,6 @@ from gen.ui import style as ui_style  # noqa: E402
 # most of what makes individually generated assets read as one art set.
 LIGHT = (-0.45, 0.65)
 
-# Heraldic shield outline, used as one of the icon silhouettes.
-SHIELD = np.array(
-    [[-0.62, 0.80], [0.62, 0.80], [0.62, 0.10], [0.00, -0.84], [-0.62, 0.10]],
-    dtype=np.float64,
-)
-
 
 # --------------------------------------------------------------------------
 # helpers
@@ -82,6 +79,14 @@ def _ratio(text) -> tuple:
     if w < 1 or h < 1:
         raise ValueError("a proportion needs two positive numbers")
     return w, h
+
+
+def _ints(text) -> tuple:
+    """``"32,64,128"`` into ``(32, 64, 128)``, for the size sweeps."""
+    values = tuple(int(v) for v in str(text).replace(",", " ").split())
+    if not values:
+        raise ValueError(f"expected one or more sizes, got {text!r}")
+    return values
 
 
 def _font(size: int = 13):
@@ -105,6 +110,21 @@ def _label(img, xy, text, font=None, dark=(24, 24, 30, 235), plate=(255, 255, 25
         l, t, r, b = draw.textbbox((x, y), text, font=font)
         draw.rounded_rectangle([l - 6, t - 4, r + 6, b + 4], radius=5, fill=plate)
     draw.text((x, y), text, fill=dark, font=font)
+
+
+def _grid_pos(canvases, cols: int, gap: int, i: int) -> tuple:
+    """Where tile ``i`` lands on a sheet, and how big a cell is.
+
+    The same arithmetic `render.sheet` uses, repeated because the captions have to
+    agree with the layout pixel for pixel -- and a sheet is the one place where a
+    label a few pixels out is worse than no label.
+    """
+    cw = max(c.w for c in canvases)
+    ch = max(c.h for c in canvases)
+    tile = canvases[i]
+    r, col = divmod(i, cols)
+    return (gap + col * (cw + gap) + (cw - tile.w) // 2,
+            gap + r * (ch + gap) + (ch - tile.h) // 2, cw, ch)
 
 
 def _centre_label(img, box, text, font=None, dark=(24, 24, 30, 235), plate=None):
@@ -187,68 +207,60 @@ def _unit3(v) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------
-# icon generator: the reference "asset from nothing" demo
+# icons: a plate with a charge on it, and an atlas to ship the set in
 # --------------------------------------------------------------------------
 def make_icon(seed: int, size: int = 192) -> Canvas:
-    """One complete icon from a seed: silhouette, carved motif, bevel, shadow."""
-    rng = np.random.default_rng(seed)
-    colors = palette.random_palette(rng, n=3)
-    base, accent, recess_color = colors[0], colors[1], colors[2]
+    """One complete icon from a seed -- the CLI's smallest door into `gen.icons`.
 
-    c = Canvas(size, size, scale=size / 2.0 * 0.80)
-    X, Y = c.grid()
-
-    silhouette = int(rng.integers(0, 4))
-    if silhouette == 0:
-        outer = lambda x, y: sdf.circle(x, y, 0.78)  # noqa: E731
-    elif silhouette == 1:
-        outer = lambda x, y: sdf.box(x, y, 0.70, 0.70, 0.18)  # noqa: E731
-    elif silhouette == 2:
-        rot = float(rng.uniform(0.0, 60.0))
-        outer = lambda x, y: sdf.regular_polygon(x, y, 6, 0.82, rotation=rot)  # noqa: E731
-    else:
-        outer = lambda x, y: sdf.polygon(x, y, SHIELD)  # noqa: E731
-
-    motif_kind = int(rng.integers(0, 4))
-    if motif_kind == 0:
-        motif = lambda x, y: sdf.circle(x, y, 0.33, 0.0, 0.04)  # noqa: E731
-    elif motif_kind == 1:
-        rot = float(rng.uniform(0.0, 72.0))
-        motif = lambda x, y: sdf.star(x, y, 5, 0.40, 0.17, rotation=rot)  # noqa: E731
-    elif motif_kind == 2:
-        motif = lambda x, y: sdf.box(x, y, 0.30, 0.30, 0.07, 0.0, 0.04)  # noqa: E731
-    else:
-        motif = lambda x, y: sdf.segment(x, y, (-0.34, -0.30), (0.34, 0.32), 0.10)  # noqa: E731
-
-    d_outer = outer(X, Y)
-    d_motif = motif(X, Y)
-    shape = sdf.smooth_difference(d_outer, d_motif, 0.07)  # emblem carved out
-    rim = sdf.outline(outer, 0.028)(X, Y)  # thin bright border
-
-    out = Canvas(size, size, scale=c.scale)
-    shadow = render.drop_shadow(
-        render.coverage(d_outer, c.dx), c.scale, offset=(0.0, -0.055), sigma=0.03, opacity=0.35
-    )
-    out.over((0.0, 0.0, 0.0), shadow)
-    out.over(render.shade(base, shape, dx=c.dx, bevel=0.10, light=LIGHT), render.coverage(shape, c.dx))
-
-    inside = render.coverage(d_outer, c.dx)  # keep the overlays inside the icon
-    recess = np.clip(-d_motif / 0.05, 0.0, 1.0) * inside
-    out.over_srgb(recess_color, recess * 0.55)
-    out.over_srgb(accent, render.coverage(rim, c.dx))
-    return out
+    This used to be the icon generator.  It is one line now, deliberately: the
+    charge vocabulary, the plate and the five passes live in the package, and a
+    second implementation left behind in the CLI is how the two drift apart.
+    """
+    return icon_paint.icon(seed, size)
 
 
-# --------------------------------------------------------------------------
-# demos
-# --------------------------------------------------------------------------
-def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: int = 4) -> Path:
-    """Contact sheet of seed-driven icons -- proof the generator has range."""
-    icons = [make_icon(seed + i, size) for i in range(count)]
-    sheet = render.sheet(icons, cols=cols, gap=10, background=(0.94, 0.94, 0.96))
+def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: int = 9,
+               sweep=(32, 64, 128), atlas: bool = True) -> Path:
+    """The icon set, seeds drawn from it, one icon at three sizes, and the atlas.
+
+    The first tiles are the *set*: every charge, one plate, one hue family, which is
+    what makes a folder of icons look like one game's icons.  Then seeds, which is
+    what a generator adds to a set.  Then the same icon at 32, 64 and 128 px,
+    *generated* rather than resized -- generating a sweep is only worth doing if the
+    small drawing is drawn small, and that is exactly what designing in world units
+    buys.
+    """
+    set_tiles = [(name, icon_paint.draw(icon_motifs.canonical(name), size))
+                 for name in icon_motifs.KINDS]
+    seed_tiles = [(f"seed {seed + i}", make_icon(seed + i, size)) for i in range(count)]
+    sweep_tiles = [(f"blade at {s}px", icon_paint.draw(icon_motifs.canonical("blade"), s))
+                   for s in sweep]
+    tiles = set_tiles + seed_tiles + sweep_tiles
+    canvases = [c for _, c in tiles]
+
+    gap = 12
+    sheet = render.sheet(canvases, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
     sheet.save(out)
-    _sidecar(out, seed, "procedural:cli.make_icon",
-             icons=[{"seed": seed + i} for i in range(count)])
+    img = png.to_image(sheet)
+    for i, (label, tile) in enumerate(tiles):
+        tx, ty, _, _ = _grid_pos(canvases, cols, gap, i)
+        _label(img, (tx + 4, ty + tile.h + 3), label)
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.icons.paint",
+             set=list(icon_motifs.KINDS),
+             seeded=[seed + i for i in range(count)],
+             sizes=list(sweep))
+
+    # The atlas is what a game actually loads: one image and a table of rectangles.
+    # Its density is in the sidecar, because how much of the sheet is sprite rather
+    # than gap is the number that decides whether the padding was worth paying for.
+    if atlas:
+        image, info = atlaslib.build(set_tiles + seed_tiles, padding=2)
+        path = out.with_name(f"{out.stem}-atlas.png")
+        image.save(path)
+        _sidecar(path, seed, "procedural:export.atlas", **info)
+        _report(path)
     return _report(out)
 
 
@@ -805,12 +817,9 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     # Measured once per kit, before anything is drawn with the number.
     errors = [_stretch_check(spec, scale) for _, spec, _ in kits]
 
-    cw = max(c.w for c in [k[2][0] for k in kits])
-    ch = max(c.h for c in [k[2][0] for k in kits])
+    canvases = [k[2][0] for k in kits]
     for i, (name, spec, (tile, info)) in enumerate(kits):
-        r, col = divmod(i, cols)
-        tx = gap + col * (cw + gap) + (cw - tile.w) // 2
-        ty = gap + r * (ch + gap) + (ch - tile.h) // 2
+        tx, ty, _, _ = _grid_pos(canvases, cols, gap, i)
         for x0, y0, x1, y1 in info["cuts"]:
             _dashed(draw, (tx + x0, ty + y0), (tx + x1, ty + y1))
         for where, text, ink, plate in info["notes"]:
@@ -1085,12 +1094,15 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--out", default="out", type=Path)
     d.add_argument("--seed", type=int, default=7)
 
-    i = sub.add_parser("icons", help="contact sheet of procedural icons")
+    i = sub.add_parser("icons", help="icon set, seeds, size sweep and a packed atlas")
     i.add_argument("--out", default="out/icons.png", type=Path)
     i.add_argument("--seed", type=int, default=3)
     i.add_argument("--count", type=int, default=8)
-    i.add_argument("--size", type=int, default=192)
-    i.add_argument("--cols", type=int, default=4)
+    i.add_argument("--size", type=int, default=192, help="size of the set and seed tiles")
+    i.add_argument("--cols", type=int, default=9, help="tiles per row")
+    i.add_argument("--sizes", default="32,64,128",
+                   help="comma-separated sizes to generate for the sweep")
+    i.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
 
     s = sub.add_parser("shapes", help="reference sheet of SDF primitives")
     s.add_argument("--out", default="out/shapes.png", type=Path)
@@ -1209,7 +1221,8 @@ def main(argv=None) -> int:
     if args.cmd == "demo":
         demo(args.out, seed=args.seed)
     elif args.cmd == "icons":
-        _report(demo_icons(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols))
+        demo_icons(args.out, seed=args.seed, count=args.count, size=args.size,
+                   cols=args.cols, sweep=_ints(args.sizes), atlas=not args.no_atlas)
     elif args.cmd == "shapes":
         demo_shapes(args.out, size=args.size, cols=args.cols)
     elif args.cmd == "texture":
