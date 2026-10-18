@@ -32,7 +32,7 @@ The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
 `out/tiles.png`, `out/factions.png`, a sheet per mip level as
-`out/tiles-mip0.png` through `out/tiles-mip3.png`, and an SVG per UI kit as
+`out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of

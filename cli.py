@@ -556,10 +556,11 @@ def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: 
 #: What a cloth in the flags sheet can hang from, in the order ``mixed`` walks them.
 HANGINGS = ("pole", "bar", "staff")
 
-#: How deep the demo's texture mip chain goes.  Four levels is the whole top of the
-#: chain plus one where a tile is small enough for the margin to be the story, which
-#: is the level the interesting number comes from.
-TILE_MIPS = 4
+#: How far the demo's texture mip chain goes.  ``None`` is every level the tiles
+#: support -- the whole chain, down to a sheet of one-texel tiles -- because that is
+#: where the price of the margin rule actually shows, and a chain that stopped before
+#: it would be a chain that stopped before the interesting number.
+TILE_MIPS = None
 
 
 def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols: int = 4,
@@ -1235,7 +1236,7 @@ def _wang_tiles(cells: int, colours: int, seed: int, source: str,
 
 
 def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
-               steps: int = 5000, atlas: bool = True, mips: int = 1) -> Path:
+               steps: int = 5000, atlas: bool = True, mips: int | None = 1) -> Path:
     """Contact sheet of tiling textures: Truchet, Wang, reaction-diffusion, boards.
 
     Every cell is the tile laid down **four times** rather than shown once.  That is
@@ -1257,10 +1258,11 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     it is one packed sheet.  Above that it is a chain of sheets, one per mip level,
     each packed fresh, because halving a tile wants a new layout and not a quarter of
     the old one: the margin is the same two *texels* at every level, which is what a
-    bilinear filter reaches, so it is a larger fraction of a smaller tile.  The
-    sidecar of each level carries that level's own density, which is where the price
-    of the convention shows up -- the coarsest levels of a chain are almost all
-    margin, and the demo prints the number rather than arguing about it.
+    bilinear filter reaches, so it is a larger fraction of a smaller tile.  ``None``
+    is the whole chain, down to one-texel tiles, and that is where the price is
+    legible -- the sidecar of each level carries its own density, and the coarsest is
+    a sheet that is very nearly all margin.  The demo prints the numbers rather than
+    arguing about them.
     """
     half = int(size) // 2
     wang_cells = half // 16
@@ -1334,10 +1336,13 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     # zero divided by eight.
     if atlas:
         members = [(name, panel) for name, panel, _f in panels]
-        if int(mips) > 1:
+        if mips is None or int(mips) > 1:
             # A chain: level 0 is the single sheet, so the chain does not have a
-            # different head from the sheet it grew out of.
-            for image, info in tex_atlas.mips(members, levels=int(mips)):
+            # different head from the sheet it grew out of.  ``None`` is every level
+            # the tiles support, which is the honest version of "how bad does it get":
+            # the answer is at the bottom, where a tile is smaller than its own bleed.
+            levels = None if mips is None else int(mips)
+            for image, info in tex_atlas.mips(members, levels=levels):
                 path = out.with_name(f"{out.stem}-mip{info['level']}.png")
                 image.save(path)
                 _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
