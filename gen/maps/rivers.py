@@ -157,6 +157,10 @@ def courses(grid: HexGrid, f: dict, down, flux, fraction: float = RIVER_FRACTION
     *land* cell, not in the middle of the sea hex it empties into, because the
     coast is where the river stops being a river and the coastline stroke is drawn
     over the join anyway.
+
+    A course carries both answers, because they are answers to different questions:
+    ``path`` is the hexes the water is in, which is what a game asks, and ``points``
+    is the smoothed polyline through them, which is what a map asks.
     """
     water = np.asarray(f["water"], dtype=bool)
     river = river_mask(flux, water, fraction)
@@ -178,11 +182,13 @@ def courses(grid: HexGrid, f: dict, down, flux, fraction: float = RIVER_FRACTION
         if any(river_flat[u] for u in up[i]):
             continue  # something else is already flowing into here
         path = []
+        walk = []
         j = i
         while True:
             rr, cc = divmod(j, grid.cols)
             if water[rr, cc]:
                 break
+            walk.append([int(rr), int(cc)])
             path.append((float(grid.centers[rr, cc, 0]), float(grid.centers[rr, cc, 1])))
             d = int(down[rr, cc])
             if d < 0:
@@ -195,6 +201,7 @@ def courses(grid: HexGrid, f: dict, down, flux, fraction: float = RIVER_FRACTION
             pts = curve.catmull_rom(pts, per_segment=per_segment)
         out.append({
             "points": pts,
+            "path": walk,
             "flux": float(flux[r, c]),
             "cells": len(path),
             "mouth": path[-1],

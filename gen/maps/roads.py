@@ -163,9 +163,10 @@ def network(grid: HexGrid, f: dict, res: dict, per_segment: int = 6) -> list:
     a third -- and that is a comparison, not a guess.  The cheapest set that
     connects them all is then taken from those routes.
 
-    ``points`` is the polyline to draw; ``cells`` is how many hexes it walks; and
-    ``cost`` is what the biome table charges for the walk -- the cells entered, so
-    the capital it starts in is not charged twice.
+    ``points`` is the polyline to draw; ``path`` is the hexes the road walks, which
+    is the answer the polyline is a rendering of; ``cells`` is how many there are;
+    and ``cost`` is what the biome table charges for the walk -- the cells entered,
+    so the capital it starts in is not charged twice.
     """
     if not res["count"]:
         return []
@@ -184,9 +185,9 @@ def network(grid: HexGrid, f: dict, res: dict, per_segment: int = 6) -> list:
     roads = []
     for a, b, c in _spanning(weight):
         cells = walks.get((a, b)) or walks[(b, a)]
+        walk = [list(divmod(int(j), grid.cols)) for j in cells]
         pts = np.array([[float(grid.centers[r, cc, 0]), float(grid.centers[r, cc, 1])]
-                        for r, cc in (divmod(int(j), grid.cols) for j in cells)],
-                       dtype=np.float64)
+                        for r, cc in walk], dtype=np.float64)
         if len(pts) >= 2:
             pts = curve.catmull_rom(pts, per_segment=per_segment)
         roads.append({
@@ -194,6 +195,7 @@ def network(grid: HexGrid, f: dict, res: dict, per_segment: int = 6) -> list:
             "to": int(b),
             "cost": float(c),
             "cells": len(cells),
+            "path": walk,
             "points": pts,
         })
     return roads

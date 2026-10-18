@@ -33,11 +33,15 @@ The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
 `out/tiles.png` and `out/factions.png`, each with a `.json` sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
-every UI part, for every map its biome census, its rivers and its provinces, for
-every tiling texture its seam error, for the icon atlas the rectangle each sprite
-occupies and how densely the sheet packed, and for the factions the *names* they
-were derived from -- which, for that sheet, are the input rather than the seed --
-the coat each name decided and the livery it is painted in, plus
+every UI part, for every map its biome census, its rivers, its roads, its realms and
+its provinces, for every tiling texture its seam error, for the icon atlas the
+rectangle each sprite occupies and how densely the sheet packed, and for the
+factions the *names* they were derived from -- which, for that sheet, are the input
+rather than the seed -- the coat each name decided and the livery it is painted in.
+A map is written out twice, and deliberately: the sheet with its sidecar is the map
+as a *picture*, and `out/maps.campaign.<seed>.json` is the map as **data** -- the
+ground, the owners, the roads and the rivers as hexes, with the biome table in the
+file, which is what a game without this generator loads. Then
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -67,7 +71,7 @@ python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
-python tests/test_maps.py                       # 60 tests
+python tests/test_maps.py                       # 65 tests
 python tests/test_textures.py                   # 23 tests
 python tests/test_icons.py                      # 19 tests
 ```
@@ -894,6 +898,7 @@ kept strictly apart:
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
+| `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
 | `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads, the coast and the frame. |
 
 ### Why axial coordinates, and what they buy
@@ -1128,6 +1133,40 @@ a coast that would put the road in the water. The pixels are checked too, since 
 stroke is a hex wide -- the same map is drawn with the roads off and on, and every
 pixel that changed has to be a pixel of a land cell.
 
+### A map is data, and the picture is one of its outputs
+
+Everything above this line is a *picture*: a raster pass, washes, strokes, and a
+sidecar that says what was drawn for a reader who can see the drawing. A game cannot
+load a sidecar accurately enough to run a border dispute off it. So each map is also
+written as a **campaign file** -- `maps.campaign.<seed>.json` -- and it is the map,
+not a photograph of one:
+
+* **which hex is what ground**, one biome index per cell, with the biome table in
+  the file as well: the name, the movement cost, whether it is water, and the
+  colour. The table travels because the table *is* the rules -- and because a client
+  that had to guess a colour for "marsh" would put a different green on the same
+  province;
+* **whose hex it is**, one realm per province and each realm's own colour, so the
+  political map can be redrawn without re-deriving anybody's livery;
+* **where the roads go**, as the hexes they walk, and what they cost to walk --
+  because the road is a claim about the ground, and a client has to be able to check
+  that claim against the same numbers the generator checked it against.
+
+Cells are named the way the generator names them, `r * cols + c`, row by row, so a
+client indexes the same arrays this project indexes. And nothing in the file is a
+pixel:
+
+> A polyline at 26 px is a different polyline at 9 px, and the map is supposed to be
+> the same map. So the roads and the rivers go into the file as **hexes**, and the
+> hex size does not go in at all.
+
+That last decision has a test of its own -- the same map exported at 9 px and at
+26 px has to produce the same bytes -- and it is the same rule the terrain has kept
+from the beginning, one layer up: the geography is a function of `(seed, cols,
+rows)`, and everything derived from it inherits that. A 26x17 map is 442 hexes,
+eight provinces and a file of about 9 kB, which is a size a player can download one
+of per map without noticing.
+
 ## Tiling textures (`gen/textures/`)
 
 Every other asset here is a picture of one thing at one size: an icon, a portrait,
@@ -1339,8 +1378,13 @@ Generators to sit on top of the core, in the order they become useful:
   table's own movement costs, water impassable rather than expensive, and the
   cheapest set that joins every capital on a landmass as a spanning forest; the
   route is checked against Bellman-Ford and the drawn spline, pixel by pixel,
-  against the water)*; next, sea provinces, and a campaign-friendly export of the
-  sidecar.
+  against the water)*; ~~a campaign-friendly export of the sidecar~~ *(done:
+  `gen/maps/campaign.py` -- the map as data, one file per map, with the biome table
+  in the file, one biome index per hex, the owner of every province and the hexes
+  the roads and rivers walk; nothing in it is a pixel, so the same map exports the
+  same bytes at every scale it can be drawn at)*; next, sea provinces -- the water is
+  drawn and kept out of the political map, but nothing owns it yet -- and a naval
+  layer for the campaign file to carry them in.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

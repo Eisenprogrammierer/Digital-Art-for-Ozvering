@@ -27,6 +27,7 @@ Run either way::
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from collections import deque
 from pathlib import Path
@@ -37,8 +38,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
-from gen.maps import (coast, grid as gridlib, paint, politics, region,  # noqa: E402
-                      rivers, roads, terrain)
+from gen.maps import (campaign, coast, grid as gridlib, paint, politics,  # noqa: E402
+                      region, rivers, roads, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -1036,6 +1037,126 @@ def test_the_same_map_lays_the_same_roads():
            [(r["from"], r["to"], r["cost"], r["cells"]) for r in again]
     for one, two in zip(net, again):
         assert np.array_equal(one["points"], two["points"])
+
+
+# ---------------------------------------------------------------- campaign
+def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=0.42):
+    """A map, its realms, its roads, its rivers -- and the file that carries them."""
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed, sea_fraction=sea)
+    res = region.provinces(g, f, count=provinces, seed=seed) if provinces else None
+    own, record = (), ()
+    if res is not None and factions:
+        names = politics.factions(res, factions, seed)
+        own = politics.owners(res, names, seed)
+        record = tuple({"name": n, "key": n.lower(),
+                        "colour": palette.srgb_to_hex(politics.wash(n))}
+                       for n in names)
+    courses, _thr = paint.river_courses(g, f)
+    routes = roads.network(g, f, res) if res is not None else []
+    doc = campaign.campaign(g, f, res, seed=seed, owner=own, realms=record,
+                            routes=routes, courses=courses)
+    return g, f, res, own, routes, courses, doc
+
+
+def test_the_campaign_file_is_the_whole_map_in_numbers():
+    """The land, its owners and its ways, all as cells -- checked against the map.
+
+    A file that a client can run has to carry what the client would otherwise have
+    to derive, so every province's cells are in it and every road's walk is in it.
+    The check is that those cells are the ones the generator used, exactly: the
+    provinces partition the land and never touch the sea, and no road is written
+    down that the capitals do not lie at the ends of.
+    """
+    g, f, res, own, routes, courses, doc = _campaign()
+    assert json.loads(json.dumps(doc)) == doc
+    assert doc["format"] == campaign.FORMAT
+    assert doc["cells"] == [int(v) for v in np.asarray(f["biome"]).reshape(-1)]
+    assert doc["grid"]["cols"] == g.cols and doc["grid"]["rows"] == g.rows
+
+    water = np.asarray(f["water"], dtype=bool).reshape(-1)
+    seen = np.zeros(g.count, dtype=bool)
+    for i, p in enumerate(doc["provinces"]):
+        mine = np.zeros(g.count, dtype=bool)
+        mine[p["cells"]] = True
+        assert not (mine & water).any(), "a province was given a hex of sea"
+        assert not (mine & seen).any(), "two provinces were given the same hex"
+        seen |= mine
+        assert int(mine.sum()) == p["area"] == int(res["provinces"][i]["area"])
+        assert p["owner"] == (int(own[i]) if i < len(own) else -1)
+        assert p["name"] == res["provinces"][i]["name"]
+        assert [p["capital"][0], p["capital"][1]] == [int(v) for v in
+                                                      res["provinces"][i]["capital"]]
+    assert np.array_equal(seen, ~water), "the land is not covered once"
+
+    for road, live in zip(doc["roads"], routes):
+        assert road["cells"] == [int(r) * g.cols + int(c) for r, c in live["path"]]
+        for i in (0, -1):
+            flat = road["cells"][i]
+            rr, cc = divmod(flat, g.cols)
+            assert [rr, cc] in [list(res["provinces"][k]["capital"]) for k in (road["from"],
+                                                                              road["to"])]
+        for j, k in zip(road["cells"], road["cells"][1:]):
+            r, c = divmod(j, g.cols)
+            r2, c2 = divmod(k, g.cols)
+            assert [r2, c2] in [list(n) for n in g.nbr[r, c]], (j, k)
+
+    for river, live in zip(doc["rivers"], courses):
+        assert river["cells"] == [int(r) * g.cols + int(c) for r, c in live["path"]]
+        assert river["drainage"] == round(float(live["flux"]), 1)
+
+
+def test_the_table_goes_into_the_file_with_the_map():
+    """A client should not have to guess a colour, a cost, or what is water.
+
+    The biome table is the rules; it travels in the file, in classification order,
+    so that a cell's index means the same thing on both sides of the export.
+    """
+    _g, _f, _res, _own, _routes, _courses, doc = _campaign()
+    assert len(doc["biomes"]) == len(terrain.BIOMES)
+    for i, (row, b) in enumerate(zip(doc["biomes"], terrain.BIOMES)):
+        assert row == {"key": b.key, "name": b.name, "cost": int(b.cost),
+                       "water": bool(b.water), "colour": b.hex}, (i, row)
+
+
+def test_the_campaign_is_a_function_of_the_map_and_not_of_the_pixels():
+    """The hex size is a rendering choice and does not reach the file.
+
+    Which is the reason the roads are carried as hexes and not as the polylines
+    they are drawn with: a polyline at 26 px is a different polyline at 9 px, and
+    the map is supposed to be the same map.
+    """
+    small = _campaign(size=9.0)[-1]
+    large = _campaign(size=26.0)[-1]
+    assert json.dumps(small) == json.dumps(large)
+
+
+def test_every_owner_in_the_file_is_a_realm_in_the_file():
+    """A client indexes the roster, so an owner that is not in it is a crash.
+
+    ``-1`` is the one value the file is allowed to hand out for a province nobody
+    holds; anything else has to be a realm the file also lists, or the political map
+    cannot be painted at all.
+    """
+    _g, _f, _res, _own, _routes, _courses, doc = _campaign()
+    assert doc["realms"], "the map has realms but the file does not"
+    known = set(range(len(doc["realms"])))
+    for p in doc["provinces"]:
+        assert p["owner"] == -1 or p["owner"] in known, p
+    assert all("colour" in r for r in doc["realms"])
+
+
+def test_a_campaign_file_is_small_enough_to_ship_per_map():
+    """Measured, because a file nobody can afford to ship is a file nobody ships.
+
+    A 26x17 map is 442 hexes and a province each; a player downloads one of these
+    per map, so the order of the number matters more than the number.
+    """
+    _g, _f, _res, _own, _routes, _courses, doc = _campaign()
+    text = json.dumps(doc, indent=1)
+    assert len(text) < 20000, len(text)
+    assert len(text) < len(json.dumps(doc, indent=2))
+    assert doc["water"] == round(doc["water"], 3)
 
 
 if __name__ == "__main__":

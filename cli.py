@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import namedtuple
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,7 @@ from gen.heraldry import flags as flaglib  # noqa: E402
 from gen.heraldry import tinctures as tinctureslib  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
+from gen.maps import campaign as map_campaign  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import politics as map_politics  # noqa: E402
@@ -901,6 +903,12 @@ def _realms(res, count: int, seed: int) -> dict | None:
     }
 
 
+#: One tile of the maps sheet.  A tuple would do and did, until the file for a
+#: campaign needed the terrain as well -- a name is how a caller says which field
+#: it means instead of counting commas.
+_MapTile = namedtuple("_MapTile", "seed image stats courses res grid realms roads field")
+
+
 def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
               size: float = 13.0, sea: float = 0.42, provinces: int = 8,
               rivers: float = 0.92, names: bool = True, factions: int = 4,
@@ -925,6 +933,12 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     ``road`` draws the roads the capitals are joined by, which are routed by the
     biome table's own movement costs: what the picture shows is what an army would
     actually pay to march, so the map can be argued with.
+
+    Each tile is also written out as a *campaign file* -- the map as data, with the
+    biome table, the owner of every province, and the hexes the roads and rivers
+    walk -- which is what a client that does not have this generator loads.  The
+    picture is for the eye and the campaign file is for the game; both come from the
+    same derivation, so they cannot disagree.
     """
     tiles = []
     for i in range(count):
@@ -943,18 +957,20 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         routes = map_roads.network(g, f, res) if (res is not None and road > 0.0) else []
         img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
                                   provinces=provinces, river=rivers, road=road, **political)
-        tiles.append((s, img, st, courses, res, g, realms, routes))
+        tiles.append(_MapTile(s, img, st, courses, res, g, realms, routes, f))
 
     gap = 24
-    sheet = render.sheet([t[1] for t in tiles], cols=min(2, len(tiles)), gap=gap,
+    sheet = render.sheet([t.image for t in tiles], cols=min(2, len(tiles)), gap=gap,
                          background=(0.90, 0.90, 0.93))
     sheet.save(out)
     img = png.to_image(sheet)
-    cw = max(t[1].w for t in tiles)
-    ch = max(t[1].h for t in tiles)
+    cw = max(t.image.w for t in tiles)
+    ch = max(t.image.h for t in tiles)
     per_row = min(2, len(tiles))
     font = _font(11)
-    for i, (s, tile, st, courses, res, g, realms, routes) in enumerate(tiles):
+    for i, t in enumerate(tiles):
+        s, tile, st, courses, res, g, realms, routes = (t.seed, t.image, t.stats, t.courses,
+                                                        t.res, t.grid, t.realms, t.roads)
         r, col = divmod(i, per_row)
         tx = gap + col * (cw + gap) + (cw - tile.w) // 2
         ty = gap + r * (ch + gap) + (ch - tile.h) // 2
@@ -1003,8 +1019,20 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
                  "owner": (int(realms["owners"][i]) if realms else -1)}
                 for i, p in enumerate(res["provinces"])] if res is not None else []),
         }
-        for s, _, st, courses, res, _g, realms, routes in tiles
+        for s, _, st, courses, res, _g, realms, routes, _f in tiles
     ])
+
+    # And then the same map as a *campaign*: no pixels, no hex size, nothing that a
+    # client would have to invert.  One file per map, because a campaign is one map.
+    for t in tiles:
+        doc = map_campaign.campaign(
+            t.grid, t.field, t.res, seed=t.seed,
+            owner=(t.realms["owners"] if t.realms else ()),
+            realms=(t.realms["record"] if t.realms else ()),
+            routes=t.roads, courses=t.courses)
+        path = out.with_name(f"{out.stem}.campaign.{t.seed}.json")
+        path.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+        _report(path)
     return _report(out)
 
 
