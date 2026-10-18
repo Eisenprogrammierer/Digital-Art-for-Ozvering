@@ -35,6 +35,13 @@ nine-slice envelope -- and every module below is arranged around that fact:
     contradiction until you notice that its noise does not depend on the colour it
     is mixed into: the lit field is remembered per recipe and window, so a state
     change -- a hover, a press -- costs a multiply rather than a noise field.
+``vector``
+    The same geometry in SVG.  A panel is rounded rectangles and one polar curve,
+    so it is the one asset here with an *exact* vector form -- and because the paths
+    are built from the same ``frame.Panel`` the raster thresholds, the two cannot
+    disagree about the shape.  What a vector cannot carry is the light, which is
+    said out loud rather than faked; a material body is refused outright, because an
+    export that silently drops what it cannot draw is worse than an error.
 
 Typical use::
 
@@ -43,10 +50,10 @@ Typical use::
     box  = paint.panel(spec, (220, 132), scale=2)
     ins  = slice.insets(...)          # see frame.Panel
 """
-from . import frame, material, paint, slice, style
+from . import frame, material, paint, slice, style, vector
 
 __all__ = [
-    "frame", "material", "paint", "slice", "style",
+    "frame", "material", "paint", "slice", "style", "vector",
     "Panel", "draw", "panel", "frame_image", "button", "title_bar",
 ]
 

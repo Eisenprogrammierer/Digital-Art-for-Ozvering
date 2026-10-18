@@ -18,6 +18,7 @@ Run either way::
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -27,8 +28,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
+from export import svg  # noqa: E402
 from gen.ui import frame as framelib  # noqa: E402
 from gen.ui import material, paint, slice as slicelib, style as stylelib  # noqa: E402
+from gen.ui import vector as vectorlib  # noqa: E402
 
 
 # ------------------------------------------------------------------ slicing
@@ -628,6 +631,245 @@ def test_the_material_cache_is_bounded_and_can_be_cleared():
     assert s["misses"] == material.CACHE_MAX + 5, s
     material.clear()
     assert material.stats() == {"hits": 0, "misses": 0, "size": 0}
+
+
+# ------------------------------------------------------------------- the vector
+def _field(panel, key):
+    """The field a named curve is the zero set of, as a function of world points."""
+    def f(x, y):
+        if key == "outer":
+            return panel.outer(x, y)
+        if key == "inner":
+            return panel.inner(x, y)
+        if key == "rule":
+            # `Panel.rule` is a *stroke*: its own zero set is where the line has no
+            # width, so the centreline is where it reads -rule/2.
+            return panel.rule(x, y) + 0.5 * panel.spec["rule"]
+        return panel.boss(int(key[-1]), x, y)
+    return f
+
+
+def test_every_vector_curve_lies_on_its_field():
+    """The guarantee that makes a vector export safe: there is only one geometry.
+
+    A curve is built from ``Panel``'s own numbers -- the same object the raster
+    thresholds -- so every point it was built from has to sit on the zero set of the
+    field the pixels come from.  If this ever fails, the SVG and the PNG have
+    started to disagree about where the panel is, and no amount of shading being
+    absent excuses that.
+
+    The sizes include a panel smaller than its own frame, which is where a corner
+    radius can outgrow its box and the field stops being a distance field at all.
+    Measured across every style, five sizes and three scales, the worst point on any
+    curve is 6.3e-14 -- four orders below the bound, which is what ``exact`` means
+    for a float.
+    """
+    specs = [stylelib.get(name) for name in stylelib.names()]
+    specs.append(stylelib.title_bar(stylelib.get("parchment"), 30.0))
+    worst = 0.0
+    for spec in specs:
+        for size in ((240, 150), (97, 61), (512, 320), (40, 28), (9, 9)):
+            for scale in (1.0, 2.0, 0.5):
+                for kind in paint.KINDS:
+                    panel = framelib.Panel(spec, size, scale)
+                    for key, curve in vectorlib.curves(panel, kind).items():
+                        pts = np.array(curve.on_curve)
+                        f = _field(panel, key)
+                        err = float(np.max(np.abs(f(pts[:, 0], pts[:, 1]))))
+                        worst = max(worst, err)
+    # Floating-point noise, not a tolerance: the curve *is* the zero set.
+    assert worst < 1e-9, worst
+
+
+def test_the_vector_path_is_that_curve_in_screen_coordinates():
+    """SVG is y-down and the world is y-up, and that flip happens exactly once.
+
+    Every point the path is *made of* comes back in the package's world, because
+    that is the frame the fields live in, so the check is that each of those points,
+    flipped, is literally a token in the ``d`` attribute.  A flip that is missed or
+    applied twice is a mirrored asset, and a mirrored scallop is the kind of error
+    only a picture shows -- unless it is written down as a coordinate, which this
+    does.  (The arc samples are checked against the field instead: they are on the
+    curve but not in the text.)
+    """
+    spec = stylelib.get("parchment")
+    for size in ((240, 150), (97, 61)):
+        panel = framelib.Panel(spec, size, 1.0)
+        for kind in paint.KINDS:
+            for key, curve in vectorlib.curves(panel, kind).items():
+                for x, y in curve.vertices:
+                    token = f"{svg.num(x)},{svg.num(-y)}"
+                    assert token in curve.d, (key, token, curve.d[:120])
+
+
+def test_the_ornament_really_is_unmirrored():
+    """The teeth of the test above: an un-flipped scallop does not sit on the field.
+
+    ``boss_radius`` is a Fourier series with a phase, so it is *not* symmetric under
+    negation -- which is why the flip is a real piece of the geometry and not
+    bookkeeping.  If this ever became symmetric, the coordinate test would quietly
+    stop being able to see a missing flip, so the asymmetry is asserted rather than
+    assumed.
+    """
+    panel = framelib.Panel(stylelib.get("slate"), (240, 150), 1.0)
+    harmonics, amp = panel.spec["boss_harmonics"], panel.spec["boss_amp"]
+    bx, by = panel.boss_centre(0)
+    r0 = panel.boss_radius_at(0)
+    wrong = svg.polar(bx, by, lambda t: framelib.boss_radius(t, r0, harmonics, amp))[1]
+    pts = np.array([(x, -y) for x, y in wrong])
+    err = float(np.max(np.abs(panel.boss(0, pts[:, 0], pts[:, 1]))))
+    assert err > 0.05, err
+
+
+def test_the_vector_band_is_the_silhouette_with_its_hole_punched_out():
+    """A hollow frame is a ring, and the ring is one even-odd path.
+
+    Two separately filled paths would leave a band you could see the body through,
+    so the hole is punched with ``fill-rule="evenodd"`` instead -- and the middle of
+    a frame is the place that proves it: the raster's band is out there, and the
+    document's body layer is not.
+    """
+    spec = stylelib.get("slate")
+    panel = framelib.Panel(spec, (240, 150), 1.0)
+    cs = vectorlib.curves(panel, "frame")
+    d = vectorlib.band(cs)
+    assert cs["outer"].d in d and cs["inner"].d in d
+    assert panel.body(0.0, 0.0) > 0.0, "the middle of this panel is not a hole"
+
+    doc = vectorlib.document(spec, (240, 150), kind="frame")
+    assert f'<path d="{d}" fill=' in doc
+    assert 'fill-rule="evenodd"' in doc
+    assert "url(#body)" not in doc, "a hollow frame grew a body"
+
+
+def test_a_panel_too_small_for_its_own_frame_has_no_hole():
+    """Where the band stops being a ring, and the two answers have to agree.
+
+    ``clamp`` keeps a four-pixel floor for a design's corner box, so a three-pixel
+    design can carry a four-pixel band and the inner box turns inside out.  The
+    raster's band is then the whole silhouette (its ``max`` cannot carve a hole), and
+    the vector has to say the same thing rather than cut a hole out of nothing.
+    """
+    spec = stylelib.get("brass")
+    fitted = 0
+    for size in ((9, 9), (17, 17), (40, 28), (240, 150)):
+        for scale in (1.0, 3.0):
+            panel = framelib.Panel(spec, size, scale)
+            _, _, hw, hh = panel.inner_box()
+            assert 0.0 <= panel.outer_radius() <= min(panel.hw, panel.hh)
+            assert 0.0 <= panel.inner_radius() <= max(min(hw, hh), 0.0)
+            assert 0.0 <= panel.rule_radius() <= max(min(hw, hh) - panel.spec["rule_gap"], 0.0)
+            if not panel.has_hole():
+                fitted += 1
+                cs = vectorlib.curves(panel, "frame")
+                assert "inner" not in cs and "rule" not in cs
+                assert vectorlib.band(cs) == cs["outer"].d
+    assert fitted, "no size in the sweep was small enough to exercise this"
+
+
+def test_a_material_body_has_no_vector_form():
+    """A noise field is refused rather than exported flat.
+
+    An export that silently drops the one thing it cannot draw is worse than an
+    error, because it ships: the SVG would claim to be the panel and would not be.
+    So the refusal is the feature, and the message has to name the material and say
+    where to go instead.
+    """
+    spec = stylelib.get("timber")
+    assert spec["material"] != "none"
+    try:
+        vectorlib.document(spec, (160, 100))
+    except ValueError as e:
+        assert spec["material"] in str(e) and "png" in str(e).lower(), str(e)
+    else:
+        raise AssertionError("a material was exported as if it had curves")
+    # And the same style, with the material taken off, is a panel like any other.
+    plain = {**spec, "material": "none"}
+    assert "<svg" in vectorlib.document(plain, (160, 100))
+
+
+def test_the_vector_ramp_is_the_rasters_ramp_sampled():
+    """The one approximation, measured instead of hoped for.
+
+    SVG interpolates between stops in sRGB and the palette interpolates in OKLab, so
+    a ramp is written as sampled stops.  What is claimed is a *bound* on the error,
+    so the stops are compared with the ramp itself at a hundred points between them
+    and the worst disagreement is asserted.  Seventeen stops is comfortably enough:
+    measured across every style and state on the shelf, the worst is 1.4e-5 in OKLab
+    for a step the test still allows a hundred times over -- if a style ever grew a
+    ramp that sampled badly, the number here would move and this would fail.
+    """
+    steps = vectorlib.STOPS
+    worst = 0.0
+    for name in stylelib.names():
+        spec = stylelib.get(name)
+        for state in paint.STATES:
+            body, low, _, _ = paint.tones(spec, state)
+            colours = [body, palette.mix(body, low, spec["gradient"])]
+            stops = np.asarray(palette.ramp(colours, steps))
+            t = np.linspace(0.0, 1.0, 101)
+            exact = palette.ramp_map(colours, t)
+            f = np.clip(t * (steps - 1), 0.0, steps - 1 - 1e-12)
+            i = f.astype(int)
+            frac = (f - i)[:, None]
+            linear = stops[i] * (1.0 - frac) + stops[i + 1] * frac
+            worst = max(worst, max(palette.delta_e(a, b) for a, b in zip(exact, linear)))
+    assert worst < 1e-3, worst
+
+
+def test_a_vector_state_is_a_colour_and_not_a_layout():
+    """The package's oldest invariant, stated where it is exactly true.
+
+    A state is a colour, never a layout, and in a vector that claim is at its
+    plainest: the three states share every ``d`` attribute and differ only in paint.
+    The raster only *nearly* obeys this -- ``pressed`` also turns its bevel round --
+    so the vector is the clean statement of the rule the raster is shaped by.
+    """
+    spec = stylelib.get("parchment")
+    docs = [vectorlib.document(spec, (200, 120), state=state) for state in paint.STATES]
+    geometry = [re.findall(r'd="([^"]*)"', doc) for doc in docs]
+    assert geometry[0] == geometry[1] == geometry[2]
+    assert len(set(docs)) == 3, "the three states drew the same picture"
+
+
+def test_one_vector_serves_every_dpi():
+    """Same design, different output size, identical paths -- that is the payoff.
+
+    The document's user units are design pixels and its width and height are output
+    pixels, so a panel drawn at one design size is *the same file* whether it is
+    handed out at 100 pixels or 200.  An engine rescales it by changing two numbers;
+    nothing is cut, nothing is inset, and there is no mip chain to carry.  This is
+    the opposite trade from the nine-slice, and it is why the export exists.
+    """
+    spec = stylelib.get("moss")
+    small = vectorlib.document(spec, (100, 60), scale=1.0)
+    large = vectorlib.document(spec, (200, 120), scale=2.0)
+    assert re.findall(r'd="([^"]*)"', small) == re.findall(r'd="([^"]*)"', large)
+    assert 'width="100" height="60"' in small
+    assert 'width="200" height="120"' in large
+    assert re.findall(r'viewBox="([^"]*)"', small) == re.findall(r'viewBox="([^"]*)"', large)
+
+
+def test_the_vector_is_deterministic_and_writes_where_it_is_told():
+    spec = stylelib.get("slate")
+    a = vectorlib.document(spec, (240, 150), scale=2)
+    b = vectorlib.document(spec, (240, 150), scale=2)
+    assert a == b, "the same panel wrote two different files"
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "nested" / "panel.svg"
+        out = vectorlib.write(spec, (240, 150), path, scale=2)
+        assert Path(out) == path
+        assert path.read_text(encoding="utf-8") == a
+
+
+def test_the_svg_writer_is_compact_and_never_writes_minus_zero():
+    """A generated file is read by people, so the numbers are the small kind."""
+    assert svg.num(0.0) == "0"
+    assert svg.num(-0.0) == "0"
+    assert svg.num(-0.0001) == "0"
+    assert svg.num(3.0000000000000004) == "3"
+    assert svg.num(-2.5) == "-2.5"
+    assert svg.num(1.0 / 3.0) == "0.333"
 
 
 if __name__ == "__main__":

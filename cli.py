@@ -70,6 +70,7 @@ from gen.ui import frame as ui_frame  # noqa: E402
 from gen.ui import paint as ui_paint  # noqa: E402
 from gen.ui import slice as ui_slice  # noqa: E402
 from gen.ui import style as ui_style  # noqa: E402
+from gen.ui import vector as ui_vector  # noqa: E402
 
 # A single light direction for the whole project.  Consistency of lighting is
 # most of what makes individually generated assets read as one art set.
@@ -939,6 +940,66 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     return _report(out)
 
 
+def _slug(name: str) -> str:
+    """A kit's name as a file name: ``"seed 7"`` into ``"seed-7"``.
+
+    The sheet calls its tiles things like *title bar*, which is a fine label and not
+    a file name, and the two have to agree about which file is which tile.
+    """
+    out = "".join(c if c.isalnum() else "-" for c in name.strip().lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-") or "kit"
+
+
+def demo_vectors(directory: Path, seed: int = 7, count: int = 3, scale: int = 2,
+                 style: str | None = None, prefix: str = "ui") -> Path:
+    """The same kits as SVG: the geometry, for an engine that draws its own chrome.
+
+    A panel is rounded rectangles and a polar ornament, so it is the one asset here
+    with an exact vector form -- and what that buys is the opposite of what the
+    nine-slice buys.  A nine-slice is what you do when the asset is *pixels*: cut it,
+    state the insets, hope the middle stretches.  A vector needs none of that, because
+    the curves are exact at every size, so one file serves every DPI.
+
+    A kit is one file per style, named ``<prefix>.<style>.svg`` and written beside the
+    sheet's own sidecar so the gate finds it: an ``.svg`` is an asset and needs a
+    sidecar for the same reason a PNG does.
+
+    What a vector cannot carry is the light -- the bevel, the dome, the shadow -- and
+    a *material* cannot be carried at all, since wood grain is a noise field.  Those
+    kits are named and left out rather than exported flat: an export that silently
+    drops what it cannot draw is worse than an error, because it ships.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    written, refused = [], []
+    names = [style] if style else ui_style.names()
+    kits = [(name, ui_style.get(name)) for name in names]
+    kits.append(("title bar", ui_style.title_bar(ui_style.get(names[0]), 30.0)))
+    kits += [(f"seed {seed + i}", ui_style.random_style(seed + i)) for i in range(count)]
+
+    for name, spec in kits:
+        path = directory / f"{prefix}.{_slug(name)}.svg"
+        try:
+            ui_vector.write(spec, (240 * scale, 150 * scale), path, scale=scale)
+        except ValueError as why:
+            refused.append((name, str(why)))
+            continue
+        written.append(path)
+        _sidecar(path, seed, "procedural:gen.ui.vector", style=name,
+                 scale=scale, spec=_json_style(spec),
+                 design_size=[240, 150], units="design pixels")
+
+    for path in written:
+        _report(path)
+    for name, why in refused:
+        print(f"  {name}: no vector form -- {why}")
+    if not written:
+        raise ValueError("no kit on this sheet has a vector form")
+    return directory
+
+
 def _realm_record(name: str, colour) -> dict:
     """One realm in the map's sidecar: what it is called, and what it wears.
 
@@ -1343,6 +1404,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
+    demo_vectors(out, seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed)
     demo_factions(out / "factions.png", seed=seed)
@@ -1464,6 +1526,8 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--scale", type=int, default=2, help="pixel density of the kit")
     u.add_argument("--style", default=None, choices=ui_style.names(),
                    help="render one named style instead of all of them")
+    u.add_argument("--svg", action="store_true",
+                   help="also write each kit's vector (SVG) form beside the sheet")
 
     m = sub.add_parser("maps", help="hex maps: terrain, relief and coastline")
     m.add_argument("--out", default="out/maps.png", type=Path)
@@ -1527,6 +1591,9 @@ def main(argv=None) -> int:
     elif args.cmd == "lineage":
         demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
     elif args.cmd == "ui":
+        if args.svg:
+            demo_vectors(args.out.parent, seed=args.seed, count=args.count,
+                         scale=args.scale, style=args.style, prefix=args.out.stem)
         demo_ui(args.out, seed=args.seed, count=args.count, scale=args.scale,
                 style=args.style)
     elif args.cmd == "maps":

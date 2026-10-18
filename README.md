@@ -66,15 +66,16 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
+python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit as SVG
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
-python tests/test_core.py                       # 60 tests, no pytest needed
+python tests/test_core.py                       # 62 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
-python tests/test_ui.py                         # 36 tests
+python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 42 tests
 python tests/test_icons.py                      # 33 tests
@@ -954,6 +955,7 @@ Everything in the package is arranged around that sentence.
 | `slice` | The contract itself — the insets, the nine rectangles, the resample a game engine will perform, and the measurement of what that resample costs. |
 | `paint` | Five passes over one fixed light: shadow, body, band, rule, ornament. |
 | `material` | Wood and stone, out of fBm and Worley noise in design pixels — the body's surface, and the one look here that gives up a stretchable middle on purpose. The lit field is remembered per recipe and window, so a state change costs a multiply. |
+| `vector` | The same panel as curves, in SVG: the silhouette, the hole, the rule and the four ornaments, built from the same `Panel` the raster thresholds. The light is not in it and a material is refused — the two differences that are stated instead of faked. |
 
 ### The one hard geometric rule
 
@@ -1121,6 +1123,79 @@ cold cache and with a warm one and comparing the pictures, not the arrays. Bound
 means `CACHE_MAX = 16`, an ordered map evicted from the front: a cache with no bound
 is a leak wearing a cache's name. A kit of mock windows peaks at 12 live entries, so
 16 is a bound that the thing it bounds never reaches.
+
+### The same panel as curves, and what a vector cannot carry
+
+Every other asset in this project is a picture. A panel is the one that is also a
+*shape*: four rounded rectangles and a polar ornament, and a rounded rectangle is
+four lines and four arcs. So a panel has an exact vector form, and it is worth
+being precise about why it is safe to ship one — a second renderer of the same
+picture is exactly the thing that drifts.
+
+> The paths are built from the same `frame.Panel` the raster pass thresholds.
+
+That is the whole guarantee, and it is checkable: the raster's silhouette *is*
+`coverage(panel.outer)`, so the outer curve has to be the zero set of
+`panel.outer`, and likewise for the hole, the rule's centreline and each ornament.
+`tests/test_ui.py` walks every style, five sizes and three scales, and asks the
+fields about every point the curves were built from: **225,536 points, worst
+6.3e-14**. Not "close" — the same number, in a different notation.
+
+A curve comes back with two point lists, because they answer different questions.
+`vertices` are the eight points the `d` attribute literally contains, which is how
+the flip to SVG's y-down convention is checked: each one, flipped, must be a token
+in the path. `on_curve` adds samples *along* each arc, because an arc that bulged
+the wrong way still joins the same two vertices — a sweep flag is invisible to the
+vertices and obvious to the samples. And the flip is a real piece of geometry, not
+bookkeeping: the ornament's radius is a Fourier series with a phase, so it is *not*
+symmetric under negation, and the test asserts that too (an un-mirrored scallop
+misses its field by 146 pixels, i.e. off the panel).
+
+Two things a vector cannot carry, and both are said out loud rather than faked:
+
+* **the light is not in it.** The moulding's bevel, the ornament's dome and the
+  drop shadow are what `render.shade` does to a distance field, and a bevel is a
+  ramp, not a curve. What is in the file is the geometry and the palette's colours,
+  which is what an engine that draws its own chrome wants anyway — and it is why a
+  `pressed` button in SVG differs from an idle one in nothing but its paint. The
+  raster only *nearly* obeys "a state is a colour, never a layout" (pressing also
+  turns the bevel round); the vector is that rule stated exactly.
+* **a material has no vector form at all.** Wood and stone are noise fields, so a
+  style with one is refused — `ValueError`, naming the material and pointing at the
+  PNG — rather than exported as a flat rectangle. An export that silently drops the
+  one thing it cannot draw is worse than an error, because it ships.
+
+One approximation survives, and it is measured rather than asserted away. SVG
+interpolates between gradient stops in sRGB and `core.palette` interpolates in
+OKLab, so the body ramp is written as **sampled stops**: `STOPS = 17`, which across
+every style and state on the shelf disagrees with the true ramp by at most
+**1.4e-5 in OKLab** at the worst point between two stops. The test allows a
+hundred times that.
+
+What the export *buys* is the opposite of what the nine-slice buys. A nine-slice is
+what you do when the asset is pixels; a vector needs no cuts and no insets at all,
+because the curves are exact at every size. The document's user units are design
+pixels and its width and height are output pixels, so the same design drawn at 100
+pixels and at 200 is *the same paths* with two numbers changed — a test compares
+the two files and finds every `d` attribute identical. One file serves every DPI,
+and there is no mip chain to carry.
+
+Building this turned up a real wart worth recording. `sdf.box` does not clamp its
+corner radius, and `clamp` keeps a four-pixel floor for a design's corner box, so a
+panel small enough to be narrower than its own frame used to round *past* its box:
+the corner arcs crossed over each other, the field stopped being a distance field,
+and the "rounded rectangle" had no exact curve and no exact bevel either. The three
+radii are now fitted to the box they round (`frame.radius_fit`, one definition that
+the fields and the vector both read), and a panel with an inside-out inner box
+simply has no hole — which is what the raster's `max` was already drawing, and what
+`Panel.has_hole` now says out loud.
+
+The vector has eleven tests of its own, and they are mostly the one above wearing
+different hats: every curve on its field, the flip in the coordinates, the ornament
+un-mirrored, the band an even-odd ring with the middle empty (and a frame with no
+body layer at all), a material refused by name, the ramp bounded, the three states
+sharing every `d`, one file across two DPIs, a byte-identical rewrite, and the
+writer's numbers compact and never `-0`.
 
 ## Maps (`gen/maps/`)
 
@@ -1905,7 +1980,16 @@ Generators to sit on top of the core, in the order they become useful:
   reads the material and not a neighbour; the block costs about six percent of the
   sheet and the power-of-two rounding cost is in the sidecar, which is where the demo
   shows the margin pushing a set over an edge and doubling the sheet)*.
-- **export extras** -- SVG for vector UI, ~~atlas packing~~ *(done, as
+- **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the
+  `vector` module in `gen/ui/`: a panel is four rounded rectangles and a polar
+  ornament, so it is the one asset here with an exact vector form. The paths are
+  built from the same `frame.Panel` the raster thresholds, which is what makes the
+  two impossible to drift apart -- a test asserts that every point any curve was
+  built from lies on the zero set of *its* field, 2.3e5 points, worst 6.3e-14. The
+  light is not in it (a bevel is a ramp, not a curve) and a material is refused
+  outright, because an export that silently drops what it cannot draw ships. The
+  payoff is the opposite of the nine-slice's: no cuts, no insets, no mip chain, one
+  file for every DPI)*, ~~atlas packing~~ *(done, as
   `export/atlas.py` and shared with the icons sheet)*, and an ~~`assets.yaml`
   registry carrying `source/license/attribution/seed` for every asset~~
   *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
@@ -1918,13 +2002,12 @@ Generators to sit on top of the core, in the order they become useful:
   owe somebody something it has not recorded are kept apart because they are fixed
   in different places: a curated source missing a field (a property of the code,
   reported with no directory at all), an asset nobody recorded (a picture with no
-  sidecar, or a sidecar naming a source that is neither ours nor curated), and an
-  attribution that is not in the credits *on disk* -- which is the failure mode of
-  forgetting, and happens to honest people.  The gate reports rather than repairs
-  and returns a nonzero exit code, and the credits screen is the one picture
-  exempt from the sidecar rule because it is the attribution itself)*.  Still
-  open here: SVG for vector UI, which is the one asset this project can express
-  exactly as curves and ships as pixels.
+  sidecar -- raster or vector, `credits.PICTURES` is both -- or a sidecar naming a
+  source that is neither ours nor curated), and an attribution that is not in the
+  credits *on disk* -- which is the failure mode of forgetting, and happens to
+  honest people.  The gate reports rather than repairs and returns a nonzero exit
+  code, and the credits screen is the one picture exempt from the sidecar rule
+  because it is the attribution itself)*.
 
 ## Licensing notes
 

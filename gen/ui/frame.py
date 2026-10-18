@@ -23,10 +23,25 @@ from core import sdf
 
 from . import style as stylelib
 
-__all__ = ["Panel", "boss_field", "boss_radius"]
+__all__ = ["Panel", "boss_field", "boss_radius", "radius_fit"]
 
 #: The four corner directions, counter-clockwise from the top left.
 CORNERS = ((-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0))
+
+
+def radius_fit(radius: float, hw: float, hh: float) -> float:
+    """A corner radius can never exceed the box it rounds.
+
+    Past ``min(hw, hh)`` :func:`core.sdf.box` stops being a distance field: the
+    corner arcs cross over each other and the "rounded rectangle" becomes a shape
+    with no exact vector form -- and no exact bevel either, since the bevel is
+    computed from the field's gradient.  A small panel with a wide title band is
+    where it happens, because the band eats the inner box from both sides at once,
+    so the radius gives way the way the rule gives way at a size too small for the
+    frame: the *look* yields, the box is still the box.
+    """
+    return float(min(max(float(radius), 0.0),
+                     max(float(hw), 0.0), max(float(hh), 0.0)))
 
 
 def boss_radius(theta, r0: float, harmonics: int = 7, amp: float = 0.12):
@@ -149,9 +164,30 @@ class Panel:
         return min(stylelib._corner_pair(i, self.spec["border"]))
 
     # ---------------------------------------------------------------- fields
+    def outer_radius(self) -> float:
+        """The silhouette's corner radius.
+
+        Through :func:`radius_fit` like the other two, because at a size too small
+        for the style ``clamp`` cannot bound it by the box (it keeps a 4-pixel floor
+        for a design's corner box) and then the field stops being a distance field.
+        A radius is *derived* here, so the fit has one home rather than three.
+        """
+        return radius_fit(self.spec["radius"], self.hw, self.hh)
+
     def inner_radius(self) -> float:
-        """The inner rectangle's corner radius: the outer one, worn down by the band."""
-        return max(self.spec["radius"] - min(self.spec["border"]), 0.0)
+        """The inner rectangle's corner radius: the outer one, worn down by the band.
+
+        Bounded by the inner box, because a title bar can eat that box down to less
+        than the band is wide -- see :func:`radius_fit`.
+        """
+        _, _, hw, hh = self.inner_box()
+        return radius_fit(self.spec["radius"] - min(self.spec["border"]), hw, hh)
+
+    def rule_radius(self) -> float:
+        """The moulding's corner radius: the inner one again, moved in by the gap."""
+        g = self.spec["rule_gap"]
+        _, _, hw, hh = self.inner_box()
+        return radius_fit(self.inner_radius() - g, hw - g, hh - g)
 
     def inner_box(self) -> tuple:
         """The inner rectangle as ``(cx, cy, hw, hh)``, given the per-side bands.
@@ -165,8 +201,20 @@ class Panel:
         return (0.5 * (l - r), 0.5 * (b - t),
                 self.hw - 0.5 * (l + r), self.hh - 0.5 * (t + b))
 
+    def has_hole(self) -> bool:
+        """Whether the inner rectangle is real.
+
+        A panel can be smaller than its own frame -- a 3-pixel design with a 4-pixel
+        band, which ``clamp``'s corner-box floor permits -- and then the inner box
+        turns inside out and the band is the whole silhouette rather than a ring.
+        That is a shape change and not a detail: there is no hole to cut, so nothing
+        derived from the hole (the rule, the vector band) may pretend there is one.
+        """
+        _, _, hw, hh = self.inner_box()
+        return hw > 0.0 and hh > 0.0
+
     def outer(self, X, Y):
-        return sdf.box(X, Y, self.hw, self.hh, self.spec["radius"])
+        return sdf.box(X, Y, self.hw, self.hh, self.outer_radius())
 
     def inner(self, X, Y):
         cx, cy, hw, hh = self.inner_box()
@@ -180,7 +228,7 @@ class Panel:
         """The inner moulding, as a stroke around the third rounded rectangle."""
         g = self.spec["rule_gap"]
         cx, cy, hw, hh = self.inner_box()
-        d = sdf.box(X - cx, Y - cy, hw - g, hh - g, max(self.inner_radius() - g, 0.0))
+        d = sdf.box(X - cx, Y - cy, hw - g, hh - g, self.rule_radius())
         return np.abs(d) - 0.5 * self.spec["rule"]
 
     def boss_centre(self, i: int) -> tuple:

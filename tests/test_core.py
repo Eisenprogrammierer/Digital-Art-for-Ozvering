@@ -521,6 +521,7 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         cli.demo_palette(d / "palette.png", seed=3, count=2)
         cli.demo_portraits(d / "portraits.png", seed=3, count=2, size=32)
         cli.demo_ui(d / "ui.png", seed=3, count=1, scale=1, style="slate")
+        cli.demo_vectors(d, seed=3, count=1, scale=1, style="slate")
         cli.demo_maps(d / "maps.png", seed=3, count=1, cols=12, rows=8, size=8.0)
         cli.demo_tiles(d / "tiles.png", seed=3, size=64, sim=24, steps=60)
         cli.demo_factions(d / "factions.png", names=["Alder", "Brythmark"], size=48)
@@ -528,8 +529,13 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         assert images == {"icons.png", "icons-atlas.png", "shapes.png", "texture.png",
                           "palette.png", "portraits.png", "ui.png", "maps.png",
                           "tiles.png", "tiles-atlas.png", "factions.png"}
+        # A vector is an asset too, and the manifest lists it as itself rather than
+        # as the PNG it is not.
+        vectors = {p.name for p in d.glob("*.svg")}
+        assert vectors == {"ui.slate.svg", "ui.title-bar.svg", "ui.seed-3.svg"}, vectors
         listed = {e["image"] for e in credits.manifest(d)}
-        assert listed == images
+        assert listed == images | vectors
+        assert not any("no sidecar" in p for p in credits.check(d))
 
         # The UI sidecar also carries the one fact an engine cannot work out from
         # the insets: whether each kit's *middle* survives a resize.  The corners
@@ -564,6 +570,7 @@ def test_the_wrapped_credits_screen_keeps_every_word_of_the_attribution():
         (d / "a.json").write_text(
             '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
             encoding="utf-8")
+        (d / "a.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         for cols in (24, 48, 96):
             rows = credits.screen_lines(d, cols=cols)
             words = " ".join(text for _, text in rows).split()
@@ -740,6 +747,45 @@ def test_the_gate_is_an_exit_code():
         assert cli.main(["credits", "--manifest", str(d), "--check"]) == 0
         (d / "mystery.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         assert cli.main(["credits", "--manifest", str(d), "--check"]) == 1
+
+
+def test_the_gate_asks_a_vector_for_a_sidecar_too():
+    """The rule is about *provenance*, and a curve has provenance like anything else.
+
+    An ``.svg`` with no sidecar is a file nobody can say the origin of, which is the
+    same leak a PNG with no sidecar is -- so the gate walks the pictures it knows how
+    to walk, and both kinds answer to the same rule.  The credits screen stays the
+    one exception, because it is the attribution rather than an asset we made.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        (d / "panel.svg").write_text("<svg/>", encoding="utf-8")
+        problems = credits.check(d)
+        assert any("panel.svg" in p and "no sidecar" in p for p in problems), problems
+        credits.write(d)
+        (d / "panel.json").write_text(
+            '{"seed": 4, "source": "procedural:gen.ui.vector", "license": "MIT"}',
+            encoding="utf-8")
+        problems = credits.check(d)
+        assert not any("panel.svg" in p for p in problems), problems
+        assert not any(credits.SCREEN_NAME in p for p in problems), problems
+
+
+def test_a_sidecar_names_the_picture_that_is_actually_there():
+    """A vector's sidecar must not claim a PNG beside it.
+
+    The manifest is what the shipped credits list is built from, so an entry that
+    names a file the build does not contain is a credit line pointing at nothing.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "far.svg").write_text("<svg/>", encoding="utf-8")
+        (d / "far.json").write_text(
+            '{"seed": 1, "source": "procedural:x", "license": "MIT"}', encoding="utf-8")
+        entries = credits.manifest(d)
+        assert [e["image"] for e in entries] == ["far.svg"], entries
+        credits.write(d)
+        assert "far.svg" in (d / credits.TEXT_NAME).read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -36,14 +36,20 @@ SHADOW = (0.03, 0.03, 0.05)
 STATES = ("idle", "hover", "pressed")
 KINDS = ("panel", "frame")
 
-__all__ = ["LIGHT", "SHADOW", "STATES", "KINDS", "draw", "panel", "frame", "button"]
+__all__ = ["LIGHT", "SHADOW", "STATES", "KINDS", "tones", "draw", "panel", "frame", "button"]
 
 
-def _tones(spec: dict, state: str) -> tuple:
+def tones(spec: dict, state: str) -> tuple:
     """The four colours of one state, lifted or dropped by a fixed amount.
 
     ``pressed`` also inverts the frame's bevel, which is the whole trick: the
     same distance field, the same moulding width, the ramp turned the other way.
+
+    Public because the vector export needs the same four colours: a state is a
+    *colour*, and the vector form is where that claim is at its plainest -- a
+    ``pressed`` button in SVG differs from an idle one in nothing but its paint,
+    which is exactly the invariant the raster only nearly obeys (it also flips a
+    ramp).
     """
     if state == "hover":
         lift = 0.045
@@ -97,7 +103,7 @@ def draw(spec: dict, size, kind: str = "panel", state: str = "idle", scale: floa
 
     p = Panel(spec, size, scale)
     s = p.spec
-    body, body_low, edge, accent = _tones(s, state)
+    body, body_low, edge, accent = tones(s, state)
     c = Canvas(p.w, p.h, scale=scale)
     X, Y = c.grid()
     dx = c.dx

@@ -59,8 +59,29 @@ REQUIRED = ("id", "title", "author", "license", "url", "attribution")
 TEXT_NAME = "credits.txt"
 SCREEN_NAME = "credits.png"
 
+#: The kinds of picture a build can hold.  A vector the same as a raster: an ``.svg``
+#: with no sidecar is a file whose provenance nobody wrote down, which is the same
+#: leak a PNG with no sidecar is -- so the gate walks both, and a new back-end is
+#: covered the day it starts writing.
+PICTURES = (".png", ".svg")
+
 #: Ours, and the prefix every generated sidecar's ``source`` begins with.
 OURS = "procedural:"
+
+
+def _picture(sidecar: Path) -> str:
+    """The picture a sidecar describes, by whatever extension is actually there.
+
+    The extension is *read* rather than assumed: a vector's sidecar must not claim a
+    PNG beside it, because the manifest becomes the shipped credits, and a credit
+    line naming a file the build does not contain points at nothing.  A sidecar with
+    no picture at all -- a broken build rather than a normal one -- falls back to its
+    own stem, which claims no extension either.
+    """
+    for ext in PICTURES:
+        if sidecar.with_suffix(ext).exists():
+            return sidecar.with_suffix(ext).name
+    return sidecar.stem
 
 
 def sources() -> list:
@@ -94,7 +115,7 @@ def manifest(directory) -> list:
         out.append(
             {
                 "sidecar": path.name,
-                "image": path.with_suffix(".png").name,
+                "image": _picture(path),
                 "source": meta.get("source", ""),
                 "license": meta.get("license", ""),
                 "seed": meta.get("seed"),
@@ -145,12 +166,12 @@ def unrecorded(directory) -> list:
     """Assets in a build whose rights nobody wrote down.
 
     A picture is ours only if the sidecar beside it says so: a seed to rebuild it
-    and a ``source`` to rebuild it *from*.  A PNG with no sidecar is an asset whose
-    provenance is unknown, which the licensing notes call out as the usual way a
-    third party's rights leak into a build -- not by being stolen, but by nobody
-    being able to say any more what it is.  The other thing a build holds is *data*,
-    which is not a picture and says so with a ``format`` field instead of a
-    ``source``.
+    and a ``source`` to rebuild it *from*.  A picture with no sidecar -- raster or
+    vector, it makes no difference -- is an asset whose provenance is unknown, which
+    the licensing notes call out as the usual way a third party's rights leak into a
+    build: not by being stolen, but by nobody being able to say any more what it is.
+    The other thing a build holds is *data*, which is not a picture and says so with
+    a ``format`` field instead of a ``source``.
     """
     directory = Path(directory)
     problems = []
@@ -181,9 +202,10 @@ def unrecorded(directory) -> list:
         if not str(meta.get("license") or "").strip():
             problems.append(f"{path.name}: records no licence")
         sidecars.add(path.with_suffix("").name)
-    for png in sorted(directory.glob("*.png")):
-        if png.name != SCREEN_NAME and png.with_suffix("").name not in sidecars:
-            problems.append(f"{png.name}: no sidecar -- no seed, no source, no licence")
+    for ext in PICTURES:
+        for picture in sorted(directory.glob(f"*{ext}")):
+            if picture.name != SCREEN_NAME and picture.stem not in sidecars:
+                problems.append(f"{picture.name}: no sidecar -- no seed, no source, no licence")
     return problems
 
 
