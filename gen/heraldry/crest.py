@@ -35,6 +35,16 @@ shield bears -- the same tinctures, and the same ordinary where the ordinary has
 vexillological equivalent (a cross flies as a cross, a bordure as a border, a bend
 as a hoist triangle) -- and the test asserts that relationship rather than either
 picture.
+
+**The livery.** The name also decides the *pigments*. Heraldry has seven tinctures
+and a game has more factions than that, so two of them will have chosen Azure, and
+on a map they still have to be two different armies. So the same seed draws a
+shade per tincture -- a few steps of hue, chroma and lightness, small enough that
+Azure is still Azure and large enough that two Azures are not one -- and the coat,
+the banner and the shade all come from the name together, which is why a game
+should call ``crest.render`` rather than hand a coat to the renderer itself. The
+shade is stored as integers, so a sidecar can be read: two factions either wear the
+same shade or wear shades a measurable step apart.
 """
 from __future__ import annotations
 
@@ -43,7 +53,8 @@ import unicodedata
 
 from . import blazon, flags, tinctures
 
-__all__ = ["NAMESPACE", "arms", "faction", "flag", "normalise", "seed_from"]
+__all__ = ["NAMESPACE", "arms", "faction", "flag", "normalise", "render", "seed_from",
+           "shade", "shade_table"]
 
 #: Mixed into every name before it is hashed.  It is a *namespace*, not a secret:
 #: its only job is to keep "Alder" here from hashing to the same number as "Alder"
@@ -187,10 +198,45 @@ def flag(name: str, coat: dict | None = None, ratio=(3, 2), shape: str = "rectan
     return flags.plain(field_tincture, ratio=ratio, shape=shape, style=style)
 
 
+def shade(name: str) -> dict:
+    """The faction's livery: how far each tincture is nudged, as integer steps.
+
+    Two houses can both choose Azure -- heraldry has seven colours and a game has
+    more factions than that -- and a player still has to be able to tell their
+    armies apart on a map.  So the same name that picks the coat also picks the
+    *pigment*: a few steps of hue, chroma and lightness per tincture, drawn from
+    the name's own seed, small enough that Azure is still Azure and large enough
+    that two Azures are not one Azure.
+    """
+    return tinctures.random_shade(seed_from(name, "shade"))
+
+
+def shade_table(name: str) -> dict:
+    """The faction's livery as tinctures, ready to hand to a renderer."""
+    return tinctures.shade_table(shade(name))
+
+
+def render(name: str, size=512, which: str = "arms"):
+    """The faction's shield or banner, painted in the faction's own shade.
+
+    This is the entry point a game wants, because it is the one that cannot drift:
+    the coat, the banner and the pigments all come from the name, and there is no
+    way to render a faction's arms in the *classical* palette by forgetting an
+    argument -- forgetting it takes calling :func:`gen.heraldry.blazon.render`
+    yourself.
+    """
+    table = shade_table(name)
+    if which == "arms":
+        return blazon.render(arms(name), size=size, shade=table)
+    if which == "flag":
+        return flags.render(flag(name), size=size, shade=table)
+    raise ValueError(f"a faction is rendered as 'arms' or 'flag', not {which!r}")
+
+
 def faction(name: str, shield: str | None = None, ratio=(3, 2),
             shape: str = "rectangle", charges: bool = True, ordinary: bool = True,
             style: dict | None = None) -> dict:
-    """Everything one name decides: the coat, the banner, and the words for both.
+    """Everything one name decides: the coat, the banner, the livery and the words.
 
     The return value is the asset.  It is JSON-serialisable, it carries both
     languages, and it carries the warnings the arms drew, because a generated coat
@@ -202,6 +248,7 @@ def faction(name: str, shield: str | None = None, ratio=(3, 2),
         "name": " ".join(str(name).split()),
         "key": normalise(name),
         "seed": seed_from(name),
+        "shade": shade(name),
         "arms": coat,
         "flag": banner,
         "blazon": {"en": blazon.blazon_text(coat, "en"),

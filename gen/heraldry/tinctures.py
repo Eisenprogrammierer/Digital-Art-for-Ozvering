@@ -16,10 +16,17 @@ uses it to reject illegal combinations before they are ever rendered.
 Colours are anchored to traditional emblazonment values in sRGB (so they look
 like heraldry) and reasoning happens in OKLCH (so variants and contrast
 measurements are perceptually sound).
+
+The last section is the *livery*: how a faction gets its own shade of the seven
+classical tinctures without leaving the system or re-deriving the contrast rules.
+It is drawn as integers on a fixed budget -- see :data:`SHADE` -- and the budget is
+spent only where the colour has room to spend it, because a shade that the gamut
+quietly clipped is a number in a sidecar that no pixel ever showed.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field as _field
+from functools import lru_cache
 
 import numpy as np
 
@@ -42,6 +49,11 @@ __all__ = [
     "check",
     "contrast",
     "variant",
+    "SHADE",
+    "SHADE_AXES",
+    "random_shade",
+    "shade_table",
+    "shaded",
 ]
 
 
@@ -242,3 +254,179 @@ def variant(name, d_lightness: float = 0.0, d_chroma: float = 0.0, d_hue: float 
         fur=fur,
         classical=False,
     )
+
+
+# --------------------------------------------------------------------------
+# faction shades
+# --------------------------------------------------------------------------
+#: How far a faction's shade may move a tincture, and how many steps that span is
+#: cut into.  A shade is stored as *integers*, one per axis, because "a shade
+#: apart" has to mean something and a continuous nudge cannot promise anything --
+#: two factions either wear the same shade or wear shades a measurable step apart.
+#:
+#: The two classes are given different budgets on purpose.  Argent and Sable are
+#: very nearly neutral, so a hue on them is invisible and a shade of either is a
+#: *lightness*; a colour has chroma to move and a hue to lean, so that is where its
+#: budget goes.  Between them the seven classical tinctures can carry enough shades
+#: that two houses which both chose Azure are not thereby the same house.
+SHADE = {
+    METAL: {"l": (0.16, 8), "c": (0.05, 3), "h": (0.05, 4)},
+    COLOUR: {"l": (0.16, 6), "c": (0.14, 5), "h": (0.09, 6)},
+}
+
+#: The axes, in the order a shade is written in a sidecar.
+SHADE_AXES = ("l", "c", "h")
+
+#: The range a shade is allowed to move *into*.  A budget that runs out of gamut is
+#: a budget that lies: the clip would eat the step, and two factions would be told
+#: apart by a number instead of by a colour.  So every tincture is offered the part
+#: of its budget that has room, and the tests can then check the invariant that
+#: matters -- a shaded tincture is the colour its steps asked for, exactly.
+_L_ROOM = (0.06, 0.97)
+
+#: The smallest colour change a single step is allowed to be worth, in OKLab.  A
+#: tenth of what this project calls "a different tint" -- a step any smaller is a
+#: number in a sidecar rather than a difference on screen, so the direction is
+#: closed instead.  "Two shades apart" has to be true of the picture.
+_MIN_STEP = 0.004
+
+
+def _chroma_room_up(name: str) -> float:
+    """How much chroma this tincture can *gain* before the gamut gives it back.
+
+    Azure at its own lightness already sits on the edge of sRGB, so "more
+    chromatic" is not a shade of it -- it is the same pixel: ``fit_gamut``
+    reproduces it by handing the chroma back, and a budget spent there would be a
+    budget that lies.  So the room is *measured*, by bisecting until the round trip
+    stops being lossless, rather than taken from the table.
+    """
+    lightness, chroma, hue = get(name).lch
+    lo, hi = 0.0, 0.30
+    for _ in range(16):
+        mid = 0.5 * (lo + hi)
+        back = palette.srgb_to_oklch(palette.oklch_to_srgb((lightness, chroma + mid, hue)))
+        if abs(float(back[1]) - (chroma + mid)) < 1e-3:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+@lru_cache(maxsize=None)
+def _room(name: str, axis: str) -> tuple:
+    """How far this tincture can move on ``axis``, in each direction, per its room.
+
+    Two things can make a direction worthless, and both are *measured* rather than
+    assumed, because neither threshold is one anybody can pick by eye:
+
+    * the gamut -- Azure already sits on the edge of sRGB, so "more chromatic" is
+      not a shade of it but the same pixel (see :func:`_chroma_room_up`), and
+      Sable has no room left to go darker;
+    * the colour -- a *hue* on a tincture with 0.0025 chroma is a hue on nothing,
+      and a step there would be a number in a sidecar that never reached a pixel.
+
+    So a direction is offered only if a single step along it buys at least
+    :data:`_MIN_STEP` of colour.  Cached per name, because it costs a bisection and
+    depends on nothing else: a game that shades a faction's whole army pays once.
+    """
+    t = get(name)
+    span, count = SHADE[t.kind][axis]
+    half = span / 2.0
+    if axis == "l":
+        lightness = t.lch[0]
+        lo = -min(half, max(lightness - _L_ROOM[0], 0.0))
+        hi = min(half, max(_L_ROOM[1] - lightness, 0.0))
+    elif axis == "c":
+        lo = -min(half, max(t.lch[1], 0.0))
+        hi = min(half, _chroma_room_up(name))
+    else:
+        lo, hi = -half, half
+    return _live(name, axis, lo, count), _live(name, axis, hi, count)
+
+
+def _live(name: str, axis: str, room: float, count: int) -> float:
+    """The room in one direction, or nothing if a single step there is not a step."""
+    if room == 0.0:
+        return 0.0
+    return room if _moved(name, axis, room / count) >= _MIN_STEP else 0.0
+
+
+def _moved(name: str, axis: str, offset: float) -> float:
+    """How far an ``offset`` of one step along ``axis`` moves the tincture, in OKLab."""
+    lightness, chroma, hue = get(name).lch
+    if axis == "l":
+        lch = (lightness + offset, chroma, hue)
+    elif axis == "c":
+        lch = (lightness, max(chroma + offset, 0.0), hue)
+    else:
+        lch = (lightness, chroma, (hue + offset) % 1.0)
+    return palette.delta_e(get(name).srgb, palette.oklch_to_srgb(lch))
+
+
+def _offset(step: int, count: int, room: tuple) -> float:
+    """Map an integer step onto the room available on the side it moves toward."""
+    if step > 0:
+        return room[1] * (step / count)
+    return room[0] * (-step / count)
+
+
+def random_shade(seed, names=CLASSICAL) -> dict:
+    """A faction's livery, drawn once from a seed, as integer steps per tincture.
+
+    Steps are drawn on every axis and then cleared from the directions that have no
+    room, rather than not drawn at all: the stream stays the same length whatever a
+    tincture can take, and a step that is cleared is a step that would not have
+    changed the picture -- a number in a sidecar that lies about the shield.
+
+    Furs are skipped, and that is not a limitation: a fur is a pattern of two
+    ordinary tinctures, so shading those shades the fur.  Shading a fur *itself*
+    would mean shading something that is not a colour.
+    """
+    rng = np.random.default_rng(int(seed))
+    table = {}
+    for name in names:
+        t = get(name)
+        if t.kind not in SHADE:
+            continue
+        steps = {}
+        for axis in SHADE_AXES:
+            count = SHADE[t.kind][axis][1]
+            step = int(rng.integers(-count, count + 1))
+            room = _room(name, axis)
+            if (step > 0 and room[1] <= 0.0) or (step < 0 and room[0] >= 0.0):
+                step = 0
+            steps[axis] = step
+        table[str(name)] = steps
+    return table
+
+
+def shade_table(table) -> dict:
+    """Turn a faction's integer shade into the tinctures to paint with."""
+    out = {}
+    for name, steps in (table or {}).items():
+        t = get(name)
+        if t.kind not in SHADE:
+            continue
+        deltas = [
+            _offset(int(steps.get(axis, 0)), SHADE[t.kind][axis][1], _room(name, axis))
+            for axis in SHADE_AXES
+        ]
+        out[str(name)] = variant(name, d_lightness=deltas[0], d_chroma=deltas[1],
+                                 d_hue=deltas[2])
+    return out
+
+
+def shaded(name, shade=None):
+    """The tincture to paint when a faction's shade is in force.
+
+    One lookup with one rule: a name in the table is shaded, anything else resolves
+    as itself -- so a table that mentions three tinctures does not have to mention
+    the other four.  A fur's *components* go through the same table, which is what
+    makes a faction with an ermine field distinguishable at all: the fur is the
+    pattern, and the pattern is the two tinctures inside it.
+    """
+    if shade:
+        found = shade.get(str(name))
+        if found is not None:
+            return found
+    return get(name)

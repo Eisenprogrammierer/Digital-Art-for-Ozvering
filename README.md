@@ -37,7 +37,7 @@ every UI part, for every map its biome census, its rivers and its provinces, for
 every tiling texture its seam error, for the icon atlas the rectangle each sprite
 occupies and how densely the sheet packed, and for the factions the *names* they
 were derived from -- which, for that sheet, are the input rather than the seed --
-plus
+the coat each name decided and the livery it is painted in, plus
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -53,7 +53,7 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--flat]
-python cli.py factions --name "Kingdom of Alder"       # a name, and all it decides
+python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
@@ -64,7 +64,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
-python tests/test_heraldry.py                   # 47 tests
+python tests/test_heraldry.py                   # 56 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 46 tests
@@ -262,16 +262,16 @@ is a small compiler, not a drawing routine.
 
 | Module | What it provides |
 | --- | --- |
-| `tinctures` | The tincture table (metals, colours, stains, furs) with the rule of tincture as `check(below, above)`, aliases ("gold" → `or`), and `variant` for faction shades. |
+| `tinctures` | The tincture table (metals, colours, stains, furs) with the rule of tincture as `check(below, above)`, aliases ("gold" → `or`), and the livery: `random_shade` draws a faction's integer shade, `shade_table` resolves it to tinctures, `shaded` looks one name up through it. |
 | `field` | Divisions (per pale/fess/bend/saltire/pall/chevron, quarterly, tierced) and variations (barry, paly, bendy, chevronny, checky, lozengy, gyronny, furs) as *partitions of the plane* into SDF regions, plus `tincture_at`/`field_layers`. |
 | `ordinaries` | Chief, fess, pale, bend, chevron, cross, saltire, pall, pile, canton, bordure: builders, real proportions, `thin` scaling, fimbriation. |
 | `shields` | Shield silhouettes (heater, iberian, french, rounded, oval, lozenge, banner) and flag shapes (rectangle, swallowtail, pennant, guidon) with their proportions. |
 | `charges` | 29 charges built from SDF primitives in a normalised unit box — a lion is a set of capsules and discs, so it reads as a *generated* beast rather than a traced one. |
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
-| `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`. |
-| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`. |
+| `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`, and `render(spec, size, shade=...)` — one extra argument, and the classical palette is what you get without it. |
+| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. |
 | `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected. |
-| `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, and the words for both. |
+| `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, the livery it wears, the words for both, and `render`, which cannot be handed a coat without its colours. |
 
 An asset is a **spec** — a plain dict — and everything else is a view of it:
 
@@ -331,8 +331,64 @@ pretending otherwise would be worse than a bicolour. The test asserts that
 relationship rather than either picture.
 
 `faction()` returns the whole thing as one JSON-serialisable dict — coat, banner,
-both languages, and the validator's warnings, because a generated coat is something
-a person has to be able to review in a sidecar rather than trust.
+livery, both languages, and the validator's warnings, because a generated coat is
+something a person has to be able to review in a sidecar rather than trust.
+
+### The livery
+
+Heraldry has seven classical tinctures and a game has more factions than that. Two
+of them will have chosen Azure, and on a map they still have to read as two
+different armies — so the same name that picks the coat also picks the *pigment*:
+
+```python
+from gen.heraldry import crest
+
+crest.shade("Kingdom of Alder")      # {'or': {'l': -5, 'c': 0, 'h': 3}, ...}
+crest.render("Kingdom of Alder", size=512)            # its shield, in its colours
+crest.render("Kingdom of Alder", size=512, which="flag")
+```
+
+A shade is **three integers per tincture** — one each for lightness, chroma and hue
+— and the integers matter. A continuous nudge would make "two shades apart" a
+promise nobody could check; integers mean two factions either wear the same shade or
+wear shades a step apart, and a test can hold that. The table is in the sidecar, so
+a designer can *read* why a shield came out that colour, and it is drawn from the
+name's own seed, so the livery cannot drift from the coat.
+
+The budget is per class, because the classes have different room. Argent is 0.0025
+chroma and Sable is 0.008: a hue on either is a hue on nothing, so a shade of a
+metal is a *lightness* and a tint, while a colour's budget goes into a hue it can
+actually lean with. And the budget is spent only where the colour has room to spend
+it, which is the part that is measured rather than assumed. Azure at its own
+lightness already sits on the edge of sRGB, so "more chromatic" is not a shade of it
+— `fit_gamut` hands the chroma straight back and the pixel is identical. Left alone
+that would put a number in the sidecar that never reached the screen, so each
+direction is offered only if a single step along it buys at least 0.004 of OKLab
+colour — a tenth of what the rest of this project calls a different tint — and a
+direction below that is *closed* instead. The result is a step that is either
+visible or absent, never a rounding artefact: over three hundred drawn liveries
+there are zero recorded steps that change nothing.
+
+The numbers, measured over forty imaginary factions: a shade moves its tincture by
+0.08–0.12 in OKLab at most (about twice what the map package calls a different
+tint, and well short of the 0.19 that separates Azure from Purpure), thirty-eight
+or thirty-nine of the forty get their own Azure, and the closest two shades *inside
+one coat* come to 0.095. The exception is the extreme: only sixteen of the forty
+get their own Argent, because a white has nowhere to go, and the test says so out
+loud rather than picking a bound low enough to cover the worst case.
+
+Furs are shaded through their *bearings*. Ermine is Argent and Sable in a pattern,
+so the table never mentions the fur — it shades the two ordinary tinctures inside
+it, and two factions whose arms are both Ermine come out two different greys. What
+a shade cannot do is change a tincture's *class*: Or is a metal before the shade and
+a metal after it, so the rule of tincture is exactly as true of a livery as of the
+classical palette, and the test checks the verdicts rather than trusting the
+argument.
+
+Nothing is shaded unless it is asked for. `blazon.render(spec)` and
+`flags.render(spec)` still paint the seven classical tinctures, byte for byte as
+before; a shade is an extra argument, or one call to `crest.render` for the caller
+who would rather not be able to forget it.
 
 ### How the rule of tincture is enforced
 
@@ -998,12 +1054,17 @@ Generators to sit on top of the core, in the order they become useful:
   convention nobody questioned)*; next, quantities and tiers drawn as a badge on the
   plate, and a faction hue table so a faction's icons are its own colours -- the
   charge already owns a hue, so what is missing is a second source of hue that does
-  not fight the first.- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~ and a
-  ~~faction's crest derived from its name as the seed~~ *(done: `gen/heraldry/`, with
-  `crest.py` deriving the seed from a hash of the name rather than Python's salted
-  `hash()`, and deriving the banner from the coat so the two cannot disagree)*;
-  next, faction shades of the tinctures in a sidecar, so two factions can both be
-  azure and still be told apart.
+  not fight the first.
+- **heraldry** -- ~~shields, field divisions, charges, tincture rules~~, a
+  ~~faction's crest derived from its name as the seed~~, and ~~faction shades of the
+  tinctures in a sidecar~~ *(done: `gen/heraldry/`, with `crest.py` deriving the seed
+  from a hash of the name rather than Python's salted `hash()`, deriving the banner
+  from the coat so the two cannot disagree, and deriving a **livery** from the same
+  name -- three integers per tincture, spent only where the colour has room, so two
+  factions that both chose Azure are two Azures and a shade is either a visible step
+  or no step at all)*; next, meeting heraldry on the map: faction colours in the map
+  sidecar, so a province is not just owned but *worn*, which is the first place the
+  livery has to survive being scaled down to a hex.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
   clipping~~ and ~~cloth folds as sinusoidal normal displacement~~ *(done:
   `gen/heraldry/flags.py` and `gen/heraldry/cloth.py`, where one height field

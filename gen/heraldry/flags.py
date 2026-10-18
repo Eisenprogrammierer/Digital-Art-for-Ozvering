@@ -239,20 +239,25 @@ def describe(spec: dict, lang: str = "en") -> str:
     return f"Plain field of {keys[0]}.{tail_en}"
 
 
-def render(spec: dict, size=512, background=None):
+def render(spec: dict, size=512, background=None, shade=None):
     """Render a flag spec (the same renderer as arms), hanging if it is waved.
 
     A wave is part of the spec, so it survives a round trip through a sidecar and
     every caller -- the contact sheet, a faction's banner, a game's own loader --
     gets the same cloth from the same dict.  The margin is widened first: a flag
     that is going to move needs somewhere to move to.
+
+    ``shade`` is a faction's livery; a banner that is flown for a faction is painted
+    in that faction's colours, which is what keeps a shield and its flag from being
+    the same *pattern* in two different pigments.
     """
     wave = spec.get("wave")
     if not wave:
-        return _blazon.render(spec, size=size, background=background)
+        return _blazon.render(spec, size=size, background=background, shade=shade)
     style = dict(spec.get("style", FLAG_STYLE))
     style["margin"] = float(style.get("margin", FLAG_STYLE["margin"])) + 1.6 * _cloth.reach(wave)
-    canvas = _blazon.render({**spec, "style": style}, size=size, background=background)
+    canvas = _blazon.render({**spec, "style": style}, size=size, background=background,
+                            shade=shade)
     return _cloth.hang(canvas, wave)
 
 

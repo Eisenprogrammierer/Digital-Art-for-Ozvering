@@ -15,6 +15,7 @@ Run either way::
 from __future__ import annotations
 
 import hashlib
+import itertools
 import sys
 import tempfile
 from pathlib import Path
@@ -23,6 +24,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from core import palette  # noqa: E402
 from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, shields, tinctures  # noqa: E402
 
 
@@ -647,9 +649,210 @@ def test_every_faction_renders_and_is_json():
             assert float(canvas.a.max()) > 0.5      # something was actually drawn
 
 
+# ------------------------------------------------------------------ livery
+def _shade_tables(count: int = 40):
+    """The livery of ``count`` imaginary factions, as plain integer tables."""
+    return [crest.shade(f"Faction {i}") for i in range(count)]
+
+
+def test_a_shade_keeps_every_tincture_in_its_own_class():
+    """A livery is a pigment, not a re-classification.
+
+    The rule of tincture is a claim about *classes*, so the one thing a shade is
+    not allowed to do is move a tincture across one: Or is a metal before the shade
+    and a metal after it.  This is what lets the whole heraldic guarantee survive
+    the faction colours -- ``validate`` only ever sees names, so if a shade could
+    re-class a tincture the guarantee would be about a different picture than the
+    one that gets drawn.
+    """
+    for name in ("Kingdom of Alder", "Brythmark", "House Delvane", "Faction 7"):
+        table = crest.shade_table(name)
+        assert set(table) <= set(tinctures.CLASSICAL)
+        for key, t in table.items():
+            assert t.kind == tinctures.get(key).kind, key
+        for a, b in itertools.combinations(tinctures.CLASSICAL, 2):
+            assert tinctures.check(a, b)[0] == tinctures.check(table[a], table[b])[0], (a, b)
+
+
+def test_a_shade_is_a_colour_and_not_a_layout():
+    """The UI package's rule, applied to a shield: a state is a colour, never a shape.
+
+    The two renders have to agree pixel for pixel on *coverage* -- an alpha channel
+    that moved would mean a shade had changed a coat's geometry, which would quietly
+    make this a second composition pass rather than a pigment.
+    """
+    f = crest.faction("Kingdom of Alder")
+    table = crest.shade_table("Kingdom of Alder")
+    plain = blazon.render(f["arms"], size=128)
+    shaded = blazon.render(f["arms"], size=128, shade=table)
+    assert np.array_equal(plain.a, shaded.a)
+    assert not np.array_equal(plain.rgb, shaded.rgb)
+    assert float(np.abs(plain.rgb - shaded.rgb).max()) > 0.04
+
+
+def test_a_shade_step_is_a_step():
+    """Every step a sidecar records has to be a difference the picture shows.
+
+    The table is integers precisely so a caller can trust it, which means a step
+    that buys no colour is worse than no step: it makes "two shades apart" untrue.
+    So a direction with no room is closed when the shade is *drawn* (see
+    :func:`gen.heraldry.tinctures._room`), and this checks the other end of that
+    promise -- a step that survived is worth at least what the module calls a step,
+    and a table of zeros is exactly the classical tincture.
+    """
+    for table in _shade_tables(60):
+        shaded = tinctures.shade_table(table)
+        for key, steps in table.items():
+            moved = palette.delta_e(shaded[key].rgb, tinctures.get(key).rgb)
+            if any(steps.values()):
+                assert moved >= tinctures._MIN_STEP, (key, steps, moved)
+            else:
+                assert moved < 1e-9, (key, steps, moved)
+
+
+def test_two_factions_that_chose_the_same_tincture_are_told_apart():
+    """Seven tinctures, more factions than that, and a map to read.
+
+    Two houses can both pick Azure, and on the map they still have to be two
+    colours.  The measurement is over forty names and every classical tincture: the
+    shades have to be *nearly* all different, a step apart when they are, and close
+    enough to the tincture they shade that Azure is still the blue a player calls
+    Azure.
+
+    The floor is per tincture, because the room is: a tincture is told apart by its
+    hue and its chroma, and Argent has 0.0025 of one and 0.003 of the other.  A
+    shade of a white is a lightness and a tint, and there are fewer of those than
+    there are hues -- which the test says out loud rather than hiding behind a bound
+    low enough for the worst case.
+    """
+    tables = _shade_tables(40)
+    for key in tinctures.CLASSICAL:
+        colours = [tinctures.shade_table(t)[key].rgb for t in tables]
+        distinct = {tuple(np.round(c, 4)) for c in colours}
+        floor = 36 if tinctures.get(key).lch[1] >= 0.05 else 12
+        assert len(distinct) >= floor, (key, len(distinct))
+        apart = [palette.delta_e(a, b) for a, b in itertools.combinations(
+            sorted(distinct), 2)]
+        assert min(apart) >= 0.003, (key, min(apart))
+        assert max(palette.delta_e(tinctures.get(key).rgb, c) for c in colours) <= 0.25
+
+
+def test_a_shade_never_collides_with_the_tincture_beside_it():
+    """The cost of a livery, measured: shading can bring two tinctures closer.
+
+    Azure and Purpure are the closest pair in the classical seven, so they are the
+    pair a shade has the most power to ruin.  A floor is checked rather than
+    assumed -- the two may come nearer, they may not meet.
+    """
+    worst, pair = 9.9, None
+    for table in _shade_tables(60):
+        shaded = tinctures.shade_table(table)
+        for a, b in itertools.combinations(tinctures.CLASSICAL, 2):
+            d = palette.delta_e(shaded[a].rgb, shaded[b].rgb)
+            if d < worst:
+                worst, pair = d, (a, b)
+    assert worst >= 0.05, (worst, pair)
+    # and the classical separation of that pair is the headroom it came out of
+    assert tinctures.contrast(*pair) >= worst
+
+
+def test_a_fur_is_shaded_through_its_bearings():
+    """Ermine is Argent and Sable in a pattern, so shading *those* shades it.
+
+    A fur is not a colour, and a table that tried to shade "ermine" itself would be
+    shading a pattern.  Its bearings are ordinary tinctures, though, and they are in
+    every livery -- so two factions whose arms are both Ermine come out two
+    different greys, which is the whole point of the exercise.  Rendered, not
+    asserted from the spec, because the fur is painted as its own two-tincture
+    pattern and the two ways of getting that wrong look identical on paper.
+    """
+    coat = {"field": {"kind": "plain", "tinctures": ["ermine"]},
+            "shield": "heater", "style": {"margin": 0.10}}
+    for key in tinctures.CLASSICAL:
+        assert tinctures.get(key).kind != tinctures.FUR
+    table = tinctures.shade_table({"argent": {"l": -6, "c": 0, "h": 0},
+                                   "sable": {"l": 4, "c": 3, "h": 0}})
+    assert "ermine" not in table                      # the fur itself is skipped
+    plain = blazon.render(coat, size=96)
+    shaded = blazon.render(coat, size=96, shade=table)
+    assert np.array_equal(plain.a, shaded.a)
+    assert float(np.abs(plain.rgb - shaded.rgb).max()) > 0.02
+
+
+def test_a_livery_is_derived_from_the_name_like_everything_else():
+    """One input, one output, and no way to hold the two halves differently.
+
+    ``faction`` carries the livery as integers so a sidecar can be *read* -- a game
+    designer has to be able to see why a shield came out that colour -- and the
+    derivation is the same one the coat came from, so the two cannot drift.
+    """
+    import json
+
+    name = "Kingdom of Alder"
+    shade = crest.shade(name)
+    assert shade == tinctures.random_shade(crest.seed_from(name, "shade"))
+    assert shade == crest.faction(name)["shade"]
+    assert json.loads(json.dumps(shade)) == shade
+    for steps in shade.values():
+        assert set(steps) == set(tinctures.SHADE_AXES)
+        assert all(isinstance(v, int) and not isinstance(v, bool) for v in steps.values())
+    # a fresh process must draw the same livery, for the same reason the coat does
+    import os
+    import subprocess
+
+    root = str(Path(__file__).resolve().parents[1])
+    code = (f"import sys, json; sys.path.insert(0, {root!r});"
+            "from gen.heraldry import crest;"
+            "print(json.dumps(crest.shade('Kingdom of Alder'), sort_keys=True))")
+    outs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           env=dict(os.environ, PYTHONHASHSEED=seed), timeout=120).stdout
+            for seed in ("0", "99")}
+    assert len(outs) == 1
+    assert json.loads(outs.pop()) == shade
+
+
+def test_rendering_without_a_shade_is_untouched():
+    """The classical palette is the default, and ``{}`` is not a special case.
+
+    Everything that renders a coat -- the contact sheets, the blazon CLI, a game
+    that has no factions at all -- must get exactly what it got before there was
+    such a thing as a livery, byte for byte.
+    """
+    for name in ("Kingdom of Alder", "Brythmark", "House Delvane"):
+        f = crest.faction(name)
+        for spec, render in ((f["arms"], blazon.render), (f["flag"], flags.render)):
+            plain = render(spec, size=64)
+            assert np.array_equal(plain.rgb, render(spec, size=64, shade=None).rgb)
+            assert np.array_equal(plain.rgb, render(spec, size=64, shade={}).rgb)
+
+
+def test_one_call_renders_a_faction_in_its_own_livery():
+    """``crest.render`` exists so that the pigments cannot be left behind.
+
+    A faction is a name, and the caller who forgets to pass the shade gets a
+    different picture from the caller who remembers -- which is precisely the kind
+    of drift every other part of this package derives away.  So there is one call
+    that takes the name and returns the shield, and it refuses a word it does not
+    understand rather than falling back to a default that looks plausible.
+    """
+    name = "The Mirefen League"
+    table = crest.shade_table(name)
+    assert np.array_equal(crest.render(name, size=96, which="arms").rgb,
+                          blazon.render(crest.arms(name), size=96, shade=table).rgb)
+    assert np.array_equal(crest.render(name, size=96, which="flag").rgb,
+                          flags.render(crest.flag(name), size=96, shade=table).rgb)
+    assert not np.array_equal(crest.render(name, size=96).rgb,
+                              blazon.render(crest.arms(name), size=96).rgb)
+    try:
+        crest.render(name, which="banner")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a faction is rendered as arms or a flag, not a banner")
+
+
 if __name__ == "__main__":
     import traceback
-
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
     for fn in tests:

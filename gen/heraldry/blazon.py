@@ -163,14 +163,19 @@ def resolve_shape(spec: dict):
 # --------------------------------------------------------------------------
 # composition
 # --------------------------------------------------------------------------
-def compose(spec: dict, field_fn, hw: float, hh: float):
+def compose(spec: dict, field_fn, hw: float, hh: float, shade=None):
     """The full paint list of a spec, as ``(field, tincture, emboss)`` triples.
 
     The ordinary is painted before the charges, and a fimbriation is just a
     wider copy of the ordinary underneath it -- which is exactly what a
     fimbriation is.
+
+    ``shade`` is a faction's table of shaded tinctures; every name the composition
+    asks for goes through it, so a shaded coat is shaded *everywhere* -- field,
+    fimbriation, ordinary and charges alike -- which is the only way a livery can be
+    a livery rather than a filter on part of a shield.
     """
-    layers = [(region, tincture, 0.0) for region, tincture in _field.field_layers(spec.get("field", {"kind": "plain", "tinctures": ["azure"]}), hw, hh)]
+    layers = [(region, tincture, 0.0) for region, tincture in _field.field_layers(spec.get("field", {"kind": "plain", "tinctures": ["azure"]}), hw, hh, shade=shade)]
 
     ord_spec = spec.get("ordinary")
     if ord_spec:
@@ -180,9 +185,9 @@ def compose(spec: dict, field_fn, hw: float, hh: float):
         fim = ord_spec.get("fimbriation")
         if fim:
             wide = _ordinaries.sdf_for(name, hw, hh, thin=thin * float(ord_spec.get("fimbriation_width", 1.45)), dx=dx, dy=dy, field=field_fn)
-            layers.append((wide, _tinctures.get(fim), 0.0))
+            layers.append((wide, _tinctures.shaded(fim, shade), 0.0))
         d = _ordinaries.sdf_for(name, hw, hh, thin=thin, dx=dx, dy=dy, field=field_fn)
-        layers.append((d, _tinctures.get(ord_spec["tincture"]), float(ord_spec.get("emboss", 0.0))))
+        layers.append((d, _tinctures.shaded(ord_spec["tincture"], shade), float(ord_spec.get("emboss", 0.0))))
 
     for ch in spec.get("charges", []):
         name = ch["name"]
@@ -197,12 +202,18 @@ def compose(spec: dict, field_fn, hw: float, hh: float):
         for i, (cx, cy) in enumerate(pts):
             if i >= count:
                 break
-            layers.append((charge_field(name, s, cx, cy), _tinctures.get(tincture), emboss))
+            layers.append((charge_field(name, s, cx, cy), _tinctures.shaded(tincture, shade), emboss))
     return layers
 
 
-def render(spec: dict, size=512, background=None):
-    """Render a spec to a :class:`core.canvas.Canvas`."""
+def render(spec: dict, size=512, background=None, shade=None):
+    """Render a spec to a :class:`core.canvas.Canvas`.
+
+    With no ``shade`` this is the classical palette, which is what every caller
+    that just wants a coat of arms should get.  Passing a faction's table in (see
+    :func:`gen.heraldry.crest.shade_table`) paints its own livery instead: the same
+    geometry, the same light, different pigments.
+    """
     field_fn, hw, hh = resolve_shape(spec)
     style = spec.get("style", {})
     c = _paint.field_canvas(size, hw, hh, margin=float(style.get("margin", 0.08)), background=background)
@@ -210,7 +221,7 @@ def render(spec: dict, size=512, background=None):
     shadow = float(style.get("shadow", 0.34))
     if shadow > 0.0:
         _paint.paint_shadow(c, field_fn, sigma=float(style.get("shadow_sigma", 0.03)), opacity=shadow)
-    layers = compose(spec, field_fn, hw, hh)
+    layers = compose(spec, field_fn, hw, hh, shade=shade)
     for region, tincture, emboss in layers:
         _paint.paint_layers(c, [(region, tincture)], clip=clip, emboss=emboss, bevel=float(style.get("bevel", 0.14)))
     rim = float(style.get("rim", 0.30))

@@ -426,7 +426,7 @@ BUILDERS.update(VARIATIONS)
 # --------------------------------------------------------------------------
 # assembling layers
 # --------------------------------------------------------------------------
-def layers(name: str, palette_names, hw: float, hh: float, **kwargs) -> list:
+def layers(name: str, palette_names, hw: float, hh: float, shade=None, **kwargs) -> list:
     """Build a paint list for a named division or variation.
 
     ``palette_names`` is the list of tinctures from the blazon; region indices
@@ -436,24 +436,24 @@ def layers(name: str, palette_names, hw: float, hh: float, **kwargs) -> list:
     if name not in BUILDERS:
         raise KeyError(f"unknown field division or variation {name!r}; known: {', '.join(sorted(BUILDERS))}")
     pairs = BUILDERS[name](hw, hh, **kwargs)
-    ts = [tinctures.get(t) for t in palette_names]
+    ts = [tinctures.shaded(t, shade) for t in palette_names]
     if not ts:
         raise ValueError("a field needs at least one tincture")
     return [(region, ts[i % len(ts)]) for region, i in pairs]
 
 
-def _plain_layers(tincture, hw: float, hh: float) -> list:
+def _plain_layers(tincture, hw: float, hh: float, shade=None) -> list:
     """A flat field -- or, for a fur, the fur's own two-tincture pattern."""
-    t = tinctures.get(tincture)
+    t = tinctures.shaded(tincture, shade)
     if t.kind == tinctures.FUR and t.key in VARIATIONS:
         base_key, spot_key = t.fur
         pairs = VARIATIONS[t.key](hw, hh)
-        base, spot = tinctures.get(base_key), tinctures.get(spot_key)
+        base, spot = tinctures.shaded(base_key, shade), tinctures.shaded(spot_key, shade)
         return [(region, base if idx == 0 else spot) for region, idx in pairs]
     return [(whole_plane(), t)]
 
 
-def field_layers(spec: dict, hw: float, hh: float) -> list:
+def field_layers(spec: dict, hw: float, hh: float, shade=None) -> list:
     """Turn a field specification into a paint list.
 
     Accepted forms::
@@ -461,20 +461,24 @@ def field_layers(spec: dict, hw: float, hh: float) -> list:
         {"kind": "plain",     "tinctures": ["azure"]}
         {"kind": "division",  "name": "per_pale", "tinctures": ["or", "azure"]}
         {"kind": "variation", "name": "barry", "n": 6, "tinctures": ["or", "azure"]}
+
+    ``shade`` is a faction's table of shaded tinctures (see
+    :func:`gen.heraldry.tinctures.shade_table`); omitted, the classical colours are
+    painted exactly as they are.
     """
     kind = spec.get("kind", "plain")
     if kind == "plain":
         names = spec.get("tinctures") or [spec["tincture"]]
         if len(names) == 1:
-            return _plain_layers(names[0], hw, hh)
-        return [(whole_plane(), tinctures.get(names[0]))]
+            return _plain_layers(names[0], hw, hh, shade=shade)
+        return [(whole_plane(), tinctures.shaded(names[0], shade))]
     # A fur used as a variation takes its tinctures from the fur itself.
     if spec["name"] in tinctures.TINCTURES and tinctures.get(spec["name"]).kind == tinctures.FUR:
-        return _plain_layers(spec["name"], hw, hh)
+        return _plain_layers(spec["name"], hw, hh, shade=shade)
     kwargs = {k: v for k, v in spec.items() if k not in ("kind", "name", "tinctures")}
     if "n" in kwargs:
         kwargs["n"] = int(kwargs["n"])
-    return layers(spec["name"], spec["tinctures"], hw, hh, **kwargs)
+    return layers(spec["name"], spec["tinctures"], hw, hh, shade=shade, **kwargs)
 
 
 def tincture_at(paint_layers, x: float, y: float):

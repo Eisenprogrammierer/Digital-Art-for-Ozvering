@@ -44,6 +44,7 @@ from export import png  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
+from gen.heraldry import tinctures as tinctureslib  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
@@ -1018,6 +1019,11 @@ def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
     the point of the exercise: a faction's identity is a *name*, and the demo has to
     be handed names because that is the only input the generator takes.  Pass your
     own with ``--name`` and the sheet is your game's factions.
+
+    Both tiles are painted in the faction's own shade of the tinctures, not the
+    classical ones.  Seven colours and twelve factions means two of them will have
+    chosen Azure; a player looking at a map has to be able to tell those two apart,
+    and the shade is derived from the same name as the coat, so it cannot drift.
     """
     if not names:
         names = ["Kingdom of Alder", "The Mirefen League", "Brythmark",
@@ -1027,8 +1033,9 @@ def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
 
     tiles = []
     for f in factions:
-        tiles.append(heraldry.render(f["arms"], size=size))
-        tiles.append(flaglib.render(f["flag"], size=size))
+        table = tinctureslib.shade_table(f["shade"])
+        tiles.append(heraldry.render(f["arms"], size=size, shade=table))
+        tiles.append(flaglib.render(f["flag"], size=size, shade=table))
 
     gap = 46
     sheet = render.sheet(tiles, cols=4, gap=gap, background=(0.90, 0.91, 0.94))
@@ -1050,6 +1057,7 @@ def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
             "name": f["name"],
             "key": f["key"],
             "seed": f["seed"],
+            "shade": f["shade"],
             "blazon_en": f["blazon"]["en"],
             "blazon_ru": f["blazon"]["ru"],
             "banner_en": f["description"]["en"],
