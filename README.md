@@ -49,7 +49,7 @@ python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
-python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2
+python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--flat]
 python cli.py factions --name "Kingdom of Alder"       # a name, and all it decides
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -61,7 +61,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
-python tests/test_heraldry.py                   # 39 tests
+python tests/test_heraldry.py                   # 47 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 22 tests
 python tests/test_maps.py                       # 46 tests
@@ -117,6 +117,7 @@ is a small compiler, not a drawing routine.
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
 | `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`. |
 | `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`. |
+| `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected. |
 | `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, and the words for both. |
 
 An asset is a **spec** — a plain dict — and everything else is a view of it:
@@ -204,6 +205,59 @@ tincture, falling back on a single charge at the centre, which always does. Over
 
 Flags are **textile, not armorial**: any two tinctures may touch (real flags do it
 constantly), so the rule is not enforced there and `validate` is advisory.
+
+### A flag is cloth, not paper
+
+Everything else in `gen/heraldry/` paints flat, because heraldry is flat by
+tradition -- a shield is a *sign*, not a surface. A flag is not a sign: it is a
+rectangle of cloth under tension, and a flat flag reads as a picture *of* a flag
+precisely because hanging cloth never stays in a plane.
+
+One height field across the fly, `z(t)`, gives both halves of the effect:
+
+* **The light.** A sinusoid has normals proportional to `(-dz/dt, 0, 1)`, so the
+  Lambert term of *the same light the rest of the project uses* comes out as bands
+  down the flag. Nothing is drawn: the folds are the lighting.
+* **The projection.** Displacing the surface along its own normal moves it out of
+  the screen, which under even a small oblique view shifts the *pattern* across the
+  flag -- the cloth bunches where it comes forward and stretches where it dips. So
+  the displacement is applied to the finished RGBA rather than to a mask, and the
+  silhouette and the design cannot disagree about where the cloth is.
+
+The amplitude grows towards the fly (`taper`), because the hoist is the edge tied
+to the pole: a fold that starts at zero and grows is most of what makes a flag hang
+*from* something rather than sag in mid-air. A second harmonic at an incommensurate
+frequency is added because one sinusoid is a corrugation, and cloth is not
+corrugated.
+
+The parameter that decides whether it works is the **wavelength**, and it is
+shorter than instinct suggests. What the light reads is the *slope* of the fold,
+`amplitude * 2*pi / wavelength`; with a wavelength of half the flag the slope is
+under 10 degrees and the result is a gradient, not a fold.
+
+Two properties are design decisions rather than details. The modulation is centred
+on the flag's own mean illumination, so a fold **redistributes** light instead of
+taking it away and a hanging flag is exactly as bright as a flat one -- which is
+both true of cloth and the only way a contact sheet of them can be read side by
+side. And a flag that is going to move is drawn a little smaller (`cloth.reach`),
+because the edge it would otherwise wave off is the fly, which is the one the eye
+is watching.
+
+Like everything else here it is just a **spec**: `spec["wave"]` is a dict of
+numbers, so it round-trips through a sidecar, and `blazon` still knows nothing
+about any of it. It is also opt-in, so a faction's banner stays flat and a crest
+cannot pick up folds by accident; `cli.py flags` hangs its flags by default, and
+`--flat` is the special case.
+
+The four tests are the four ways to get this wrong. A wave of **zero amplitude
+must be the identity** bit for bit -- the sampler resamples at fractional pixel
+coordinates, so a wrong pixel-centre convention shifts the whole cloth by half a
+pixel, invisibly. The bands must run **across** the folds' axis, measured on a
+plain field so that the only structure in the profile is the light. The same spec
+must have the **same folds at 96 px and at 384 px**, which is what fails if the
+wave is evaluated in pixel coordinates instead of world ones -- the renderer's
+field is a pixel grid, so this is the easy mistake. And the cloth must **stay on
+the canvas** at every proportion and silhouette.
 
 ## Portraits (`gen/portraits/`)
 
@@ -715,8 +769,11 @@ Generators to sit on top of the core, in the order they become useful:
   next, faction shades of the tinctures in a sidecar, so two factions can both be
   azure and still be told apart.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
-  clipping~~ *(done: `gen/heraldry/flags.py`)*; next, cloth folds as sinusoidal
-  normal displacement, so a flag hangs rather than sits.
+  clipping~~ and ~~cloth folds as sinusoidal normal displacement~~ *(done:
+  `gen/heraldry/flags.py` and `gen/heraldry/cloth.py`, where one height field
+  supplies both the lighting and the projection, in world coordinates so that the
+  folds are the same folds at any resolution)*; next, a pole and a fly that trails,
+  so a pennant has a direction to hang from.
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
   heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
   line~~ *(done: a collar stroke, three kinds, one per seed)*; next, turn the head

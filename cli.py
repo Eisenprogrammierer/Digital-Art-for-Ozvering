@@ -13,7 +13,7 @@ Usage
     python cli.py palette --out out/palette.png --seed 3 --count 6
     python cli.py shapes  --out out/shapes.png
     python cli.py arms    --out out/arms.png --seed 7 --count 12
-    python cli.py flags   --out out/flags.png --seed 7 --count 12
+    python cli.py flags   --out out/flags.png --seed 7 --count 12 [--flat]
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
@@ -483,9 +483,14 @@ def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: 
 
 
 def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols: int = 4,
-               ratio=(3, 2), shape: str = "rectangle") -> Path:
-    """Contact sheet of generated flags, described vexillologically."""
-    specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape) for i in range(count)]
+               ratio=(3, 2), shape: str = "rectangle", wave: bool = True) -> Path:
+    """Contact sheet of generated flags, described vexillologically.
+
+    The flags hang by default: one is asked for cloth with ``--flat``, because a
+    flag on a pole is what the asset is, and a flat flag is the special case.
+    """
+    specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape, wave=wave)
+             for i in range(count)]
     tiles = [flaglib.render(spec, size=size) for spec in specs]
 
     gap = 36
@@ -1076,6 +1081,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--ratio", default="3:2", help="flag proportion, e.g. 3:2 or 5:8")
     f.add_argument("--shape", default="rectangle",
                    choices=["rectangle", "swallowtail", "pennant", "guidon"])
+    f.add_argument("--flat", action="store_true",
+                   help="draw the flags in a plane instead of hanging them")
 
     b = sub.add_parser("blazon", help="print the blazon of a coat (and render it)")
     b.add_argument("--seed", type=int, default=5)
@@ -1171,7 +1178,7 @@ def main(argv=None) -> int:
                   shield=args.shield)
     elif args.cmd == "flags":
         demo_flags(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
-                   ratio=_ratio(args.ratio), shape=args.shape)
+                   ratio=_ratio(args.ratio), shape=args.shape, wave=not args.flat)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":

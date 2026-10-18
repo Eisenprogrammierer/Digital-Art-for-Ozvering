@@ -1,0 +1,216 @@
+"""Cloth: a flag hangs, it does not sit.
+
+Every other renderer in this package paints flat, because heraldry is flat by
+tradition -- a shield is a *sign*, not a surface.  A flag is not a sign: it is a
+rectangle of cloth under tension, and the reason a flat flag reads as a picture
+*of* a flag rather than as a flag is precisely that hanging cloth never stays in
+a plane.
+
+Two things make it hang, and they come from one height field:
+
+* **The light.**  A sinusoid ``z(t)`` across the fly has normals proportional to
+  ``(-dz/dt, 0, 1)``, so the Lambert term of *the same light the rest of the
+  project uses* comes out as alternating bands down the flag.  Nothing is drawn:
+  the folds are the lighting.
+* **The projection.**  Displacing the surface along its own normal moves it out
+  of the screen, which under even a small oblique view shifts the *pattern*
+  across the flag -- the cloth bunches where it comes forward and stretches where
+  it dips.  The displacement is therefore applied to the finished RGBA rather
+  than to a mask, so the silhouette and the design cannot disagree about where
+  the cloth is.
+
+The amplitude grows towards the fly (``taper``) because the hoist is the edge
+tied to the pole: a fold that starts at zero and grows is most of what makes a
+flag hang *from* something rather than sag in mid-air.  A second harmonic at a
+different frequency is added because one sinusoid is a corrugation, and cloth is
+not corrugated.
+
+None of it is special-cased in the renderer: like every other asset here, a
+hanging flag is a *spec* -- ``spec["wave"]`` -- so it round-trips through the
+sidecar, and :mod:`gen.heraldry.blazon` still knows nothing about any of it.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from core import render
+
+from . import paint as _paint
+
+#: The single light shared by every generated asset.  A flag lit from the other
+#: side is the fastest way to make it look borrowed.
+LIGHT = _paint.LIGHT
+
+__all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "surface", "hang"]
+
+#: What a flag gets when it is asked to hang and nothing more is said.
+#:
+#: The wavelength is the parameter that matters most, and it is shorter than a
+#: cloth-hanger's instinct suggests: what the light reads is the *slope* of the
+#: fold, ``amplitude * 2*pi / wavelength``, and a long shallow wave is a gradient
+#: rather than a fold.  Three or four folds across a flag, each a few percent
+#: deep, is what a flag on a pole actually looks like.
+DEFAULTS = {
+    "amplitude": 0.035,     # of the flag's extent along the folds' axis
+    "wavelength": 0.30,     # ditto -- a third of the extent is one fold
+    "taper": 0.45,          # amplitude at the hoist, as a fraction of the fly's
+    "harmonic": 0.3,        # strength of the second, higher frequency
+    "shear": 0.5,           # in-plane displacement per unit of height
+    "direction": "vertical",
+}
+
+#: The second harmonic's frequency, as a multiple of the first.  Not a rational
+#: multiple, so the pattern does not repeat exactly along the flag.
+_HARMONIC_RATIO = 1.7
+
+#: How hard the folds catch the light: the Lambert term is scaled about the value
+#: a *flat* flag would have, so the mean brightness is preserved and a fold is a
+#: redistribution of light rather than a darkening.
+CONTRAST = 0.55
+
+
+def wave(seed: int = 0, amplitude=None, wavelength=None, direction=None,
+         taper=None, harmonic=None, shear=None, phase=None) -> dict:
+    """Build a wave spec.  ``seed`` sets the phase; everything else is explicit.
+
+    Three things are refused rather than clamped, because each of them is a
+    silent wrong answer otherwise: a direction that is neither vertical nor
+    horizontal (which would quietly pick one), a negative amplitude (which would
+    mean nothing) and a wavelength of zero (which would divide).
+    """
+    if direction is None:
+        direction = DEFAULTS["direction"]
+    if direction not in ("vertical", "horizontal"):
+        raise ValueError(f"a wave runs vertical or horizontal, not {direction!r}")
+    out = {
+        "amplitude": float(DEFAULTS["amplitude"] if amplitude is None else amplitude),
+        "wavelength": float(DEFAULTS["wavelength"] if wavelength is None else wavelength),
+        "direction": direction,
+        "taper": float(DEFAULTS["taper"] if taper is None else taper),
+        "harmonic": float(DEFAULTS["harmonic"] if harmonic is None else harmonic),
+        "shear": float(DEFAULTS["shear"] if shear is None else shear),
+        "phase": float(phase if phase is not None
+                       else np.random.default_rng(int(seed)).uniform(0.0, 2.0 * np.pi)),
+    }
+    if out["amplitude"] < 0.0:
+        raise ValueError("a fold has a height, not a negative one")
+    if out["wavelength"] <= 0.0:
+        raise ValueError("a wavelength of zero is not a wavelength")
+    return out
+
+
+def reach(spec: dict) -> float:
+    """How far the cloth wanders in-plane, as a fraction of its own extent.
+
+    A flag that is asked to hang needs room for the fly to move, so the renderer
+    shrinks the design by this much before waving it -- otherwise the edge of the
+    cloth would wave off the edge of the canvas, and the flag would be cut off in
+    the one place the eye is looking.
+    """
+    amp = abs(float(spec.get("amplitude", DEFAULTS["amplitude"])))
+    shear = abs(float(spec.get("shear", DEFAULTS["shear"])))
+    harm = abs(float(spec.get("harmonic", DEFAULTS["harmonic"])))
+    return shear * amp * (1.0 + harm)
+
+
+def surface(spec: dict, t, extent: float = 1.0):
+    """The cloth's height at ``t``: 0 at the hoist, 1 at the fly, in world units.
+
+    Normalised by ``1 + harmonic`` so that ``amplitude`` means what it says --
+    the largest displacement the cloth actually makes, not the largest of one of
+    its terms, which is what :func:`reach` needs to be able to trust.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    amp = abs(float(spec["amplitude"]))
+    k = 2.0 * np.pi / max(float(spec["wavelength"]), 1e-9)
+    ph = float(spec.get("phase", 0.0))
+    taper = float(spec.get("taper", DEFAULTS["taper"]))
+    harm = float(spec.get("harmonic", DEFAULTS["harmonic"]))
+    shape = np.sin(k * t + ph) + harm * np.sin(_HARMONIC_RATIO * (k * t + ph))
+    grow = taper + (1.0 - taper) * np.clip(t, 0.0, 1.0)
+    return amp * float(extent) * grow * shape / (1.0 + harm)
+
+
+def _sample(arr, x, y):
+    """Bilinear sample of ``arr`` at float pixel coordinates, zero outside.
+
+    Outside means *transparent*, not clamped: the fold carries the silhouette
+    with it, so a column that has moved off the cloth must arrive empty rather
+    than smeared from the border.
+    """
+    h, w = arr.shape[:2]
+    inside = (x >= 0.0) & (x <= w - 1) & (y >= 0.0) & (y <= h - 1)
+    x = np.clip(x, 0.0, w - 1.0)
+    y = np.clip(y, 0.0, h - 1.0)
+    x0 = np.floor(x)
+    y0 = np.floor(y)
+    fx = x - x0
+    fy = y - y0
+    xi0 = x0.astype(np.int64)
+    yi0 = y0.astype(np.int64)
+    xi1 = np.minimum(xi0 + 1, w - 1)
+    yi1 = np.minimum(yi0 + 1, h - 1)
+    if arr.ndim == 3:
+        fx = fx[..., None]
+        fy = fy[..., None]
+        inside = inside[..., None]
+    top = arr[yi0, xi0] * (1.0 - fx) + arr[yi0, xi1] * fx
+    bot = arr[yi1, xi0] * (1.0 - fx) + arr[yi1, xi1] * fx
+    return (top * (1.0 - fy) + bot * fy) * inside
+
+
+def hang(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST):
+    """Wave and light a finished flag, in place, and return it.
+
+    The pixels are warped first and shaded second, so that the shading belongs to
+    the geometry the eye ends up seeing rather than to the geometry the renderer
+    started with.  RGB is warped *premultiplied*: sampling straight alpha would
+    pull the transparent black around a flag into its own edge, and the edge of a
+    flag is the whole silhouette.
+    """
+    X, Y = canvas.grid()
+    along_x = spec.get("direction", DEFAULTS["direction"]) == "vertical"
+    u = X if along_x else Y
+    lo = float(u.min())
+    extent = float(u.max()) - lo
+    t = (u - lo) / max(extent, 1e-9)
+    z = surface(spec, t, extent)
+
+    # Pixel index of the cloth that lands in each output pixel.  Along the folds'
+    # axis the offset is ``-shear * z`` in world units; across it, nothing moves.
+    shift = abs(float(spec.get("shear", DEFAULTS["shear"]))) * z * canvas.scale
+    ys = np.arange(canvas.h, dtype=np.float64)[:, None] + np.zeros((1, canvas.w))
+    xs = np.arange(canvas.w, dtype=np.float64)[None, :] + np.zeros((canvas.h, 1))
+    if along_x:
+        i_src, j_src = xs - shift, ys
+    else:
+        # Raster rows run downwards while world y runs up, so the same physical
+        # offset is the opposite sign in pixel space.  (This is the mistake the
+        # whole project keeps one eye on: see core.render.height_normals.)
+        i_src = xs
+        j_src = ys + (shift if canvas.y_up else -shift)
+
+    premultiplied = canvas.rgb * canvas.a[..., None]
+    a = _sample(canvas.a, i_src, j_src)
+    rgb = _sample(premultiplied, i_src, j_src)
+    canvas.a = a
+    canvas.rgb = np.divide(rgb, a[..., None], out=np.zeros_like(rgb), where=a[..., None] > 1e-12)
+
+    # The folds are the lighting: the normals of the height field against the one
+    # light.  The modulation is centred on the flag's own mean illumination, so a
+    # fold *redistributes* light rather than taking it away -- a hanging flag is
+    # exactly as bright as a flat one, which is both true of cloth and the only
+    # way a sheet of them can be looked at side by side.
+    n = render.height_normals(z, canvas.dx, canvas.y_up)
+    L = np.asarray([light[0], light[1], 0.65], dtype=np.float64)
+    L = L / max(float(np.linalg.norm(L)), 1e-12)
+    lam = np.clip(n @ L, 0.0, 1.0)
+    flat = float(L[2])
+    inside = canvas.a > 0.5
+    if inside.any():
+        flat = float(lam[inside].mean())
+    factor = 1.0 + float(contrast) * (lam - flat) / max(float(L[2]), 1e-9)
+    weight = np.clip(canvas.a, 0.0, 1.0)
+    canvas.rgb *= (1.0 + (factor - 1.0) * weight)[..., None]
+    np.clip(canvas.rgb, 0.0, 1.0, out=canvas.rgb)
+    return canvas

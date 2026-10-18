@@ -21,15 +21,18 @@ The package mirrors the structure of the tradition itself:
     Composition, validation and blazon text; the random arms generator.
 ``flags``
     Flag layouts, built from the very same primitives.
+``cloth``
+    Why a flag hangs instead of sitting: one height field, lit and projected.
 ``crest``
     A faction's whole identity from its name: the name is the seed, the banner
     flies what the shield bears, and the blazon comes with it in both languages.
 """
-from . import blazon, charges, crest, field, flags, ordinaries, paint, shields, tinctures
+from . import blazon, charges, cloth, crest, field, flags, ordinaries, paint, shields, tinctures
 
 __all__ = [
     "blazon",
     "charges",
+    "cloth",
     "crest",
     "field",
     "flags",

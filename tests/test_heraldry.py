@@ -23,7 +23,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.heraldry import blazon, charges, crest, field, flags, ordinaries, shields, tinctures  # noqa: E402
+from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, shields, tinctures  # noqa: E402
 
 
 # --------------------------------------------------------------- tinctures
@@ -364,6 +364,145 @@ def test_random_flags_are_deterministic_and_render():
         assert img.rgb.shape == (64, 64, 3)
         assert 0.0 <= img.a.min() and img.a.max() <= 1.0
     assert flags.random_flag(seed=1) != flags.random_flag(seed=2)
+
+
+# ---------------------------------------------------------------------- cloth
+def _lum(canvas):
+    """Per-pixel luminance of the *drawn* part of a canvas, NaN elsewhere."""
+    arr = np.asarray(canvas.to_uint8())
+    rgb = arr[..., :3].astype(np.float64)
+    return np.where(arr[..., 3] > 200, rgb.mean(axis=2), np.nan)
+
+
+def test_a_wave_is_a_spec_with_a_phase_from_its_seed():
+    a = cloth.wave(3)
+    assert a == cloth.wave(3)
+    assert a["phase"] != cloth.wave(4)["phase"]
+    assert 0.0 <= a["phase"] <= 2.0 * np.pi
+    assert a["direction"] == "vertical"
+    for wrong in (lambda: cloth.wave(0, direction="diagonal"),
+                  lambda: cloth.wave(0, amplitude=-0.1),
+                  lambda: cloth.wave(0, wavelength=0.0)):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a wave that cannot be drawn should be refused")
+
+
+def test_a_wave_of_zero_amplitude_is_the_identity():
+    """The one case where the wave must be exact rather than merely close.
+
+    Waving resamples the canvas at fractional pixel coordinates, so getting the
+    pixel-centre convention or the half-pixel offset wrong shifts the whole cloth
+    by half a pixel -- invisible, and wrong.  An amplitude of zero says nothing
+    moves; if anything moves anyway, the sampling is off.
+    """
+    spec = flags.random_flag(seed=5, ratio=(3, 2))
+    flat = flags.render(spec, size=128).to_uint8()
+    still = flags.render({**spec, "wave": cloth.wave(1, amplitude=0.0)}, size=128).to_uint8()
+    assert np.array_equal(flat, still)
+
+
+def test_the_cloth_stays_on_the_canvas():
+    """What the widened margin is for.
+
+    Displacing a flag along its folds moves pixels, and the edge they would leave
+    by is the fly -- the one the eye is watching.  So every proportion and every
+    silhouette shape has to keep its border cells empty, at any size.
+    """
+    for ratio in ((3, 2), (1, 1), (5, 3), (2, 3), (3, 5)):
+        for shape in ("rectangle", "swallowtail", "pennant", "guidon"):
+            for size in (64, 160):
+                spec = flags.random_flag(seed=4, ratio=ratio, shape=shape, wave=True)
+                a = flags.render(spec, size=size).a
+                border = max(float(a[0].max()), float(a[-1].max()),
+                             float(a[:, 0].max()), float(a[:, -1].max()))
+                assert border < 1e-6, (ratio, shape, size, border)
+                assert float(a.max()) > 0.9
+
+
+def test_the_folds_redistribute_light_rather_than_taking_it_away():
+    """A hanging flag is as bright as the same flag lying flat.
+
+    Which is both true of cloth and the only way a contact sheet of flags can be
+    read: a wave that simply darkened its flag would ruin the sheet the moment it
+    was switched on.  The comparison is over the cloth only, because a waving flag
+    is drawn a little smaller -- that is the margin doing its job, not a fold.
+    """
+    for seed in (0, 3, 7):
+        spec = flags.random_flag(seed=seed, ratio=(3, 2), wave=True)
+        flat = np.nanmean(_lum(flags.render({k: v for k, v in spec.items() if k != "wave"}, size=192)))
+        hung = np.nanmean(_lum(flags.render(spec, size=192)))
+        assert abs(hung / flat - 1.0) < 0.04, (seed, flat, hung)
+
+
+def test_the_bands_run_across_the_folds_axis():
+    """Vertical folds make vertical bands -- measured, not asserted about the code.
+
+    The illumination of a folded surface varies *across* the fold, so a vertically
+    waved flag must let its columns differ while its rows agree, and a horizontally
+    waved one the other way round.  A plain field is used so that the only
+    structure in the profile is the light: on a bicolour the rows would differ
+    anyway, and the test would pass for the wrong reason.
+    """
+    def spread(canvas):
+        lum = _lum(canvas)
+        return float(np.nanstd(np.nanmean(lum, axis=0))), float(np.nanstd(np.nanmean(lum, axis=1)))
+
+    plain = flags.plain("azure", ratio=(3, 2))
+    shape = cloth.wave(2, amplitude=0.05, wavelength=0.25, harmonic=0.0)
+    vc, vr = spread(flags.render({**plain, "wave": shape}, size=192))
+    hc, hr = spread(flags.render({**plain, "wave": {**shape, "direction": "horizontal"}}, size=192))
+    assert vc > 4.0 * vr, (vc, vr)
+    assert hr > 4.0 * hc, (hc, hr)
+
+
+def test_the_folds_are_the_same_folds_at_any_size():
+    """A fold is a fraction of the flag, not a number of pixels.
+
+    The wave is evaluated in world coordinates, so the same spec at 96 px and at
+    384 px must have the same folds -- not merely the same *number* of them, which
+    is what the dominant frequency of the light profile measures, but the same
+    folds: the three profiles are stretched onto a common axis and compared.  A
+    wave evaluated in pixel coordinates -- the easy mistake, since the renderer's
+    field *is* a pixel grid -- would multiply the folds with the resolution, and
+    neither the frequency nor the comparison would survive that.
+    """
+    spec = {**flags.plain("azure", ratio=(3, 2)),
+            "wave": cloth.wave(3, amplitude=0.05, wavelength=0.25, harmonic=0.0)}
+    profiles, folds = [], []
+    for size in (96, 192, 384):
+        prof = np.nanmean(_lum(flags.render(spec, size=size)), axis=0)
+        prof = prof[~np.isnan(prof)]
+        spectrum = np.fft.rfft(prof - prof.mean())
+        folds.append(int(np.argmax(np.abs(spectrum[1:])) + 1))
+        profiles.append(np.interp(np.linspace(0.0, 1.0, 128),
+                                  np.linspace(0.0, 1.0, len(prof)), prof))
+    assert folds[0] >= 2, folds
+    assert len(set(folds)) == 1, folds
+    for other in profiles[1:]:
+        assert float(np.corrcoef(profiles[0], other)[0, 1]) > 0.99
+        assert float(np.abs(profiles[0] - other).max()) < 6.0
+
+
+def test_a_hanging_flag_survives_a_round_trip_and_a_second_render():
+    import json
+
+    spec = flags.random_flag(seed=4, ratio=(3, 2), wave=True)
+    again = json.loads(json.dumps(spec))
+    assert again["wave"] == spec["wave"]
+    first = flags.render(again, size=96).to_uint8().tobytes()
+    assert first == flags.render(spec, size=96).to_uint8().tobytes()
+    assert len(first) > 0
+
+
+def test_a_crest_banner_flies_flat():
+    """A crest is a sign, not a flag on a pole: the wave is opt-in, so a faction
+    cannot acquire folds by accident, and its banner stays comparable to its shield.
+    """
+    assert "wave" not in crest.faction("Kingdom of Alder")["flag"]
 
 
 # --------------------------------------------------------------- end to end

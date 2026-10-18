@@ -23,6 +23,7 @@ import numpy as np
 
 from . import blazon as _blazon
 from . import charges as _charges
+from . import cloth as _cloth
 from . import ordinaries as _ordinaries
 from . import tinctures as _tinctures
 
@@ -239,8 +240,20 @@ def describe(spec: dict, lang: str = "en") -> str:
 
 
 def render(spec: dict, size=512, background=None):
-    """Render a flag spec (the same renderer as arms)."""
-    return _blazon.render(spec, size=size, background=background)
+    """Render a flag spec (the same renderer as arms), hanging if it is waved.
+
+    A wave is part of the spec, so it survives a round trip through a sidecar and
+    every caller -- the contact sheet, a faction's banner, a game's own loader --
+    gets the same cloth from the same dict.  The margin is widened first: a flag
+    that is going to move needs somewhere to move to.
+    """
+    wave = spec.get("wave")
+    if not wave:
+        return _blazon.render(spec, size=size, background=background)
+    style = dict(spec.get("style", FLAG_STYLE))
+    style["margin"] = float(style.get("margin", FLAG_STYLE["margin"])) + 1.6 * _cloth.reach(wave)
+    canvas = _blazon.render({**spec, "style": style}, size=size, background=background)
+    return _cloth.hang(canvas, wave)
 
 
 #: Flag pattern factories, keyed by name, for the generator and the CLIs.
@@ -294,12 +307,17 @@ def _maybe(rng, pool):
     return _pick(rng, pool) if float(rng.random()) < 0.45 else None
 
 
-def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=None) -> dict:
+def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=None,
+                wave=False) -> dict:
     """Generate a random flag spec.
 
     Real flags break the rule of tincture, so this does too -- but it does keep
     a metal and a colour apart more often than not, because that is what makes a
     flag legible at a distance.
+
+    ``wave`` is off by default: the spec is a flag, and whether it is drawn
+    hanging is the caller's decision.  Pass ``True`` for cloth whose folds are
+    drawn from the same seed, or a dict to pin them.
     """
     rng = np.random.default_rng(seed)
     name = str(rng.choice(list(_FACTORIES)))
@@ -313,4 +331,16 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
         count = int(rng.choice([1, 1, 3]))
         tincture = _pick(rng, [t for t in _POOL if t != spec["field"].get("tinctures", ["argent"])[0]])
         spec["charges"] = [{"name": ch, "count": count, "arrangement": "one" if count == 1 else "three", "tincture": tincture}]
+    # Drawn last, so that asking for cloth cannot change a flag that does not.
+    if wave:
+        pinned = dict(wave) if isinstance(wave, dict) else {}
+        spec["wave"] = _cloth.wave(
+            seed=seed + 101,
+            amplitude=pinned.pop("amplitude", float(rng.uniform(0.028, 0.045))),
+            wavelength=pinned.pop("wavelength", float(rng.uniform(0.22, 0.40))),
+            taper=pinned.pop("taper", float(rng.uniform(0.30, 0.60))),
+            harmonic=pinned.pop("harmonic", float(rng.uniform(0.15, 0.35))),
+            direction=pinned.pop("direction", "vertical"),
+            **pinned,
+        )
     return spec
