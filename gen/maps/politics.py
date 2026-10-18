@@ -118,19 +118,14 @@ _DRAWS = 400
 
 # ------------------------------------------------------------------ colour
 def _tincture(name: str) -> tinctures.Tincture:
-    """The tincture a realm wears: the first tincture of its coat's field.
+    """The tincture a realm wears: the faction's own field, via ``crest``.
 
-    A plain field has one, a division has several, and the first is the one the
-    shield is mostly made of.  A *fur* is a pattern of two tinctures rather than a
-    colour, so it is resolved to the tincture it is made of -- and because that is
-    how the heraldry shades a fur in the first place, the realm still gets its own
-    lightness out of it.
+    The rule -- first tincture of the field, a fur resolved to the tincture it
+    is drawn from -- lives in :func:`gen.heraldry.crest.field_tincture`, because
+    the map is not the only thing that has to know what colour a faction is: its
+    icons wear the same field, and one function is one answer.
     """
-    field = crest.arms(name)["field"]["tinctures"]
-    base = tinctures.get(str(field[0]))
-    if base.fur:
-        return tinctures.get(base.fur[0])
-    return base
+    return crest.field_tincture(name)
 
 
 def waters(grid, res: dict, seas: dict, owners) -> np.ndarray:

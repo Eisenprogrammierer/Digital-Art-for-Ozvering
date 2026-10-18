@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from export import atlas as atlaslib  # noqa: E402
-from gen.icons import motifs, paint  # noqa: E402
+from gen.icons import badge, livery, motifs, paint  # noqa: E402
 
 
 # ------------------------------------------------------------------- helpers
@@ -42,6 +42,40 @@ def _fields(name, spec=None, n: int = 160):
 
 def _iou(a, b) -> float:
     return float((a & b).sum()) / float((a | b).sum())
+
+
+def _components(mask) -> int:
+    """How many separate blobs a boolean grid holds (4-neighbour flood fill).
+
+    The one measurement a *pip* earns: a tier is not "n dots' worth of area", it is
+    n dots, and the only way to be sure the layout did not quietly merge two of
+    them is to count the blobs.
+    """
+    h, w = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    count = 0
+    for r in range(h):
+        for c in range(w):
+            if not mask[r, c] or seen[r, c]:
+                continue
+            count += 1
+            stack = [(r, c)]
+            seen[r, c] = True
+            while stack:
+                y, x = stack.pop()
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    yy, xx = y + dy, x + dx
+                    if 0 <= yy < h and 0 <= xx < w and mask[yy, xx] and not seen[yy, xx]:
+                        seen[yy, xx] = True
+                        stack.append((yy, xx))
+    return count
+
+
+def _badge_marks(spec, margin: float = 0.75, n: int = 240):
+    """A badge's mark field (numeral or pips) on a fixed grid covering the tile."""
+    axis = np.linspace(-1.0, 1.0, n)
+    X, Y = np.meshgrid(axis, axis)
+    return badge.marks(spec, X, Y, margin) < 0
 
 
 def _members(count: int = 6, size: int = 64):
@@ -211,6 +245,296 @@ def test_rendering_is_deterministic_across_processes():
         "sys.path.insert(0, %r);"
         "from gen.icons import paint;"
         "print(hashlib.sha256(paint.icon(21, 128).to_uint8().tobytes()).hexdigest())"
+    )
+    root = str(Path(__file__).resolve().parents[1])
+    seen = set()
+    for salt in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": salt}
+        run = subprocess.run([sys.executable, "-c", code % root], capture_output=True,
+                             text=True, env=env, check=True)
+        seen.add(run.stdout.strip())
+    assert len(seen) == 1, seen
+
+
+# ------------------------------------------------------------------- the badge
+def test_a_badge_is_a_count_or_a_tier_and_never_both():
+    """The two questions a charge cannot answer, and one badge for either.
+
+    A count and a tier are different questions -- "how many" and "how good" -- so a
+    badge carries one of them and asking for both is a caller's bug, refused rather
+    than resolved by an arbitrary precedence.
+    """
+    assert badge.make(3) == {"count": 3}
+    assert badge.make(tier=2) == {"tier": 2}
+    assert badge.make() is None
+    for bad in (lambda: badge.make(3, tier=2), lambda: badge.make(count="many")):
+        try:
+            bad()
+        except (TypeError, ValueError):
+            continue
+        raise AssertionError("an impossible badge was accepted")
+
+
+def test_a_badge_that_cannot_be_drawn_is_refused_not_rounded():
+    """A count of zero is no badge; a count of a hundred is an error, not "99".
+
+    The first is arithmetic -- zero of a thing is not a badge showing nothing -- and
+    the second is the same line ``export.atlas`` draws over an oversized sprite: a
+    silent clip is how half a badge ships, and a badge that shows "99" for a hundred
+    coins is a lie a player would read.
+    """
+    assert badge.make(count=0) is None
+    assert badge.make(tier=0) is None
+    for bad in (lambda: badge.make(count=badge.MAX_COUNT + 1),
+                lambda: badge.make(tier=badge.TIERS + 1)):
+        try:
+            bad()
+        except ValueError:
+            continue
+        raise AssertionError("an undrawable badge was drawn")
+
+
+def test_the_pips_count_the_tier():
+    """A tier is n pips, so the picture has to *have* n of them.
+
+    Measured as connected blobs rather than as area, because area would pass for a
+    layout of four pips merged into two long dashes.  Every tier from one to the
+    most the badge draws is checked, so a wrapping bug in the second row shows up.
+    """
+    for tier in range(1, badge.TIERS + 1):
+        assert _components(_badge_marks(badge.make(tier=tier))) == tier, tier
+
+
+def test_every_count_is_its_own_numeral():
+    """Two counts, two pictures -- including the two-digit ones, which is where a
+    numeral layout can quietly repeat a digit or drop a leading one."""
+    fields = {count: _badge_marks(badge.make(count=count))
+              for count in (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 21, 99)}
+    seen = {mask.tobytes() for mask in fields.values()}
+    assert len(seen) == len(fields), "two counts drew the same numeral"
+
+
+def test_a_badged_icon_is_the_plain_icon_plus_a_badge():
+    """The no-op and the change, both stated.
+
+    An icon with ``badge=None`` must be the icon that existed before badges did,
+    byte for byte -- the whole reason the sixth pass is a branch and not a pass that
+    happens to draw nothing.  And an icon *with* a badge must differ, and only by
+    growing: a badge adds coverage, it never takes the plate away.
+    """
+    plain_spec = motifs.canonical("coin")
+    none_spec = {**plain_spec, "badge": None}
+    plain = paint.draw(plain_spec, 96).to_uint8()
+    same = paint.draw(none_spec, 96).to_uint8()
+    assert np.array_equal(plain, same), "a None badge changed the render"
+
+    badged = paint.draw({**plain_spec, "badge": badge.make(count=12)}, 96).to_uint8()
+    assert not np.array_equal(plain, badged), "a badge drew nothing"
+    assert (badged[..., 3] >= plain[..., 3]).all(), "a badge took coverage away"
+
+
+def test_a_badge_does_not_recolour_the_icon():
+    """The badge is drawn in the icon's own colours, and it proves it two ways:
+
+    the colour table is *identical* with and without one (so the badge introduces no
+    colour the set did not already have), and the pixels it adds are colours already
+    in the plain icon rather than a new hue nobody chose.
+    """
+    plain = motifs.canonical("water")
+    badged = {**plain, "badge": badge.make(tier=3)}
+    for key, value in paint.tints(plain).items():
+        assert np.allclose(paint.tints(badged)[key], value), key
+
+    a = paint.draw(plain, 128).to_uint8()
+    b = paint.draw(badged, 128).to_uint8()
+    palette_plain = {tuple(c) for c in a[a[..., 3] > 200][:, :3]}
+    # Every *opaque* pixel the badge adds is a shade the plain icon already used --
+    # to within the quantization the transfer function does along an edge.
+    added = (b[..., 3] > 200) & ~(a[..., 3] > 200)
+    if added.any():
+        known = np.array(sorted(palette_plain), dtype=np.float64)
+        for pixel in b[added][:, :3].astype(np.float64):
+            assert (np.abs(known - pixel).max(axis=1) < 24).any(), tuple(pixel)
+
+
+def test_a_badge_reaches_a_size_where_it_reads_and_never_the_tile_edge():
+    """Two claims about the badge's size, at the two ends of the scale.
+
+    It reads: at 48 px a badged icon carries measurably more lightness spread than
+    the same icon without one, so the badge is a mark and not a smudge.  And it
+    fits: at 16 px, where the margin is a single pixel, the badge still does not
+    touch the tile -- so it cannot bleed into a neighbour in an atlas.
+    """
+    for name in motifs.KINDS:
+        plain = paint.draw(motifs.canonical(name), 48)
+        badged = paint.draw({**motifs.canonical(name), "badge": badge.make(tier=3)}, 48)
+        assert paint.contrast(badged) >= paint.contrast(plain) - 1e-9, name
+
+    for size in (16, 24, 32, 64, 256):
+        for name in motifs.KINDS:
+            for spec in (badge.make(count=badge.MAX_COUNT), badge.make(tier=badge.TIERS)):
+                a = paint.draw({**motifs.canonical(name), "badge": spec}, size).a
+                edge = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+                assert edge.max() < 0.1, (name, size, spec, float(edge.max()))
+
+
+def test_a_badge_breaks_the_silhouette_where_it_should():
+    """A badge sits *on the corner*, so on a plate that does not reach its corners
+    it is the one part of an icon outside the plate -- which is what makes it a
+    badge.  On a round plate it is inside, and that is fine too."""
+    inside = {"round"}
+    for plate in motifs.PLATES:
+        base = {**motifs.canonical("coin"), "plate": plate}
+        plain = paint.silhouette(paint.draw(base, 128))
+        badged = paint.silhouette(paint.draw({**base, "badge": badge.make(count=12)}, 128))
+        if plate in inside:
+            assert abs(badged - plain) < 1e-6, plate
+        else:
+            assert badged > plain, plate
+
+
+# ------------------------------------------------------------------ the livery
+#: The demo's own roster, so the test measures the names the game actually ships.
+_FACTIONS = ["Kingdom of Alder", "The Mirefen League", "Brythmark",
+             "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
+             "Vale of Craymoor", "House Delvane"]
+
+
+def test_a_faction_s_hue_is_the_hue_its_provinces_are_washed_in():
+    """The map and the icon set answer with one number.
+
+    A faction's colour is derived once, in ``crest.field_tincture``, and both the
+    province wash and the icon plate read it -- so this is not "the two agree", it is
+    "there is only one of them".  A drift here would be a faction whose banner is
+    blue and whose provinces are green.
+
+    Only *chromatic* factions are compared, and not as a concession: a metal has no
+    chroma, so the hue of its grey is numerical noise in both places and comparing
+    the two noises would be measuring nothing.  That a metal has no hue is asserted
+    where it matters -- in the chroma test below.
+    """
+    from core import palette as colours
+    from gen.maps import politics
+    checked = 0
+    for name in _FACTIONS:
+        if livery.lch(name)[1] < livery.NEUTRAL:
+            continue
+        washed = float(colours.srgb_to_oklch(politics.wash(name))[2])
+        # Not an exact equality: the wash is an sRGB colour and the hue is read back
+        # out of it, so the round trip through the transfer function costs the last
+        # few digits.  A ten-thousandth of a turn is a thousand times tighter than
+        # the smallest hue a plate could show.
+        assert abs(livery.hue(name) - washed) < 1e-4, name
+        checked += 1
+    assert checked >= 2, f"only {checked} chromatic factions in the roster"
+
+
+def test_a_faction_tints_the_plate_and_leaves_the_charge_alone():
+    """The second hue source, stated as an equality and an inequality.
+
+    The charge -- the kind's hue, chroma and lightness -- is *identical* before and
+    after, so a faction never makes water stop being blue.  The plate does move, for
+    every kind, and to the *same* colour: one faction, one ground, whatever the
+    charge on it is.
+    """
+    for name in _FACTIONS:
+        plates = []
+        for kind in motifs.KINDS:
+            plain = motifs.canonical(kind)
+            tinted = livery.tint(plain, name)
+            assert tinted["hue"] == plain["hue"]
+            assert tinted["chroma"] == plain["chroma"]
+            assert tinted["light"] == plain["light"]
+            assert np.allclose(paint.tints(tinted)["charge"], paint.tints(plain)["charge"])
+            assert abs(tinted["plate_hue"] - livery.hue(name)) < 1e-12
+            assert not np.allclose(paint.tints(tinted)["plate"], paint.tints(plain)["plate"])
+            plates.append(paint.tints(tinted)["plate"])
+        assert all(np.allclose(p, plates[0]) for p in plates), name
+
+
+def test_a_chromatic_faction_wears_a_colour_and_a_metal_wears_a_grey():
+    """The rule the map uses, carried to a plate.
+
+    A colour gives a plate with chroma on it, so a faction is a *colour* and not
+    just a shade of grey; a metal or the black gives a plate with almost none, and
+    is told apart by lightness -- exactly as Or and Argent are everywhere else.  The
+    roster is searched for one of each rather than asserting against a typed-in hue,
+    because the tincture table is the authority and a test should not outlive it.
+    """
+    from core import palette as colours
+    chromatic = neutral = None
+    for index in range(400):
+        name = f"House Test {index}"
+        worn_chroma = livery.lch(name)[1]
+        if chromatic is None and worn_chroma > 0.05:
+            chromatic = name
+        if neutral is None and worn_chroma < livery.NEUTRAL:
+            neutral = name
+        if chromatic and neutral:
+            break
+    assert chromatic and neutral, "the roster search found no metal and no colour"
+    assert livery.chroma(chromatic) > livery.NEUTRAL, livery.chroma(chromatic)
+    assert livery.chroma(neutral) < 0.02, livery.chroma(neutral)
+    grey = paint.tints(livery.tint(motifs.canonical("coin"), neutral))["plate"]
+    assert float(colours.srgb_to_oklch(grey)[1]) < 0.02, "a metal wore a colour"
+
+
+def test_a_livery_moves_the_plate_s_lightness_so_two_metals_differ():
+    """A metal has no hue to wear, so lightness is what tells two of them apart.
+
+    The map draws the same line -- a metal wears a grey and is read by how dark it
+    is -- and a plate spends the livery's lightness step the same way.  Two factions
+    with no colour at all still end up with two grounds; the bound is what stops a
+    plate drifting so light that it stops being a ground for a bright charge.
+    """
+    from core import palette as colours
+    greys = []
+    for index in range(300):
+        name = f"House Grey {index}"
+        if livery.lch(name)[1] >= livery.NEUTRAL:
+            continue
+        tinted = livery.tint(motifs.canonical("coin"), name)
+        assert 0.10 <= tinted["plate_light"] <= 0.56, tinted["plate_light"]
+        greys.append(paint.tints(tinted)["plate"])
+        if len(greys) >= 40:
+            break
+    assert len(greys) >= 4, len(greys)
+    spread = max(colours.delta_e(a, b) for a in greys for b in greys)
+    assert spread > 0.05, spread
+
+
+def test_two_factions_render_one_kind_as_two_grounds():
+    """What the whole thing is for: the same coin, in two factions' colours.
+
+    The demo roster is held to *variety*, not to pairwise distinctness, because
+    pairwise distinctness is not a promise the rule makes: two factions that both
+    drew a neutral tincture wear the same grey -- the limit the map answers with a
+    drawn roster, and worth knowing rather than asserting away.  What is promised is
+    that a roster of factions is a spread of grounds, and it is checked on the
+    rendered plate colour rather than on the hues, so a bug that produced eight hues
+    and one grey plate would fail here.
+    """
+    from core import palette as colours
+    plates = [paint.tints(livery.tint(motifs.canonical("coin"), name))["plate"]
+              for name in _FACTIONS]
+    spread = max(colours.delta_e(a, b) for a in plates for b in plates)
+    distinct = {tuple(np.round(c, 3)) for c in plates}
+    assert len(distinct) >= 4, distinct
+    assert spread > 0.10, spread
+
+
+def test_a_badged_livery_icon_is_the_same_in_another_process():
+    """The whole increment through one door: a faction's icon, with a badge, derived
+    from a name and a count, byte-identical in a fresh interpreter with a different
+    hash seed -- because the faction's hue is a blake2b of the name, not ``hash()``.
+    """
+    code = (
+        "import sys, hashlib;"
+        "sys.path.insert(0, %r);"
+        "from gen.icons import badge, livery, motifs, paint;"
+        "s = livery.tint({**motifs.canonical('coin'), 'badge': badge.make(count=12)},"
+        "                'Kingdom of Alder');"
+        "print(hashlib.sha256(paint.draw(s, 96).to_uint8().tobytes()).hexdigest())"
     )
     root = str(Path(__file__).resolve().parents[1])
     seen = set()

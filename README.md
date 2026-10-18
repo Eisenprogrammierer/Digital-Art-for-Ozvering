@@ -37,7 +37,8 @@ seed, the spec, the blazon, the genome of every portrait tile, the corner insets
 every UI part, for every map its biome census, its rivers, its roads, its realms, its
 provinces and the sea provinces with the realms that hold them, for every tiling
 texture its seam error and how many tiles its tiling used, for the two atlases the
-rectangle each sprite or tile occupies and how densely the sheet packed, and for the
+rectangle each sprite or tile occupies and how densely the sheet packed, for the
+icons the tiers and counts it badged and the factions it dressed a set in, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
@@ -53,7 +54,7 @@ the sidecars are *for*.
 ```bash
 python cli.py demo    --out out --seed 7        # everything
 python cli.py icons   --out out/icons.png --seed 3 --count 8 --size 192 \
-                      --sizes 32,64,128 --cols 9   # set, seeds, mip sweep, atlas
+                      --sizes 32,64,128 --cols 9   # set, seed, badges, faction plate, atlas
 python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
@@ -75,7 +76,7 @@ python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 42 tests
-python tests/test_icons.py                      # 19 tests
+python tests/test_icons.py                      # 33 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -122,14 +123,18 @@ gets looked at, not a single icon.
 | Module | What it provides |
 | --- | --- |
 | `motifs` | The charge vocabulary -- nine symbols, each a distance field in a normalised box -- the four plate shapes, and `random_spec(seed, kind)`, which turns a seed into a spec without ever changing *which* charge was asked for. |
-| `paint` | `draw(spec, size)`: the five passes. Plus `clamp`/`validate` on the spec, and the two measurements the tests hold an icon to, `silhouette` and `contrast`. |
+| `paint` | `draw(spec, size)`: the five passes, plus a badge when the spec carries one. Plus `clamp`/`validate` on the spec, and the two measurements the tests hold an icon to, `silhouette` and `contrast`. |
+| `badge` | A **count** or a **tier** on the plate's corner: `make(count=12)` draws a numeral, `make(tier=3)` a row of pips, and `clamp` refuses a badge it cannot draw rather than rounding one. |
+| `livery` | A faction's **own colours**, worn on the plate: `hue`/`chroma`/`light_step` read from the coat, and `tint(spec, name)` dresses a spec without ever touching the charge. |
 | `export.atlas` | `trim`, `pack`, `build`: a set of canvases in, one sheet plus the rectangle table out, with the density of the packing measured rather than asserted. |
 
 ```python
-from gen.icons import motifs, paint
+from gen.icons import badge, livery, motifs, paint
 from export import atlas
 
 tile = paint.draw(motifs.canonical("grain"), 128)   # one icon, drawn at 128
+stack = paint.draw({**motifs.canonical("coin"), "badge": badge.make(count=12)}, 64)
+alder = paint.draw(livery.tint(motifs.canonical("coin"), "Kingdom of Alder"), 64)
 sheet, info = atlas.build([("grain", tile), ("coin", paint.icon(7, 128))])
 info["density"]                                      # 0.9.. how much of it is sprite
 info["members"][0]["rect"]                           # [x, y, w, h] for the engine
@@ -200,6 +205,12 @@ is drawn by it:
 5. **charge** -- the symbol itself, embossed with a shallower bevel than the
    plate's, because the symbol is small and a deep bevel eats it.
 
+There is a sixth pass, the **badge**, and it is not in this list because it is not
+always there: it is drawn only when a spec carries one, on top of the other five,
+and it is the one part of an icon allowed outside the plate's silhouette. It has its
+own section below, because the reason for it is a question the construction so far
+cannot answer.
+
 Every one of those passes is lit by the same `LIGHT = (-0.45, 0.65)` as the
 heraldry, the portraits, the UI and the maps, and `tests/test_textures.py` asserts
 it -- one light across the project is most of what makes individually generated
@@ -214,6 +225,60 @@ in world units, an icon never touches the edge of its own tile at any size -- wh
 matters more than it sounds, because at 16 px one world unit of margin is a single
 pixel, and an icon that reached its own edge would bleed into its neighbour in an
 atlas.
+
+### A charge cannot say how many
+
+An icon's charge says *what* a thing is, and there is nothing in a coin that can say
+*twelve*. That is a second question, and it gets a second, smaller answer: a
+**badge** pinned to the plate's lower-right corner, which is the plate-and-charge
+construction one level down -- a small disc with a small mark on it, drawn in the
+icon's own colours, so it adds no hue to the set and no fifth thing for a player to
+learn.
+
+The two questions a badge answers are not the same question, and they are not drawn
+the same way. A **quantity** is a count and a count can be ninety-nine, so it is a
+*numeral* -- seven bars per digit, in the arrangement a calculator uses, because a
+digit made of seven bars is a symbol for a numeral the way a ring is a symbol for a
+coin, and it survives a small size where a serif does not. A **tier** is an ordinal
+rank and ranks are few, so it is a row of **pips**: a "2" in a corner is ambiguous
+the moment the icon also carries a quantity of two, and two dots under it are not.
+The tests hold a pip to what a pip is -- the number of separate blobs in the mark
+*is* the tier, counted from one to five, so a second row that quietly merged two of
+them would fail -- and hold every numeral to being its own picture, two digits
+included.
+
+The badge is *data*, not design: a charge is chosen by the seed, a count is chosen by
+the game, so `random_spec` never fills a badge in and a spec with `badge=None`
+renders byte-for-byte as it did before badges existed. What a badge may not do is
+lie: a count larger than the badge can hold is refused rather than shown as "99" --
+the same line `export.atlas` draws over an oversized sprite -- and a count of zero is
+not a badge showing nothing, it is no badge. The honest limit is stated rather than
+hidden: at 32 px a two-digit numeral is a *mark* and not a number, and the badge is
+built to read at the sizes a count is actually consulted at.
+
+### A faction's icons are its own colours
+
+An icon is read by colour before it is read by shape, and until there is a faction
+that colour belongs to the *kind*: every coin the same amber, in every kingdom. A
+faction needs a second colour, and what makes that work is giving it somewhere to go
+that does not fight the first. The charge keeps the kind's hue -- water is the colour
+of water in every faction -- and the **plate** takes the faction's: the ground, the
+rim and the recess are the large surface, and a large surface is where a faction
+belongs. Two hues, then, one the ground and one the figure, which is exactly how a
+coat of arms is arranged and why it does not read as two colours arguing.
+
+The faction's colour is not a new kind of number. It is the first tincture of the
+faction's field, worn at the livery's own shade -- the same
+`gen.heraldry.crest.field_tincture` the map washes its provinces with, so a faction's
+icons and its provinces cannot drift apart, and the test asserts that equality rather
+than trusting it. The plate's chroma is proportional to the tincture's, so a colour
+gives a coloured ground and a **metal gives a grey one**: Or is a gold plate, Argent a
+grey, and two metals are told apart by lightness -- the livery's light step, gained
+and squashed through the same saturating map the map uses -- which is exactly how Or
+and Argent are told apart everywhere else in this project. The charge's hue, its
+chroma and its lightness are left *exactly* as they were, so a faction never makes
+water stop being blue, and one faction wears one plate colour across the whole set
+whatever charge is on it.
 
 ### An atlas moves sprites; it does not redraw them
 
@@ -1601,17 +1666,21 @@ this package being about *properties* rather than about pixels.
 
 Generators to sit on top of the core, in the order they become useful:
 
-- **icons** -- ~~resource/unit icons, atlas packing, `--size` sweep for mip levels~~
-  *(done: `gen/icons/`, where an icon is a plate with a charge on it and a set
-  shares one plate; the charges are symbols rather than depictions because a sword
-  drawn honestly is a smudge at 32 px; the five passes, the margin and the bevel are
-  world units, so the 32 px icon is *drawn* small rather than resized down; and
-  `export/atlas.py` trims, packs and reports the density of the sheet, which is how
-  the cost of power-of-two dimensions became a number in the sidecar instead of a
-  convention nobody questioned)*; next, quantities and tiers drawn as a badge on the
-  plate, and a faction hue table so a faction's icons are its own colours -- the
-  charge already owns a hue, so what is missing is a second source of hue that does
-  not fight the first.
+- **icons** -- ~~resource/unit icons, atlas packing, `--size` sweep for mip levels~~,
+  ~~quantities and tiers drawn as a badge on the plate~~ and ~~a faction hue table so
+  a faction's icons are its own colours~~ *(done: `gen/icons/`, where an icon is a
+  plate with a charge on it and a set shares one plate; the charges are symbols
+  rather than depictions because a sword drawn honestly is a smudge at 32 px; the
+  passes, the margin and the bevel are world units, so the 32 px icon is *drawn*
+  small rather than resized down; `export/atlas.py` trims, packs and reports the
+  density of the sheet, which is how the cost of power-of-two dimensions became a
+  number in the sidecar instead of a convention nobody questioned; `badge.py` gives a
+  count a seven-segment numeral and a tier a row of pips, in the icon's own colours
+  and refused rather than rounded when it cannot be drawn; and `livery.py` lets a
+  faction's own field dress the **plate** while the charge keeps the kind's hue, so
+  the second source of hue lands on the ground and does not fight the first -- read
+  from `crest.field_tincture`, the same place the map reads its wash, so the two
+  cannot disagree)*.
 - **heraldry** -- ~~shields, field divisions, charges, tincture rules~~, a
   ~~faction's crest derived from its name as the seed~~, and ~~faction shades of the
   tinctures in a sidecar~~ *(done: `gen/heraldry/`, with `crest.py` deriving the seed
@@ -1622,7 +1691,8 @@ Generators to sit on top of the core, in the order they become useful:
   or no step at all)*; ~~meeting heraldry on the map~~ *(done, in the maps:
   `gen/maps/politics.py` washes a realm's provinces in its own field tincture down
   to a 13 px hex, which is the first place the livery had to survive being spent)*
-  -- the heraldry is whole, and the next thing to wear it is a faction's icons.
+  -- the heraldry is whole, and it dresses four things now: a shield, a banner, a
+  province and (in the icons) a plate.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
   clipping~~, ~~cloth folds as sinusoidal normal displacement~~, ~~a pole and a fly
   that trails~~ and ~~a gonfalon hung from a crossbar~~ *(done: `gen/heraldry/`,

@@ -16,7 +16,15 @@ The construction is a **plate** with a **charge** on it:
 
 The colour script is one hue and four lightnesses (plate, rim, recess, charge),
 so a resource icon is read by colour before it is read by shape, and two icons of
-different kinds still look like they came from the same game.
+different kinds still look like they came from the same game.  A **faction** adds a
+second hue, and it has somewhere to go that does not fight the first: the plate
+takes the faction's field and the charge keeps the kind's, so ``livery`` can dress
+a whole set in a faction's own colours without any icon forgetting what it means.
+
+An icon's charge says *what* it is; it cannot say *how many* or *how good*.  That
+second question gets a **badge** on the plate's corner -- a numeral for a count, a
+row of pips for a tier -- which is the plate-and-charge construction one level
+down and is drawn in the icon's own colours.  See ``badge``.
 
 Everything is in **world units** on the unit square and rendered at whatever size
 is asked for, so ``--sizes 32,64,128`` generates three drawings rather than one
@@ -24,18 +32,20 @@ drawing and two resizes -- and the small ones are the ones that matter.
 
 Typical use::
 
-    from gen.icons import paint, motifs
+    from gen.icons import badge, livery, motifs, paint
     tile = paint.draw(motifs.canonical("grain"), 128)
     any_icon = paint.icon(seed=7, size=64)
+    stacked = paint.draw({**motifs.canonical("coin"), "badge": badge.make(count=12)}, 64)
+    alder = paint.draw(livery.tint(motifs.canonical("coin"), "Kingdom of Alder"), 64)
 
 ``export.atlas`` is the companion: it trims a set of these, packs them into one
 image and writes the table of rectangles an engine needs.
 """
 from __future__ import annotations
 
-from . import motifs, paint
+from . import badge, livery, motifs, paint
 
-__all__ = ["motifs", "paint", "draw", "icon", "canonical"]
+__all__ = ["badge", "livery", "motifs", "paint", "draw", "icon", "canonical"]
 
 draw = paint.draw
 icon = paint.icon

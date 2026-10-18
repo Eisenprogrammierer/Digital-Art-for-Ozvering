@@ -236,6 +236,11 @@ def canonical(kind_name: str) -> dict:
         "kind": name,
         "plate": "round",
         "hue": float(KINDS[name][1]),
+        #: The plate's own hue.  ``None`` means the plate wears the charge's hue --
+        #: the set's one-hue script -- and a number is a faction's field, which is
+        #: what :mod:`gen.icons.livery` hands in.  A second *source*, not a second
+        #: script: the charge never moves, so a kind is still its kind's colour.
+        "plate_hue": None,
         "chroma": 0.115,
         "light": 0.745,
         "plate_light": 0.310,
@@ -247,6 +252,10 @@ def canonical(kind_name: str) -> dict:
         "margin": 0.75,
         "bevel": 0.070,
         "radius": 0.075,
+        #: A badge is *data* the game supplies, not a design choice the seed makes:
+        #: a random icon has none, and a caller sets one with
+        #: :func:`gen.icons.badge.make`.  That is why ``random_spec`` never fills it.
+        "badge": None,
     }
 
 

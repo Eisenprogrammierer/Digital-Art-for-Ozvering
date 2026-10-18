@@ -1,10 +1,16 @@
-"""Painting an icon: five passes over one light, the same five the UI kit uses.
+"""Painting an icon: five passes over one light, plus a badge when there is one.
 
     shadow   the plate's own coverage, blurred and dropped
     plate    the ground, shaded as a rounded solid
     rim      a bright stroke along the plate's edge
     recess   the ground knocked back inside, *around* the charge
     charge   the symbol itself, embossed, in the accent colour
+    badge    a count or a tier, on the corner -- see :mod:`gen.icons.badge`
+
+The first five are the same five ``gen.ui`` uses, because an icon and a button are
+both a plate with something raised on it.  The sixth is conditional and lands on
+top, since a badge is the one part of an icon that is allowed to break its
+silhouette.
 
 The construction is why a set of these reads as a set: the plate is one shape with
 one light, one bevel and one hue family, and everything that differs between two
@@ -26,6 +32,7 @@ import numpy as np
 from core import palette, render, sdf
 from core.canvas import Canvas
 
+from . import badge as _badge
 from . import motifs
 
 __all__ = ["LIGHT", "SHADOW", "MARGIN", "draw", "icon", "tints", "clamp", "validate",
@@ -70,6 +77,11 @@ def clamp(spec: dict) -> dict:
     for k in NUMBERS:
         s[k] = float(s[k])
     s["hue"] = float(s["hue"] % 1.0)
+    # The plate's hue is a *second* source, not a number of its own: ``None`` means
+    # the plate keeps the charge's hue (the set's original one-hue script), and a
+    # number is a faction's own field, which is what ``livery`` hands in.
+    s["plate_hue"] = None if s.get("plate_hue") is None else float(s["plate_hue"]) % 1.0
+    s["badge"] = _badge.clamp(s.get("badge"))
     s["chroma"] = float(np.clip(s["chroma"], 0.0, 0.30))
     s["light"] = float(np.clip(s["light"], 0.30, 0.95))
     s["plate_light"] = float(np.clip(s["plate_light"], 0.05, 0.60))
@@ -101,6 +113,11 @@ def validate(spec: dict) -> list:
         bad.append(f"plate: {spec.get('plate')!r} is not one of {motifs.PLATES}")
         safe["plate"] = motifs.PLATES[0]
     try:
+        _badge.clamp(safe.get("badge"))
+    except (TypeError, ValueError) as exc:
+        bad.append(f"badge: {exc}")
+        safe["badge"] = None
+    try:
         s = clamp(safe)
     except (TypeError, ValueError):
         return bad + ["spec: the numbers are not numbers"]
@@ -119,15 +136,23 @@ def tints(spec: dict) -> dict:
     One hue, four lightnesses: a plate, a brighter rim, a darker recess and a
     bright charge.  That is the entire colour script of the set, and it is why two
     icons of different kinds still look like they belong to the same game.
+
+    The plate's hue is the one exception, and it is a *second source* rather than a
+    second script: ``plate_hue`` is ``None`` for the set (the plate then keeps the
+    charge's hue, as it always has), and a faction's own field when a game has one,
+    so a faction's plate is its colour while the charge stays the kind's.  The rim
+    and the recess go with the plate, because all three are the ground: one hue for
+    the ground and one for the figure is what keeps two hues from fighting.
     """
     s = clamp(spec)
     hue = s["hue"]
+    plate_hue = hue if s.get("plate_hue") is None else s["plate_hue"]
     return {
-        "plate": palette.color(s["plate_light"], s["plate_chroma"], hue),
+        "plate": palette.color(s["plate_light"], s["plate_chroma"], plate_hue),
         "rim": palette.color(min(s["plate_light"] + 0.26, 0.78),
-                             s["plate_chroma"] * 1.9, hue),
+                             s["plate_chroma"] * 1.9, plate_hue),
         "recess": palette.color(max(s["plate_light"] - 0.13, 0.05),
-                                s["plate_chroma"] * 1.2, hue),
+                                s["plate_chroma"] * 1.2, plate_hue),
         "charge": palette.color(s["light"], s["chroma"], hue),
     }
 
@@ -174,6 +199,13 @@ def draw(spec: dict, size: int = 192) -> Canvas:
     #    symbol is small and a deep bevel eats it.
     c.over(render.shade(t["charge"], d_charge, dx, bevel=s["bevel"] * 0.65, light=LIGHT),
            render.coverage(d_charge, dx) * a_plate)
+
+    # 6. badge -- a count or a tier, when the spec carries one.  Drawn last, and
+    #    over the plate rather than clipped to it, because a badge is the one part
+    #    of an icon that is meant to break its silhouette.  Absent, this is one
+    #    branch and no pixels: an icon with no badge renders exactly as it did
+    #    before there were badges at all.
+    _badge.paint(c, s["badge"], s["margin"], X, Y, dx, t)
     return c
 
 

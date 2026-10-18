@@ -55,8 +55,8 @@ import unicodedata
 from . import blazon, cloth as _cloth, flags, tinctures
 from . import pole as _pole
 
-__all__ = ["NAMESPACE", "arms", "faction", "flag", "normalise", "render", "seed_from",
-           "shade", "shade_table"]
+__all__ = ["NAMESPACE", "arms", "faction", "field_tincture", "flag", "normalise",
+           "render", "seed_from", "shade", "shade_table"]
 
 #: Mixed into every name before it is hashed.  It is a *namespace*, not a secret:
 #: its only job is to keep "Alder" here from hashing to the same number as "Alder"
@@ -116,6 +116,27 @@ def arms(name: str, shield: str | None = None, charges: bool = True,
     """The coat of arms of the faction called ``name``."""
     return blazon.random_arms(seed=seed_from(name, "arms"), shield=shield,
                               charges=charges, ordinary=ordinary, style=style)
+
+
+def field_tincture(name: str) -> tinctures.Tincture:
+    """The tincture a faction's coat is mostly made of: the first of its field.
+
+    A plain field has one tincture; a division has several and the first is the
+    one the shield is mostly made of; a *fur* is a pattern of two tinctures
+    rather than a colour, so it resolves to the tincture it is drawn from --
+    which is also how the heraldry shades a fur, so the answer still carries the
+    faction's own lightness.
+
+    This is the one place that answers "what colour is this faction", and it is
+    one place on purpose: a province wash on a map and a plate on an icon both
+    ask it rather than re-deriving it from the coat themselves, so a colour and
+    the thing that wears it cannot drift apart.
+    """
+    field = arms(name)["field"]["tinctures"]
+    base = tinctures.get(str(field[0]))
+    if base.fur:
+        return tinctures.get(base.fur[0])
+    return base
 
 
 def _opposite(field_tincture: str, name: str) -> str:

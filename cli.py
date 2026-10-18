@@ -46,6 +46,8 @@ from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
 from gen.heraldry import tinctures as tinctureslib  # noqa: E402
+from gen.icons import badge as icon_badge  # noqa: E402
+from gen.icons import livery as icon_livery  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import campaign as map_campaign  # noqa: E402
@@ -72,6 +74,14 @@ from gen.ui import style as ui_style  # noqa: E402
 # A single light direction for the whole project.  Consistency of lighting is
 # most of what makes individually generated assets read as one art set.
 LIGHT = (-0.45, 0.65)
+
+#: A roster of faction names, shared by the heraldry sheet and the icon set -- the
+#: same houses on both, which is the point of a faction owning a coat *and* an icon
+#: set.  A faction's identity is a name and nothing else, so a demo has to be handed
+#: names; pass your own with ``--name`` and the sheets are your game's factions.
+FACTIONS = ("Kingdom of Alder", "The Mirefen League", "Brythmark",
+            "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
+            "Vale of Craymoor", "House Delvane")
 
 
 # --------------------------------------------------------------------------
@@ -227,7 +237,7 @@ def make_icon(seed: int, size: int = 192) -> Canvas:
 
 
 def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: int = 9,
-               sweep=(32, 64, 128), atlas: bool = True) -> Path:
+               sweep=(32, 64, 128), atlas: bool = True, factions=None) -> Path:
     """The icon set, seeds drawn from it, one icon at three sizes, and the atlas.
 
     The first tiles are the *set*: every charge, one plate, one hue family, which is
@@ -236,13 +246,32 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
     *generated* rather than resized -- generating a sweep is only worth doing if the
     small drawing is drawn small, and that is exactly what designing in world units
     buys.
+
+    The last two blocks are the two things a charge cannot say for itself.  A badge
+    carries a *count* or a *tier* on the plate's corner -- the shield's tiers as
+    pips, a pile of coins as a numeral -- and a faction dresses a whole set in its own
+    field: the same coin and the same ear of wheat, eight times, in eight houses'
+    colours, with the charge still saying what it is.  A house whose coat is a
+    *metal* wears a grey plate and is told apart by its lightness, which is the map's
+    rule too; that is what a metal is, not a gap in the table.
     """
+    factions = list(factions or FACTIONS)
     set_tiles = [(name, icon_paint.draw(icon_motifs.canonical(name), size))
                  for name in icon_motifs.KINDS]
     seed_tiles = [(f"seed {seed + i}", make_icon(seed + i, size)) for i in range(count)]
     sweep_tiles = [(f"blade at {s}px", icon_paint.draw(icon_motifs.canonical("blade"), s))
                    for s in sweep]
-    tiles = set_tiles + seed_tiles + sweep_tiles
+    badge_tiles = [(f"tier {t}",
+                    icon_paint.draw({**icon_motifs.canonical("shield"),
+                                     "badge": icon_badge.make(tier=t)}, size))
+                   for t in range(1, icon_badge.TIERS + 1)]
+    badge_tiles += [(f"count {c}",
+                     icon_paint.draw({**icon_motifs.canonical("coin"),
+                                      "badge": icon_badge.make(count=c)}, size))
+                    for c in (3, 12, 99)]
+    faction_tiles = [(name, icon_paint.draw(icon_livery.tint(icon_motifs.canonical(kind), name), size))
+                     for name in factions for kind in ("coin", "grain")]
+    tiles = set_tiles + seed_tiles + sweep_tiles + badge_tiles + faction_tiles
     canvases = [c for _, c in tiles]
 
     gap = 12
@@ -257,7 +286,10 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
     _sidecar(out, seed, "procedural:gen.icons.paint",
              set=list(icon_motifs.KINDS),
              seeded=[seed + i for i in range(count)],
-             sizes=list(sweep))
+             sizes=list(sweep),
+             tiers=list(range(1, icon_badge.TIERS + 1)),
+             counts=[3, 12, 99],
+             factions=factions)
 
     # The atlas is what a game actually loads: one image and a table of rectangles.
     # Its density is in the sidecar, because how much of the sheet is sprite rather
@@ -1237,9 +1269,7 @@ def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
     and the shade is derived from the same name as the coat, so it cannot drift.
     """
     if not names:
-        names = ["Kingdom of Alder", "The Mirefen League", "Brythmark",
-                 "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
-                 "Vale of Craymoor", "House Delvane"]
+        names = list(FACTIONS)
     factions = [crestlib.faction(name, ratio=ratio) for name in names]
 
     tiles = []
@@ -1322,6 +1352,8 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--sizes", default="32,64,128",
                    help="comma-separated sizes to generate for the sweep")
     i.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
+    i.add_argument("--name", action="append", default=None,
+                   help="a faction name to dress the set in (repeatable)")
 
     s = sub.add_parser("shapes", help="reference sheet of SDF primitives")
     s.add_argument("--out", default="out/shapes.png", type=Path)
@@ -1449,7 +1481,8 @@ def main(argv=None) -> int:
         demo(args.out, seed=args.seed)
     elif args.cmd == "icons":
         demo_icons(args.out, seed=args.seed, count=args.count, size=args.size,
-                   cols=args.cols, sweep=_ints(args.sizes), atlas=not args.no_atlas)
+                   cols=args.cols, sweep=_ints(args.sizes), atlas=not args.no_atlas,
+                   factions=args.name)
     elif args.cmd == "shapes":
         demo_shapes(args.out, size=args.size, cols=args.cols)
     elif args.cmd == "texture":
