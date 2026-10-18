@@ -17,6 +17,14 @@ as a mask.  ``brow_gap`` is the distance from the upper lid to the brow and
 ``nose_gap``/``mouth_gap`` are the same idea below; the concrete ``y`` values are
 filled in by :func:`Style` so no preset can contradict them.
 
+The derivation is not only a guard against contradictory presets, it is the reason
+an expression can move a whole face with two numbers: move ``eye_y`` and the gaps
+and every landmark moves with them (:meth:`gen.portraits.expression.warp`).  The
+converse is that a number which is an *anchor* rather than a conclusion -- the
+hairline, which roots on the skull -- cannot be set through :meth:`Style.with_`,
+because the derivation would silently undo it; that is what :meth:`Style.pinned`
+is for.
+
 Colour is deliberately *not* here.  A style says how big a feature is; the DNA
 (:mod:`gen.portraits.dna`) says what colour it is, so any hairstyle can wear any
 hair colour and the two axes stay independent.
@@ -188,6 +196,24 @@ class Style:
         p = dict(self.p)
         p.update(overrides)
         return Style(self.name, p)
+
+    def pinned(self, **values) -> "Style":
+        """A copy with ``values`` written *after* the derived layout is resolved.
+
+        The layout is derived from the eyes, and that is the whole reason a warp of
+        the eyes is a warp of the face: moving ``eye_y`` and the gaps moves the
+        brow, the nose, the mouth and the blush with them, because those heights are
+        *conclusions* about the eyes rather than inputs.
+
+        A few numbers are not conclusions, they are anchors on the **skull** -- the
+        hairline is the one there is, and a fringe roots on a skull that does not
+        change with a mood -- so they have to be written after the derivation
+        instead of through it.  That is what this is for, and it is deliberately
+        separate from :meth:`with_`: passing them there would be silently undone.
+        """
+        out = self.with_()
+        out.p.update({key: float(value) for key, value in values.items()})
+        return out
 
     def as_dict(self) -> dict:
         return dict(self.p)

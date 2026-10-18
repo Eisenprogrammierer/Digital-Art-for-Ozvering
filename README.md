@@ -72,7 +72,7 @@ python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
-python tests/test_portraits.py                  # 32 tests
+python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 42 tests
@@ -692,7 +692,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `ink` | Contour strokes that live on the field: `abs(d + inset) - w/2` is a band along the zero set, so an outline costs no new geometry. |
 | `cel` | The quantised Lambert term, the two colour rules, and the dome that stands in for a skull's height field. |
 | `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
-| `eyes`, `face`, `hair`, `expression` | The features themselves. |
+| `eyes`, `face`, `hair`, `expression` | The features themselves, and the warp that moves the whole face for a mood. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing, layer order, `compose`/`render`/`render_seed`. |
 
@@ -811,6 +811,55 @@ where the surface comes nearest the camera -- so the stand-in's peak goes to the
 model's answer for it, and the terminator swings with the turn instead of staying
 where the front view put it.
 
+### An expression is a warp, not three features
+
+For a long time an expression was eight small offsets: the brows move as units and at
+their inner ends, the lid apexes open or narrow, the lower lid lifts, the mouth curves
+and opens. Every one of those is a *feature*, and the sum of them is not a face. Eight
+per-feature offsets move three features: the eyes and the nose stay exactly where they
+were, and the result reads as a mask worn over a face rather than a face wearing an
+expression. A smile is not a curved mouth; it is a face that *rises*.
+
+The way out was already in the code. The vertical layout is not a list of positions to
+move one at a time -- `style` exists precisely so that the brow, nose, mouth and blush
+heights are *derived* from `eye_y` and four gaps, because that relationship is what
+makes the eye read as a person rather than a mask. So the expression gets a **warp** of
+those five numbers and lets the derivation do the rest:
+
+```python
+fst = expression.warp(st, expr)   # eye_y and four gaps moved; everything else follows
+```
+
+Two numbers spend the warp. `face_dy` lifts or drops the whole face -- surprise and a
+grin rise, sadness and anger sink -- and `face_spread` opens or closes it, because a
+surprised face puts its brows *further* from its mouth and an angry one pulls them
+together. One number moves every landmark, which is the test of whether a number
+belongs in the warp: anything a single feature owns is a delta, not a warp. The eight
+deltas survive on top, doing what a warp cannot -- though several of them shrank, and
+surprise's `brow_dy` shrank a lot, because the warp was already carrying the lift and
+spending it twice is how the peak of a chibi's brow ends up in its hairline.
+
+What is **not** warped is any *horizontal* distance. The distance between the eyes, the
+width of the skull, the height of the chin are anatomy, and a mood does not change a
+skull. A wide grin is the *mouth* getting wider (`mouth_w_s`, a delta), not the face
+spreading out. An earlier attempt had a `face_wide` number that pushed the eyes apart,
+and it was wrong in a way a picture would not have shown: `dna._clamp_params` sizes the
+skull from the eye positions, so widening the eyes by a proportion quietly walked them
+out through the silhouette that had just been fitted to them.
+
+That same argument splits the portrait in two. `portrait.compose` now builds the head,
+the hair, the ears and the bust from the style it always did, and builds *the face* --
+nose, mouth, blush, eyes, brows -- from the warped copy. A mood moves a face, not a
+person: nothing anatomical is allowed to move. The hairline is the one thing the
+derivation would otherwise drag along, so the warp writes it back through
+`Style.pinned`, which exists for exactly this -- a value that is an *anchor on the
+skull* rather than a conclusion about the face, and that `with_` would silently undo.
+
+A neutral expression is the identity **object**: `expression.warp(st, neutral())` returns
+`st` itself, so a portrait that is not in a mood is the portrait that existed before
+there was a warp, to the byte. That is checked against a `git worktree` of the previous
+commit, not just against itself.
+
 ### A portrait is a genome
 
 The strategic asset is not the pixels, it is the string:
@@ -859,6 +908,20 @@ The strands that lie inside the clumps get a test of their own, and it is a
 containment test: a strand is built from its clump's spine with less width, and
 "built to be inside" survives two resamplers and a bulge term only if someone
 checks. Ink that leaves the silhouette draws on skin.
+
+The warp has five tests of its own, and one of them is the whole reason it exists:
+that **every** expression moves **every** landmark -- the eyes and the nose included,
+which no per-feature offset ever moved -- measured across four styles and thirty
+genomes, so an expression that moves only its own feature fails there instead of
+looking subtly wrong in a picture. The others hold down the two halves of the claim
+that a mood moves a face and not a person: a neutral row returns the style *itself*
+(`is`, not `==`), and the skull, the chin, the hairline, the silhouette and the turned
+solid are bit-identical under every expression. A bound test walks the cross product
+of styles, genomes and expressions and asserts the face stays inside its own head --
+the brow's peak below the hairline where the fringe roots, the brow above the lid,
+the landmarks in order, the mouth clear of the chin, the eye inside the skull -- with
+the margin *recorded in the test* rather than left implicit, so a later change that
+eats it says so.
 
 The turn has seven tests of its own, and they are all the same shape: an invariant
 of a solid that a 2-D approximation cannot have. A turn of zero is the identity *bit
@@ -1709,8 +1772,16 @@ Generators to sit on top of the core, in the order they become useful:
   depth~~ *(done: `gen/portraits/turn.py` -- the head is a stack of cross-sections,
   so the outline is a support rather than a squeeze, an eye is a chord on the
   surface, the jaw swings because it has a depth of its own, and the side a head
-  turns away from is derived rather than declared)*; next, expressions that move the
-  whole face rather than three features.
+  turns away from is derived rather than declared)*; ~~expressions that move the
+  whole face rather than three features~~ *(done: `gen/portraits/expression.py` warps
+  the *layout* -- `eye_y` and the four gaps the face is derived from, so one number
+  moves the brow, the eyes, the nose, the mouth and the blush together and by
+  different amounts -- and the eight feature deltas ride on top of it; the head, the
+  hair and the skull are built from the unwarped style and the hairline is pinned
+  through `Style.pinned`, because a mood moves a face and not a person; the
+  horizontal is deliberately not warped, since the distance between the eyes is
+  anatomy, so a wide grin is the mouth getting wider rather than the face spreading
+  out)*.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function~~, ~~asymmetric insets for title bars~~ and ~~wood/stone
   material bodies via fBm + domain warping~~ *(done: `gen/ui/`, with the series

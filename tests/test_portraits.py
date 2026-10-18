@@ -529,6 +529,9 @@ def test_every_style_and_hairstyle_builds():
                 turn = float(np.clip(g["turn"], -head.TURN_MAX, head.TURN_MAX))
                 st, h = _hair(g)
                 expr = expression.get(expr_name)
+                # The face is drawn from the warped style, the head from the style
+                # itself -- so both halves of the pipeline are exercised here.
+                fst = expression.warp(st, expr)
                 shapes = {
                     "skull": head.silhouette(st, turn),
                     "neck": head.neck(st, turn),
@@ -536,12 +539,12 @@ def test_every_style_and_hairstyle_builds():
                     "hair": h.mass,
                     "fringe": h.front_mass,
                     "cap": h.cap,
-                    "brow": face.brows(st, turn, expr)[0],
+                    "brow": face.brows(fst, turn, expr)[0],
                 }
-                for key, value in eyes.shapes(st, expr).items():
+                for key, value in eyes.shapes(fst, expr).items():
                     if isinstance(value, Shape):
                         shapes[f"eye_{key}"] = value
-                inner, _ = face.mouth_interior(st, turn, expr)
+                inner, _ = face.mouth_interior(fst, turn, expr)
                 if inner is not None:
                     shapes["mouth"] = inner
                 probes = np.array([[-0.20, 0.0, 0.20, 0.0], [0.20, -0.10, -0.30, 0.05]])
@@ -573,6 +576,113 @@ def test_the_expression_presets_only_move_the_face():
         assert -0.05 < row["brow_dy"] < 0.05
         assert 0.5 <= row["eye_up_s"] <= 1.5
         assert row["mouth_open"] >= 0.0
+        assert 0.8 <= row["mouth_w_s"] <= 1.2, f"{name}: the mouth is too wide or too narrow"
+        for key, limit in expression.LIMITS.items():
+            assert abs(row[key]) <= limit, f"{name}: {key} is past its bound"
+
+
+# ------------------------------------------------------- the whole face
+def test_a_neutral_expression_does_not_warp_the_face():
+    """The warp is a strict addition: a neutral row returns the style *itself*.
+
+    Identity rather than equality, because that is the claim -- a portrait that is
+    not in a mood is the portrait that existed before there was a warp, and the
+    cheapest proof of it is that there is nothing to compare.
+    """
+    for seed in range(40):
+        st = _style(_genes(seed))
+        assert expression.warp(st, expression.neutral()) is st
+
+
+def test_an_expression_moves_the_whole_face():
+    """The measurement the warp exists for, and the reason it exists at all.
+
+    Eight per-feature offsets move the brow and the mouth and leave the eyes and
+    the nose exactly where they were, which reads as a mask worn over a face.  Every
+    landmark moves now, and this is the test that says so: an expression that moves
+    only its own feature fails here instead of looking wrong in a picture.
+    """
+    landmarks = ("brow_y", "eye_y", "nose_y", "mouth_y", "blush_y")
+    for name in style_mod.names():
+        for seed in range(30):
+            st = _style(_genes(seed, style=name))
+            for expr_name in dna.EXPRESSIONS:
+                if expr_name == "neutral":
+                    continue
+                w = expression.warp(st, expression.get(expr_name))
+                moved = [k for k in landmarks if abs(getattr(w, k) - getattr(st, k)) > 1e-6]
+                assert len(moved) == len(landmarks), \
+                    f"{name}/{seed}/{expr_name}: only {moved} moved"
+
+
+def test_a_mood_moves_a_face_and_not_a_head():
+    """The skull, the chin, the hairline and the silhouette are the *character*.
+
+    A warp moves the landmarks the expression owns and not one thing the skull owns,
+    which is the property that keeps the hair on the head and the head on the
+    shoulders while a face changes under both.
+    """
+    skull_keys = ("chin_y", "chin_w", "head_w", "head_d", "cheek_w", "cheek_y",
+                  "jaw_w", "jaw_y", "top_w", "top_y", "wide_y")
+    for seed in range(40):
+        st = _style(_genes(seed))
+        for expr_name in dna.EXPRESSIONS:
+            w = expression.warp(st, expression.get(expr_name))
+            assert w.hairline_y == st.hairline_y, f"{expr_name}: the hair moved with the mood"
+            assert head.hairline_y(w) == head.hairline_y(st), f"{expr_name}: the fringe root moved"
+            assert np.array_equal(head.control_points(w, 0.30), head.control_points(st, 0.30)), \
+                f"{expr_name}: the silhouette changed with the mood"
+            for key in skull_keys:
+                assert getattr(w, key) == getattr(st, key), \
+                    f"{expr_name}: the skull's {key} changed with the mood"
+            sk, sw = head.skull(st), head.skull(w)
+            assert np.array_equal(sk.project(np.array([0.1, -0.2]), np.array([0.0, -0.3]), 0.4),
+                                  sw.project(np.array([0.1, -0.2]), np.array([0.0, -0.3]), 0.4))
+
+
+def test_the_warp_keeps_the_face_inside_its_own_head():
+    """A face is small and a skull is fixed, so the warp has to stay inside both.
+
+    The brow is the landmark with a ceiling -- the hairline is where the fringe
+    roots -- and the mouth is the one with a floor.  Bounded per style and per DNA,
+    because the headroom above a brow is a fact about *that* skull: a chibi has less
+    forehead than a seinen and its expression is allowed to be smaller, not wrong.
+    """
+    for name in style_mod.names():
+        for seed in range(60):
+            st = _style(_genes(seed, style=name))
+            for expr_name in dna.EXPRESSIONS:
+                expr = expression.get(expr_name)
+                w = expression.warp(st, expr)
+                brow = w.brow_y + expr["brow_dy"]
+                where = f"{name}/{seed}/{expr_name}"
+                assert brow + expr["brow_arch"] < head.hairline_y(w), f"{where}: the brow is in the hair"
+                # The tightest case measured across four styles and every genome is
+                # 0.010 head units above the lid and 0.089 above the chin, so these
+                # bounds are claims with room in them rather than the current numbers.
+                assert brow + expr["brow_arch"] > w.eye_y + w.eye_up + 0.004, \
+                    f"{where}: the brow fell onto the eye"
+                assert w.eye_y > w.nose_y > w.mouth_y + expr["mouth_dy"] > w.chin_y + 0.05, \
+                    f"{where}: the landmarks are out of order"
+                # The eye is the widest feature and the one a widened skull would
+                # let leave the silhouette; anatomy is not warped, so it cannot.
+                assert w.eye_dx + w.eye_w * 0.5 < w.head_w, f"{where}: the eye left the skull"
+
+
+def test_an_expression_renders_and_is_not_another_expression():
+    """The two ends of the pipeline agree: the warp reaches the pixels.
+
+    Determinism is somebody else's test.  This one is that the *difference* is real
+    -- each expression's portrait differs from the neutral one, and from its
+    neighbour's -- so a warp that quietly did nothing to the picture would fail.
+    """
+    hashes = {}
+    for name in dna.EXPRESSIONS:
+        g = _genes(23, expression=name)
+        hashes[name] = _hash(portraitlib.render(g, size=48))
+    assert len(set(hashes.values())) == len(hashes), "two expressions drew the same picture"
+    assert hashes["neutral"] != hashes["grin"]
+    assert hashes["smile"] != hashes["grin"]
 
 
 # ------------------------------------------------------------------ colour

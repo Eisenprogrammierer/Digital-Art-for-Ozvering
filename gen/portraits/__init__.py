@@ -18,6 +18,13 @@ hair clumps, eyelids, a nose wedge, a lip -- built from the control points in
 bounds, each one is only ever evaluated where it can be seen; that is what makes
 a portrait render in a fraction of a second instead of a minute.
 
+``expression``
+    A mood is not a feature: it is a warp of the face's *layout*.  The layout is
+    derived from ``eye_y`` and four gaps, so warping those moves the brows, the
+    eyes, the nose, the mouth and the blush together; the head, the hair and the
+    skull are built from the style before the warp, because a mood moves a face
+    and not a person.
+
 A portrait is a *genome*: four base colours, a style, a handful of shape
 modifiers.  It renders to pixels, round-trips through a one-line string, and can
 be crossed with another genome to produce a child -- which, for a strategy game,

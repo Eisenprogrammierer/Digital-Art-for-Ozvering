@@ -20,6 +20,12 @@ give the same pixels and there is no hidden second input.
 The head is built once and passed down.  It is the largest silhouette in the
 picture and the cheapest thing to recompute *wrongly*, so it is recomputed not at
 all.
+
+There are two styles in here and the difference is the *expression*.  The skull,
+the hair, the ears and the bust are the character, so they are built from ``st``.
+The face -- nose, mouth, blush, eyes, brows -- is built from ``fst``, the same
+style with its layout warped by the mood (:mod:`gen.portraits.expression`).  For a
+neutral expression the two are the same object and nothing has moved at all.
 """
 from __future__ import annotations
 
@@ -72,6 +78,11 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     st = dna.apply_to(style_mod.get(genes["style"]), genes)
     h = hues.from_genes(genes)
     expr = expression.get(genes["expression"])
+    # The face in this expression.  The *head* -- its skull, its hair, its ears and
+    # its bust -- is the character, so those passes keep ``st``; the face's landmarks
+    # move together, so the nose, mouth, blush, eyes and brows are all drawn from the
+    # warped copy.  For a neutral expression ``fst is st`` and nothing moves at all.
+    fst = expression.warp(st, expr)
     turn = float(np.clip(genes["turn"], -head.TURN_MAX, head.TURN_MAX))
     rng = np.random.default_rng(dna.seed_of(genes))
 
@@ -125,18 +136,18 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     lw = st.ink_w * st.line
     skull_surf.stroke(c, lw, h.line, inset=lw * 0.42,
                       taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34))
-    face.paint_blush(c, st, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
+    face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 
     # --- 5. features ------------------------------------------------------
     front_cov = brush.mask(c, hs.front_mass)
     fringe = np.minimum(brush.shift_cov(front_cov, -0.130, c.scale) * (1.0 - front_cov),
                         skull_cov)
     brush.paint_cov(c, fringe, h.skin_shadow, soft=1.0, alpha=0.58)
-    face.paint_nose(c, st, h, turn, clip=skull)
-    face.paint_mouth(c, st, h, turn, expr, clip=skull)
+    face.paint_nose(c, fst, h, turn, clip=skull)
+    face.paint_mouth(c, fst, h, turn, expr, clip=skull)
     for side in (+1, -1):
-        eyes.paint(c, st, h, side, turn, expr, clip=skull)
-    face.paint_brows(c, st, h, turn, expr, clip=skull)
+        eyes.paint(c, fst, h, side, turn, expr, clip=skull)
+    face.paint_brows(c, fst, h, turn, expr, clip=skull)
 
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)

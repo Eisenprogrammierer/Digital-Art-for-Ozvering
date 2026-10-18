@@ -6,7 +6,8 @@ than their geometry:
 
 * **The brows move as units and are coloured by the hair.**  An expression that
   moves the eyes but not the brows reads as a bug, so both read the same row of
-  :mod:`gen.portraits.expression`.
+  :mod:`gen.portraits.expression` -- and both read the *warped* style, so a mood
+  that lifts the face lifts the brows with it.
 * **The nose is a shadow, not a shape.**  A dot or a small wedge of shade under
   the tip is the whole anime nose; drawing its outline gives a mannequin.
 * **The mouth is a line with weight in the middle and points at the corners.**
@@ -136,7 +137,7 @@ def mouth_interior(st, turn: float = 0.0, expr=None):
     if open_h <= 0.0:
         return None, None
     my = st.mouth_y + expr["mouth_dy"] + expr["mouth_curve"] * 0.3
-    hw = st.mouth_w * 0.5
+    hw = st.mouth_w * float(expr["mouth_w_s"]) * 0.5
     left = (-hw, my)
     right = (hw, my + expr["mouth_asym"] * 0.5)
     # ``up`` is only half the smile's arc: the other half belongs to the lower
@@ -153,12 +154,13 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
         from . import expression
         expr = expression.neutral()
     my = st.mouth_y + expr["mouth_dy"]
-    hw = st.mouth_w * 0.5
+    mw = st.mouth_w * float(expr["mouth_w_s"])
+    hw = mw * 0.5
     curve = st.mouth_curve + expr["mouth_curve"]
     asym = float(expr["mouth_asym"])
     left = np.array([-hw, my + asym * 0.35])
     right = np.array([hw, my - asym * 0.35])
-    line_w = max(st.mouth_w * 0.18, 0.010)
+    line_w = max(mw * 0.18, 0.010)
 
     inner, teeth = mouth_interior(st, turn, expr)
     if inner is not None:
@@ -174,13 +176,13 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
                                    bulge=line_w * 1.05, per_segment=4),
                     h.line, clip=clip)
         if st.mouth_style == "full":
-            body = S.arc(left, right, -abs(curve) - st.mouth_w * 0.11, 0.5, 14)
-            brush.paint(canvas, S.lock(body, w0=0.20 * st.mouth_w, w1=0.20 * st.mouth_w,
-                                       bulge=0.16 * st.mouth_w, per_segment=4),
+            body = S.arc(left, right, -abs(curve) - mw * 0.11, 0.5, 14)
+            brush.paint(canvas, S.lock(body, w0=0.20 * mw, w1=0.20 * mw,
+                                       bulge=0.16 * mw, per_segment=4),
                         h.lip, clip=clip, alpha=0.55)
-            brush.paint(canvas, S.lock(body + np.array([0.0, st.mouth_w * 0.04]),
-                                       w0=0.10 * st.mouth_w, w1=0.10 * st.mouth_w,
-                                       bulge=0.08 * st.mouth_w, per_segment=4),
+            brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.04]),
+                                       w0=0.10 * mw, w1=0.10 * mw,
+                                       bulge=0.08 * mw, per_segment=4),
                         h.lip_light, clip=clip, alpha=0.35)
 
 
