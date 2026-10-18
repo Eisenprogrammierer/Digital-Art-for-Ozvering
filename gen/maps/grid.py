@@ -276,7 +276,8 @@ class HexGrid:
         return Cell(np.stack([rr, cc], axis=-1), ok, dx, dy, np.hypot(dx, dy), sector, self.size)
 
     def centre_of(self, rc) -> tuple:
-        """The world centre of a ``(row, col)``."""
+        """The world centre of a ``(row, col)``, given as a pair or as an array."""
+        rc = np.asarray(rc)
         return float(self.centers[rc[..., 0], rc[..., 1], 0]), float(self.centers[rc[..., 0], rc[..., 1], 1])
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

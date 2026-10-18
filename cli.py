@@ -19,7 +19,7 @@ Usage
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
     python cli.py ui         --seed 7 --count 3 --scale 2
-    python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17
+    python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -44,6 +44,7 @@ from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
+from gen.maps import region as map_region  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
@@ -785,13 +786,16 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
 
 
 def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
-              size: float = 13.0, sea: float = 0.42) -> Path:
+              size: float = 13.0, sea: float = 0.42, provinces: int = 8,
+              rivers: float = 0.92, names: bool = True) -> Path:
     """Contact sheet of maps: the geography is the seed, and nothing else.
 
-    Each tile is labelled with the two halves of what a map *is* -- the seed that
-    makes it, and the shape of the grid it is played on -- plus the water fraction
-    and the commonest ground, which is what the sidecar records and what a
-    campaign needs to know about a place.
+    Each tile is labelled with the seed that makes it, the grid it is played on, the
+    water fraction and the commonest ground -- and then with its *provinces*, whose
+    names are drawn at their capitals.  Those names are drawn here and not in the
+    asset: this project ships exactly one font, Pillow's, and a game has its own,
+    so text belongs to the preview while the sidecar carries the data a game would
+    label with.
     """
     tiles = []
     for i in range(count):
@@ -799,10 +803,11 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         g = map_grid.HexGrid(cols, rows, size)
         f = map_terrain.fields(g, seed=s, sea_fraction=sea)
         st = map_terrain.stats(f["biome"])
-        img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea)
-        ground = sorted(((v, k) for k, v in st.items() if k not in ("hexes", "water")),
-                        reverse=True)[:2]
-        tiles.append((s, img, st, ground))
+        courses, _threshold = map_paint.river_courses(g, f) if rivers > 0.0 else ([], 0.0)
+        res = map_region.provinces(g, f, count=provinces, seed=s) if provinces > 0 else None
+        img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
+                                  provinces=provinces, river=rivers)
+        tiles.append((s, img, st, courses, res, g))
 
     gap = 24
     sheet = render.sheet([t[1] for t in tiles], cols=min(2, len(tiles)), gap=gap,
@@ -812,20 +817,48 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     cw = max(t[1].w for t in tiles)
     ch = max(t[1].h for t in tiles)
     per_row = min(2, len(tiles))
-    for i, (s, tile, st, ground) in enumerate(tiles):
+    font = _font(11)
+    for i, (s, tile, st, courses, res, g) in enumerate(tiles):
         r, col = divmod(i, per_row)
         tx = gap + col * (cw + gap) + (cw - tile.w) // 2
         ty = gap + r * (ch + gap) + (ch - tile.h) // 2
         land = 100.0 * (1.0 - st["water"])
-        top = ", ".join(f"{k} {v}" for v, k in ground)
+        counts = [f"land {land:.0f}%"]
+        if courses:
+            counts.append(f"{len(courses)} rivers")
+        if res is not None:
+            counts.append(f"{res['count']} provinces"
+                          + (f" of {res['count'] - res['islands']}"
+                             if res["islands"] else ""))
         _label(img, (tx + 3, ty + tile.h + 4),
-               f"seed {s}   {cols}x{rows} hexes at {size:g} px   land {land:.0f}%   {top}")
+               f"seed {s}   {cols}x{rows} hexes at {size:g} px   " + "   ".join(counts))
+        if names and res is not None:
+            # The tile is a canvas in world coordinates centred on its own origin,
+            # y up: the same mapping the rasteriser inverts.
+            for p in res["provinces"]:
+                if p["area"] < 3:
+                    continue  # a one-hex island cannot hold a word
+                x, y = g.centre_of(p["capital"])
+                px = tx + int(round(x + tile.w / 2.0 - 0.5))
+                py = ty + int(round(tile.h / 2.0 - 0.5 - y))
+                _centre_label(img, (px - 60, py - 8, px + 60, py + 8), p["name"],
+                              dark=(20, 20, 26, 255), font=font)
     img.save(out, "PNG", optimize=True)
 
     _sidecar(out, seed, "procedural:gen.maps", maps=[
-        {"seed": s, "cols": cols, "rows": rows, "hex_size": size,
-         "sea_target": sea, "water": st["water"], "biomes": st}
-        for s, _, st, _ in tiles
+        {
+            "seed": s, "cols": cols, "rows": rows, "hex_size": size,
+            "sea_target": sea, "water": st["water"], "biomes": st,
+            "rivers": [{"cells": int(c["cells"]), "drainage": round(float(c["flux"]), 1)}
+                       for c in courses],
+            "provinces": ([
+                {"name": p["name"], "area": int(p["area"]), "capital": [int(p["capital"][0]),
+                                                                       int(p["capital"][1])],
+                 "neighbours": [int(n) for n in p["neighbours"]], "ground": p["ground"],
+                 "coastal": bool(p["coastal"])}
+                for p in res["provinces"]] if res is not None else []),
+        }
+        for s, _, st, courses, res, _g in tiles
     ])
     return _report(out)
 
@@ -956,6 +989,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--rows", type=int, default=17, help="hexes down")
     m.add_argument("--size", type=float, default=13.0, help="hex circumradius in pixels")
     m.add_argument("--sea", type=float, default=0.42, help="fraction of the map that is water")
+    m.add_argument("--provinces", type=int, default=8, help="provinces per map, 0 for none")
+    m.add_argument("--river", type=float, default=0.92, help="river strength, 0 for none")
 
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
@@ -1005,7 +1040,8 @@ def main(argv=None) -> int:
                 style=args.style)
     elif args.cmd == "maps":
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
-                  rows=args.rows, size=args.size, sea=args.sea)
+                  rows=args.rows, size=args.size, sea=args.sea,
+                  provinces=args.provinces, rivers=args.river)
     elif args.cmd == "credits":
         if args.out is None:
             print(creditslib.credits(args.manifest), end="")

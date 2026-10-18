@@ -27,10 +27,22 @@ import numpy as np
 from core import noise, palette, render, sdf
 from core.canvas import Canvas
 
-from . import coast, terrain
+from . import coast, region, rivers, terrain
 from .grid import HexGrid
 
-__all__ = ["LIGHT", "INK", "SEA_RAMP", "map_image", "terrain_layer", "stroke_polyline"]
+__all__ = [
+    "INK",
+    "LIGHT",
+    "RIVER",
+    "SEA_RAMP",
+    "map_image",
+    "province_layer",
+    "province_tints",
+    "river_layer",
+    "stroke_paths",
+    "stroke_polyline",
+    "terrain_layer",
+]
 
 #: One light for the whole project.  On a map it means the north-west flanks of
 #: the hills are lit and the south-east ones are not, which is the convention
@@ -45,6 +57,10 @@ INK = palette.hex_to_srgb("#16222e")
 #: navy needs to know it -- but the picture interpolates between them, because a
 #: hand-drawn sea is a wash and not a mosaic.
 SEA_RAMP = tuple(palette.hex_to_srgb(h) for h in ("#59a3bd", "#2a6a8c", "#122c44"))
+
+#: Rivers are lighter than the sea they empty into: on a map with a coast in ink,
+#: a river in the deep-sea colour reads as a crack rather than as water.
+RIVER = palette.hex_to_srgb("#5f9cc0")
 
 _AMBIENT = 0.66
 _DIFFUSE = 0.52
@@ -65,43 +81,55 @@ def _window(canvas: Canvas, lo, hi) -> tuple:
     return (max(x0, 0), max(y0, 0), min(x1, canvas.w), min(y1, canvas.h))
 
 
+def stroke_paths(canvas: Canvas, paths, srgb, alpha: float = 1.0, chunk: int = 12) -> None:
+    """Stroke several polylines into one mask, and composite once.
+
+    ``paths`` is a sequence of ``(points, width)`` pairs.  Merging them into a
+    single mask before compositing is what makes a river *system* work: sixty
+    short strokes at 80% alpha would double-darken at every junction, and a river
+    that gets darker wherever it splits reads as a mistake rather than as water.
+
+    The field is the minimum distance to any segment of a polyline, which is exact
+    rather than an approximation -- but only if it is not evaluated where the line
+    is not.  A coastline runs the length of the map, so one window round the whole
+    of it would measure every segment against every pixel; instead the segments
+    are taken in runs, each run is measured over its own small window, and the
+    runs are merged with ``max``.
+    """
+    X, Y = canvas.grid()
+    acc = np.zeros((canvas.h, canvas.w), dtype=np.float64)
+    for points, width in paths:
+        pts = np.asarray(points, dtype=np.float64)
+        if len(pts) < 2:
+            continue
+        hw = 0.5 * float(width)
+        segs = [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+        for i in range(0, len(segs), chunk):
+            part = segs[i:i + chunk]
+            ends = np.array([p for seg in part for p in seg])
+            x0, y0, x1, y1 = _window(canvas, ends.min(axis=0) - hw, ends.max(axis=0) + hw)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            Xs = X[y0:y1, x0:x1]
+            Ys = Y[y0:y1, x0:x1]
+            d = np.full(Xs.shape, np.inf)
+            for a, b in part:
+                d = np.minimum(d, sdf.segment(Xs, Ys, a, b))
+            cov = render.coverage(np.abs(d) - hw, canvas.dx)
+            acc[y0:y1, x0:x1] = np.maximum(acc[y0:y1, x0:x1], cov)
+    if acc.any():
+        canvas.over(palette.srgb_to_linear(srgb), acc * float(alpha))
+
+
 def stroke_polyline(canvas: Canvas, points, width: float, srgb, alpha: float = 1.0,
                     closed: bool = False, chunk: int = 12) -> None:
-    """Stroke a polyline as a union of capsules, in chunks over a full-canvas mask.
-
-    The field is the minimum distance to any segment of the polyline, which is
-    exact rather than an approximation -- but only if it is not evaluated where
-    the line is not.  A coastline runs the length of the map, so one window round
-    the whole of it would evaluate every segment against every pixel; instead the
-    segments are taken in runs, each run is measured over its own small window,
-    and the runs are merged with ``max`` into one alpha mask.  Merging into a mask
-    rather than compositing each run is what keeps the joins invisible: a stroke
-    drawn in thirteen pieces at 80% alpha would show its seams.
-    """
+    """One polyline, as a union of capsules (see :func:`stroke_paths`)."""
     pts = np.asarray(points, dtype=np.float64)
     if len(pts) < 2:
         return
     if closed:
-        segs = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
-    else:
-        segs = [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
-    hw = 0.5 * float(width)
-    X, Y = canvas.grid()
-    acc = np.zeros((canvas.h, canvas.w), dtype=np.float64)
-    for i in range(0, len(segs), chunk):
-        part = segs[i:i + chunk]
-        ends = np.array([p for seg in part for p in seg])
-        x0, y0, x1, y1 = _window(canvas, ends.min(axis=0) - hw, ends.max(axis=0) + hw)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        Xs = X[y0:y1, x0:x1]
-        Ys = Y[y0:y1, x0:x1]
-        d = np.full(Xs.shape, np.inf)
-        for a, b in part:
-            d = np.minimum(d, sdf.segment(Xs, Ys, a, b))
-        cov = render.coverage(np.abs(d) - hw, canvas.dx)
-        acc[y0:y1, x0:x1] = np.maximum(acc[y0:y1, x0:x1], cov)
-    canvas.over(palette.srgb_to_linear(srgb), acc * float(alpha))
+        pts = np.vstack([pts, pts[:1]])
+    stroke_paths(canvas, [(pts, width)], srgb, alpha=alpha, chunk=chunk)
 
 
 def relief_height(grid: HexGrid, f: dict, cell, relief: float = 1.4):
@@ -191,6 +219,102 @@ def cliff_alpha(canvas: Canvas, grid: HexGrid, f: dict, cell, strength: float = 
     return band * weight * float(strength) * cell.ok.astype(np.float64)
 
 
+def river_courses(grid: HexGrid, f: dict, fraction: float | None = None):
+    """The rivers of a map: the courses, and the drainage a cell needed to be one.
+
+    Keeping the threshold with the courses is what lets the painter scale a river's
+    width by how much it drains without knowing anything about the hydrology.
+    """
+    frac = rivers.RIVER_FRACTION if fraction is None else float(fraction)
+    filled = rivers.fill_depressions(grid, f["elev"], f["water"])
+    down = rivers.downstream(grid, filled, f["water"])
+    flux = rivers.drainage(grid, filled, down)
+    thr = rivers.river_threshold(flux, f["water"], frac)
+    return rivers.courses(grid, f, down, flux, frac), thr
+
+
+def river_layer(canvas: Canvas, grid: HexGrid, courses, threshold: float,
+                width: float = 0.17, alpha: float = 0.92) -> None:
+    """The rivers, drawn widest where they have drained the most.
+
+    A river's width goes with the square root of its drainage -- the standard
+    hydraulic relation -- and that is why a river visibly fattens towards its
+    mouth instead of being a constant line.  A course at the threshold is one
+    ``width``; a course draining a hundred times as much is ten times wider, so
+    the parameter is a scale rather than a thickness.
+    """
+    paths = []
+    for course in courses:
+        grew = max(np.sqrt(float(course["flux"]) / max(float(threshold), 1e-9)), 0.55)
+        paths.append((course["points"], float(width) * grid.size * grew))
+    stroke_paths(canvas, paths, RIVER, alpha=alpha)
+
+
+def province_tints(n: int, L: float = 0.73, C: float = 0.13, hue0: float = 0.03) -> np.ndarray:
+    """``n`` pale washes, spaced round the hue circle by the golden angle.
+
+    Evenly spaced hues would do if the count were always the same, but a map asks
+    for three provinces as often as for eleven, and ``k/n`` spacing only looks even
+    when every hue is used.  The golden angle spreads *any prefix* of its sequence
+    evenly, which is the property that is actually needed, and it is why two
+    provinces next to each other are never two shades of the same colour.
+
+    High lightness and low chroma on purpose: this is a wash over terrain that
+    already carries the map's meaning, so its only job is to say where one
+    province ends.
+    """
+    n = max(int(n), 1)
+    out = np.empty((n, 3), dtype=np.float64)
+    for i in range(n):
+        out[i] = palette.color(L, C, (hue0 + 0.6180339887498949 * i) % 1.0)
+    return out
+
+
+def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
+                   fill: float = 0.22, frontier: float = 1.0, tints=None) -> None:
+    """The political map: a wash per province, and a line where two meet.
+
+    Both are drawn per pixel, and the frontier is drawn from the labels on either
+    side of the edge a pixel is nearest to -- so the boundary of a province is not
+    a polygon that was fitted to the cells, it is the cells.
+    """
+    labels = np.asarray(res["labels"])
+    if not res["count"]:
+        return
+    if fill > 0.0:
+        table = province_tints(res["count"]) if tints is None else np.asarray(tints)
+        r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
+        c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
+        lab = labels[r, c]
+        colour = table[np.clip(lab, 0, len(table) - 1)]
+        canvas.over_srgb(colour, float(fill) * (lab >= 0) * cell.ok)
+    if frontier > 0.0:
+        canvas.over_srgb(INK, float(frontier)
+                         * region.frontier_alpha(grid, labels, cell, dx=canvas.dx))
+
+
+def capital_marks(canvas: Canvas, grid: HexGrid, res: dict, size: float | None = None,
+                  alpha: float = 0.95) -> None:
+    """A small dark boss with a pale centre, at every province capital.
+
+    A filled dot rather than a star: at a 13 px hex a star is a smudge, and the
+    point that has to survive is only "here is where the province is run from".
+    """
+    if not res["count"]:
+        return
+    rad = float(0.30 * grid.size if size is None else size)
+    X, Y = canvas.grid()
+    for p in res["provinces"]:
+        cx, cy = grid.centre_of(p["capital"])
+        x0, y0, x1, y1 = _window(canvas, (cx - rad, cy - rad), (cx + rad, cy + rad))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        d = np.hypot(X[y0:y1, x0:x1] - cx, Y[y0:y1, x0:x1] - cy)
+        canvas.over_srgb(INK, render.coverage(d - rad, canvas.dx) * float(alpha), x0, y0)
+        canvas.over_srgb((0.94, 0.91, 0.85),
+                         render.coverage(d - rad * 0.42, canvas.dx), x0, y0)
+
+
 def map_image(
     seed: int = 0,
     cols: int = 26,
@@ -199,16 +323,25 @@ def map_image(
     margin: float = 7.0,
     relief: float = 4.0,
     texture: float = 0.07,
-    lattice: float = 0.09,
+    lattice: float = 0.085,
     cliff: float = 0.55,
+    river: float = 0.92,
+    river_fraction: float | None = None,
+    provinces: int = 0,
+    province_fill: float = 0.22,
+    frontier: float = 1.0,
+    capitals: bool = True,
     shadow: float = 0.34,
     **kw,
 ) -> Canvas:
-    """A finished map at one seed: terrain, relief, cliffs, lattice and coast.
+    """A finished map at one seed: terrain, rivers, provinces, coast and frame.
 
     ``seed`` and the grid shape are the whole specification of the *geography*;
     ``size`` and ``margin`` only decide how many pixels it is drawn in, so a map
-    can be re-rendered at any scale and is still the same map.
+    can be re-rendered at any scale and is still the same map.  Everything derived
+    from the geography obeys the same rule: turning rivers off or asking for eight
+    provinces changes what is drawn on the map and not one pixel of where the land
+    is.
     """
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
@@ -227,6 +360,21 @@ def map_image(
 
     terrain_layer(canvas, grid, f, seed=seed, relief=relief, texture=texture)
 
+    if cliff > 0.0:
+        canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))
+
+    res = None
+    if provinces > 0 and (~f["water"]).any():
+        res = region.provinces(grid, f, count=int(provinces), seed=seed)
+        province_layer(canvas, grid, res, cell, fill=province_fill, frontier=frontier)
+
+    if river > 0.0 and (~f["water"]).any():
+        courses, threshold = river_courses(grid, f, river_fraction)
+        river_layer(canvas, grid, courses, threshold, alpha=river)
+
+    if res is not None and capitals:
+        capital_marks(canvas, grid, res, size=0.30 * size)
+
     # The lattice, from the per-pixel distance to the pixel's own hex border --
     # the one thing a per-hex stroke could not do without seams.
     if lattice > 0.0:
@@ -235,11 +383,8 @@ def map_image(
         # A fainter lattice over water: the grid is there to count steps on, and
         # nobody counts steps on the sea.
         weight = np.where(f["water"][np.clip(cell.rc[..., 0], 0, rows - 1),
-                                     np.clip(cell.rc[..., 1], 0, cols - 1)], 0.08, 0.22)
+                                     np.clip(cell.rc[..., 1], 0, cols - 1)], 0.08, 0.20)
         canvas.over_srgb(INK, a * weight * cell.ok)
-
-    if cliff > 0.0:
-        canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))
 
     land = ~f["water"]
     for loop in coast.boundary_loops(grid, land):

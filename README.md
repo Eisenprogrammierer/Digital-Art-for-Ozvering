@@ -32,7 +32,8 @@ The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
 `out/lineage.png`, `out/ui.png` and `out/maps.png`, each with a `.json` sidecar
 recording the seed, the spec, the blazon, the genome of every portrait tile, the
-corner insets of every UI part and the biome census of every map, plus
+corner insets of every UI part, and for every map its biome census, its rivers and
+its provinces, plus
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
@@ -52,14 +53,14 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
-python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42
+python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 22 tests
-python tests/test_maps.py                       # 27 tests
+python tests/test_maps.py                       # 46 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -362,7 +363,7 @@ mean something.
 ## Maps (`gen/maps/`)
 
 A map is the first asset here that is *data* before it is a picture: a grid
-someone plays on, with a cell size, a coastline, movement costs and -- soon --
+someone plays on, with a cell size, a coastline, movement costs, rivers and
 provinces. So the generator works in cells and draws in pixels, and the two are
 kept strictly apart:
 
@@ -374,7 +375,9 @@ kept strictly apart:
 | `grid` | The lattice in axial coordinates: centres, neighbours, hex distance, the corner normal form, and the per-pixel lookup that resolves a world point to a cell and a position inside it. |
 | `terrain` | The geography: a domain-warped elevation field, a moisture field, and the biome table that gives every class of ground a name, a colour and a movement cost. |
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
-| `paint` | One raster pass for the ground and its relief, then strokes for the creases, the lattice and the coast. |
+| `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
+| `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names. |
+| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the coast and the frame. |
 
 ### Why axial coordinates, and what they buy
 
@@ -430,6 +433,87 @@ to keep the land on its left, which makes an island's loop counter-clockwise and
 lake's clockwise. The tests use that: punch a hole in a block of hexes and the
 boundary becomes two loops, wound opposite ways.
 
+### Rivers need the pits filled first
+
+A river is a hydrological statement before it is a curve, so the module is a model
+with a painter attached. The naive version of it -- "walk to the lowest neighbour"
+-- is a disaster on a noise field: a local minimum is a place where the water
+stops, and there are thousands of them, so the map fills up with one-hex lakes and
+every river is two hexes long. So the pits are filled first, with Barnes' priority
+flood grown outwards from the sea: each cell ends up at the lowest height at which
+water could actually get from it to the ocean. On real terrain that lifts only 3 to
+10% of the land, and the test that keeps it honest checks the answer against a
+brute-force minimax relaxation instead of against the shape of the queue.
+
+Filled basins are flat, and a river on a flat has no downhill neighbour to choose,
+so the flood adds a hair at each step. That is not cosmetic: it turns an arbitrary
+tie-break into data, and the flow direction of a filled basin becomes part of the
+map rather than a property of the order the cells happened to be visited in.
+
+Drainage then accumulates in one pass: sort the cells from high to low and add each
+one's total to the cell below it. By the time a cell is reached everything above it
+has been added, so a single pass gives the true upstream area -- no recursion, no
+priority queue, and exact rather than iterative, because flow only goes downhill.
+A river's width follows the square root of that, which is the standard hydraulic
+relation and the reason a river fattens towards its mouth.
+
+The road map said "rivers by Dijkstra + Catmull-Rom". The Catmull-Rom is there and
+it is the last thing that happens. The Dijkstra is not, because on a grid where the
+height is known everywhere there is nothing to search: the way to the sea is the way
+the gradient points, and a shortest-path search would only be needed to route around
+a pit -- which filling has already removed.
+
+And which cells get to be a river is a **quantile** of the land's own drainage, for
+the same reason the sea level is a quantile of elevation: a fixed threshold draws a
+dense network on a wet map and nothing on a dry one, so `--river` would mean two
+different things on two different seeds. Taking the top few per cent instead makes
+the density of the network a property of the request and not of the luck.
+
+### A province is connected, or it is not a province
+
+The obvious way to divide a map into provinces -- give every cell to its nearest
+capital -- is one line of arithmetic and it produces provinces in two pieces,
+because a bay does not care about the straight line between two points. A province
+in two pieces cannot be governed: an army cannot get from one half to the other
+without leaving it. So the assignment here is a multi-source breadth-first search
+over the lattice, which is the map's own adjacency, and a province comes out
+connected by construction.
+
+Seeds are spread by Mitchell's best candidate and then relaxed by Lloyd's
+algorithm: assign, move each capital to the middle of its province, assign again.
+The middle of a province is its one-median -- the cell that minimises the path
+distance to every other cell in it -- and it is computed exactly, by a breadth-first
+search from each of the province's own cells, rather than approximated by the
+centroid. Two passes are enough for a capital to land within one hex of the median
+and within ten per cent of the best possible total distance, which is what the test
+asserts; more passes would buy the last hex and cost another search per cell per
+province.
+
+A landmass no capital can reach becomes a province of its own, with its capital at
+its own one-median. That is not a special case bolted on -- it is what an island is,
+and reaching it by distance across the sea would produce the two-piece province this
+whole module exists to prevent. The count is therefore a floor: an archipelago gets
+more provinces than it asked for, and the sidecar says how many of them are islands.
+
+Names are the only text anywhere in these assets, and they are drawn on the preview
+sheet, never in the PNG: this project ships one font (Pillow's) and a game has its
+own, so the sidecar carries the names and the sheet shows them. A name is a stem
+plus an ending that suits the ground -- `-fell` for a province mostly of hills,
+`-fen` for one mostly of marsh -- which is where the geography of a province is
+written down, and it keeps eleven provinces from all being called "High-"
+something.
+
+### One thing the pixels taught the code
+
+Provinces are drawn as a wash plus a frontier line, and the first version of the
+frontier was invisible. Not because it was faint, but because on a hex map *every*
+hex edge is already drawn as lattice, and a frontier is a set of hex edges: a line
+of the lattice's weight lands exactly on a line that is there anyway. What tells a
+player where one province ends is that the line is *heavier*, not that it is another
+colour. So the frontier is drawn twice as wide as the lattice, the lattice went
+slightly lighter, and the map reads terrain, then provinces, then hexes -- in that
+order, which is the order the three of them matter in.
+
 Two of the numbers are worth stating because they are the difference between a map
 and a picture of one. The sea level is a **quantile**, so `--sea 0.42` means 42% of
 the hexes are water for any seed; and the biome table keeps the *rules* -- what a
@@ -458,12 +542,16 @@ Generators to sit on top of the core, in the order they become useful:
   fBm + domain warping.
 - **maps** -- ~~hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching
-  squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline,
-  drawn as one raster pass.  The plan's Delaunay and marching squares are
-  deliberately not there: on a hex map adjacency is one hex step, which is what an
-  army actually walks, and a coastline is the edge of the land, which the land
-  already knows)*; next, provinces by Lloyd relaxation, rivers downhill to the
-  sea, roads between capitals, and labels.
+  squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline drawn
+  as one raster pass, pits filled by a priority flood, rivers accumulated in order
+  of height, provinces grown by breadth-first search and relaxed by Lloyd, and
+  names).  Three of the plan's ingredients are deliberately not there: adjacency is
+  one hex step rather than a Delaunay edge, because that is what an army actually
+  walks; a coastline is the edge of the land rather than a marching-squares contour
+  of a field, because the land already knows where it ends; and rivers are followed
+  down the gradient rather than searched for with Dijkstra, because once the pits
+  are filled the gradient is the answer and nothing is left to search*; next, roads
+  between capitals, sea provinces, and a campaign-friendly export of the sidecar.
 - **textures** -- Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns.
 - **export extras** -- SVG for vector UI, atlas packing, and an ~~`assets.yaml`

@@ -1,6 +1,6 @@
 """Regression tests for the map generator.
 
-Three claims are worth more than the rest, and each has a test that could fail
+Five claims are worth more than the rest, and each has a test that could fail
 loudly:
 
 * the hexagon the rasteriser thinks a pixel is in is the hexagon it really is in
@@ -11,7 +11,13 @@ loudly:
   seed at two hex sizes must give the *same* elevation field;
 * the coastline walk closes and puts the land on its left, including around a
   hole, where a walk that only followed the outside would produce one loop
-  instead of two.
+  instead of two;
+* filling a pit raises a cell to the lowest height at which water can get from it
+  to the sea -- a minimax answer, checked against brute-force relaxation rather
+  than against the shape of the priority queue that produced it;
+* a province is connected.  That is the claim the whole of ``region`` exists for,
+  so it is checked by flooding each province on its own, and also against the
+  nearest-capital property the breadth-first assignment is supposed to give.
 
 Run either way::
 
@@ -28,9 +34,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import sdf  # noqa: E402
+from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
-from gen.maps import coast, grid as gridlib, paint, terrain  # noqa: E402
+from gen.maps import coast, grid as gridlib, paint, region, rivers, terrain  # noqa: E402
 
 
 # ------------------------------------------------------------------- lattice
@@ -353,7 +359,9 @@ def test_land_and_sea_are_painted_in_their_own_colours():
     from gen.maps import HexGrid
     g = HexGrid(20, 14, size=9.0)
     f = terrain.fields(g, seed=3)
-    img = paint.map_image(seed=3, cols=20, rows=14, size=9.0)
+    # Terrain only on purpose: the claim is about the ground and the water, and a
+    # river is a blue line drawn on top of perfectly good grass.
+    img = paint.map_image(seed=3, cols=20, rows=14, size=9.0, river=0.0, provinces=0)
 
     def pixel_at(x, y):
         col = int(round(x * img.scale + img.w / 2.0 - 0.5))
@@ -381,6 +389,295 @@ def test_every_seed_paints_a_map_with_a_coast_on_it():
         colours = len(np.unique(px[..., :3].reshape(-1, 3), axis=0))
         assert colours > 20, (seed, colours)
         assert 0.05 < float((px[..., 3] > 0).mean()) < 0.98
+
+
+# -------------------------------------------------------------------- rivers
+def _flow(cols=30, rows=20, size=13.0, seed=7):
+    """A grid and its fields, plus everything the water does on them."""
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    filled = rivers.fill_depressions(g, f["elev"], f["water"])
+    down = rivers.downstream(g, filled, f["water"])
+    flux = rivers.drainage(g, filled, down)
+    return g, f, filled, down, flux
+
+
+def test_the_flood_raises_a_cell_to_its_lowest_way_out():
+    """Filling a pit is a minimax problem, and this is the minimax answer.
+
+    A cell's filled height has to be the lowest height at which water can get from
+    it to the sea: the smallest possible maximum along a path.  Brute-force
+    relaxation gives that number on a small grid without knowing anything about
+    priority queues, so this is a check of the algorithm and not of its shape.
+    """
+    g = gridlib.HexGrid(7, 7, size=10.0)
+    rr, cc = np.meshgrid(np.arange(7), np.arange(7), indexing="ij")
+    elev = 0.55 + 0.30 * np.sin(rr * 0.9) * np.cos(cc * 0.7)
+    water = np.zeros((7, 7), dtype=bool)
+    water[:, 0] = True
+    filled = rivers.fill_depressions(g, elev, water)
+
+    best = np.where(water, elev, np.inf)
+    for _ in range(60):
+        changed = False
+        for row, col in g.flat():
+            row, col = int(row), int(col)
+            for d in range(6):
+                nr, nc = (int(v) for v in g.nbr[row, col, d])
+                if nr < 0:
+                    continue
+                cand = max(elev[row, col], best[nr, nc])
+                if cand < best[row, col] - 1e-12:
+                    best[row, col] = cand
+                    changed = True
+        if not changed:
+            break
+    # Up to the hair the flood adds at each step, which is deliberately not zero.
+    assert np.allclose(filled, np.maximum(elev, best), atol=1e-5)
+
+
+def test_filling_never_lowers_the_ground_and_never_leaves_a_sump():
+    for seed in (7, 3, 23, 19):
+        g, f, filled, down, flux = _flow(seed=seed)
+        land = ~f["water"]
+        assert float((filled - f["elev"]).min()) >= 0.0
+        # After the flood every land cell has somewhere lower to go.  Without that
+        # guarantee a river would simply stop in the middle of a continent.
+        assert all(int(down[r, c]) >= 0 for r, c in g.flat() if land[r, c])
+
+
+def test_the_flood_leaves_almost_all_of_the_map_where_it_was():
+    # A flood that raised the whole continent would be correct and useless: the
+    # land would sit flat at the height of a mountain pass and the rivers would run
+    # along the floor of a lake.  On real terrain only the genuine basins move.
+    for seed in (7, 3, 23):
+        g, f, filled, down, flux = _flow(seed=seed)
+        land = ~f["water"]
+        lifted = int(((filled - f["elev"])[land] > 1e-9).sum())
+        assert lifted < 0.35 * int(land.sum()), (seed, lifted)
+
+
+def test_the_sea_carries_the_whole_map():
+    # Every cell contributes one unit of drainage and nothing is created or lost on
+    # the way down; the sea does not drain anywhere itself, so its units stay where
+    # they fell.  The total standing in the sea is therefore every cell on the map
+    # -- and it would be less than that if any land cell were a sump, which is what
+    # makes this a test of the whole flow network rather than of the arithmetic.
+    g, f, filled, down, flux = _flow()
+    assert int(flux[f["water"]].sum()) == g.count
+    assert int(flux[f["water"]].sum()) - int(f["water"].sum()) == int((~f["water"]).sum())
+
+
+def test_a_river_ends_on_land_that_drains_into_the_sea():
+    g, f, filled, down, flux = _flow()
+    courses = rivers.courses(g, f, down, flux)
+    assert courses
+    for course in courses:
+        cell = g.cell(np.array([course["mouth"][0]]), np.array([course["mouth"][1]]))
+        r, c = (int(v) for v in cell.rc[0])
+        assert not f["water"][r, c]
+        d = int(down[r, c])
+        assert d >= 0
+        dr, dc = divmod(d, g.cols)
+        assert f["water"][dr, dc]
+        assert len(course["points"]) >= 2
+        assert course["cells"] >= 3
+
+
+def test_the_river_density_is_what_was_asked_for_and_not_a_lucky_constant():
+    for seed in (7, 3, 23, 19):
+        g, f, filled, down, flux = _flow(seed=seed)
+        land = int((~f["water"]).sum())
+        for frac in (0.03, 0.06, 0.10):
+            got = int(rivers.river_mask(flux, f["water"], frac).sum()) / land
+            assert abs(got - frac) < 0.02, (seed, frac, got)
+
+
+def test_asking_for_more_rivers_only_adds_cells_to_the_network():
+    # The threshold is a quantile of the same field, so the smaller network has to
+    # be a subset of the larger one -- if it were not, "a fraction of the land"
+    # would not be a fraction of anything.
+    g, f, filled, down, flux = _flow()
+    small = rivers.river_mask(flux, f["water"], 0.03)
+    big = rivers.river_mask(flux, f["water"], 0.10)
+    assert 0 < int(small.sum()) < int(big.sum())
+    assert int((small & ~big).sum()) == 0
+
+
+def test_the_same_seed_drains_the_same_way():
+    a = _flow(seed=11)
+    b = _flow(seed=11)
+    assert np.array_equal(a[3], b[3])
+    assert np.array_equal(a[4], b[4])
+    ca = rivers.courses(a[0], a[1], a[3], a[4])
+    cb = rivers.courses(b[0], b[1], b[3], b[4])
+    assert len(ca) == len(cb) > 0
+    for x, y in zip(ca, cb):
+        assert np.array_equal(x["points"], y["points"])
+        assert x["flux"] == y["flux"]
+
+
+# ----------------------------------------------------------------- provinces
+def _political(cols=30, rows=20, size=13.0, seed=7, count=8, province_seed=None):
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    s = seed if province_seed is None else province_seed
+    return g, f, region.provinces(g, f, count=count, seed=s)
+
+
+def test_every_province_is_connected():
+    # The claim the whole module exists for.  A province in two pieces cannot be
+    # governed, because an army cannot get from one half to the other without
+    # leaving it -- and nearest-capital by straight-line distance produces exactly
+    # that, which is why the assignment is a breadth-first search instead.
+    for seed in (7, 3, 23, 19):
+        g, f, res = _political(seed=seed)
+        assert res["count"] >= 1
+        for p in res["provinces"]:
+            mask = np.zeros(g.count, dtype=bool)
+            mask[p["cells"]] = True
+            parts = region.components(g, mask.reshape(g.rows, g.cols))
+            assert len(parts) == 1, (seed, p["name"], len(parts))
+            assert int(parts[0].size) == p["area"]
+
+
+def test_the_land_is_covered_once_and_the_sea_is_not_covered_at_all():
+    g, f, res = _political()
+    labels = res["labels"]
+    assert np.array_equal(labels >= 0, ~f["water"])
+    assert int(labels.max()) + 1 == res["count"]
+    used = sorted({int(v) for v in labels.reshape(-1)})
+    assert used == [-1] + list(range(res["count"]))  # and no province came out empty
+
+
+def test_a_province_holds_the_cells_whose_capital_is_nearest_by_path():
+    # Multi-source breadth-first search grows every capital at once, so a cell can
+    # only be claimed by a capital at least as close as any other -- and that is a
+    # property of the finished division, not of the way it was built.
+    g, f, res = _political()
+    flat = (~f["water"]).reshape(-1)
+    labels = res["labels"].reshape(-1)
+    dist = {p["index"]: region._masked_bfs(
+        g, flat, int(p["capital"][0]) * g.cols + int(p["capital"][1]))
+        for p in res["provinces"]}
+    for i in range(res["count"]):
+        for j in range(res["count"]):
+            if i == j:
+                continue
+            cells = labels == i
+            assert np.all(dist[i][cells] <= dist[j][cells]), (i, j)
+
+
+def test_a_capital_is_within_a_hex_of_the_middle_of_its_province():
+    # Lloyd's step moves a capital to the one-median of its province.  Two passes
+    # do not always converge to it -- the division is re-cut between passes -- but
+    # they always land within one hex, and the capital's total distance is within
+    # ten per cent of the best a cell of that province could do.
+    g, f, res = _political()
+    flat = (~f["water"]).reshape(-1)
+    for p in res["provinces"]:
+        median = region.one_median(g, flat, p["cells"])
+        cap = int(p["capital"][0]) * g.cols + int(p["capital"][1])
+        dcap = region._masked_bfs(g, flat, cap)
+        dmed = region._masked_bfs(g, flat, median)
+        total_cap = int(sum(dcap[j] for j in p["cells"]))
+        total_med = int(sum(dmed[j] for j in p["cells"]))
+        assert total_cap <= 1.1 * total_med, (p["name"], total_cap, total_med)
+        rcap, ccap = divmod(cap, g.cols)
+        rmed, cmed = divmod(median, g.cols)
+        a = g.axes[rcap, ccap]
+        b = g.axes[rmed, cmed]
+        assert gridlib.distance((int(a[0]), int(a[1])), (int(b[0]), int(b[1]))) <= 1
+
+
+def test_no_two_provinces_on_a_map_share_a_name():
+    for seed in (7, 3, 23):
+        g, f, res = _political(seed=seed)
+        names = [p["name"] for p in res["provinces"]]
+        assert len(set(names)) == len(names)
+        assert all(n and n[0].isupper() for n in names)
+
+
+def test_a_lone_island_becomes_a_province_of_its_own():
+    # A landmass no capital can reach is a province, with its capital on it.  The
+    # alternative -- reaching it by distance across the sea -- would produce a
+    # province in two pieces, which is the thing this module exists to prevent.
+    g = gridlib.HexGrid(9, 7, size=10.0)
+    water = np.ones((7, 9), dtype=bool)
+    water[:, :4] = False
+    water[3, 6] = False
+    f = {"water": water, "biome": np.zeros((7, 9), dtype=np.int64),
+         "near_sea": np.ones((7, 9), dtype=bool), "elev": np.zeros((7, 9)),
+         "height": np.zeros((7, 9))}
+    res = region.provinces(g, f, count=4, seed=1)
+    assert res["islands"] == 1
+    lonely = [p for p in res["provinces"] if p["area"] == 1]
+    assert len(lonely) == 1
+    assert lonely[0]["capital"] == (3, 6)
+    for p in res["provinces"]:
+        if p["index"] == lonely[0]["index"]:
+            assert int(p["cells"][0]) == 3 * g.cols + 6
+        else:
+            assert all(int(j) % g.cols < 4 for j in p["cells"])
+
+
+def test_no_province_ever_spans_a_channel_of_water():
+    g = gridlib.HexGrid(9, 7, size=10.0)
+    water = np.zeros((7, 9), dtype=bool)
+    water[:, 4] = True
+    f = {"water": water, "biome": np.zeros((7, 9), dtype=np.int64),
+         "near_sea": water.copy(), "elev": np.zeros((7, 9)), "height": np.zeros((7, 9))}
+    res = region.provinces(g, f, count=4, seed=3)
+    sides = set()
+    for p in res["provinces"]:
+        cols = {int(j) % g.cols for j in p["cells"]}
+        assert not ({3} <= cols and {5} <= cols), p["name"]
+        sides.add(0 if max(cols) < 4 else 1)
+    assert sides == {0, 1}  # and both sides did get provinces
+
+
+def test_a_second_seed_divides_the_same_land_differently():
+    g = gridlib.HexGrid(24, 16, size=11.0)
+    f = terrain.fields(g, seed=7)
+    a = region.provinces(g, f, count=6, seed=1)
+    b = region.provinces(g, f, count=6, seed=2)
+    assert np.array_equal(a["labels"] >= 0, b["labels"] >= 0)   # the same land
+    assert not np.array_equal(a["labels"], b["labels"])          # cut differently
+    assert {p["name"] for p in a["provinces"]} != {p["name"] for p in b["provinces"]}
+
+
+def test_province_tints_stay_far_apart_however_many_are_asked_for():
+    for n in (3, 6, 11):
+        tints = paint.province_tints(n)
+        assert tints.shape == (n, 3)
+        assert float(tints.min()) >= 0.0 and float(tints.max()) <= 1.0
+        for i in range(n):
+            for j in range(i + 1, n):
+                assert palette.delta_e(tints[i], tints[j]) > 0.04, (n, i, j)
+
+
+def test_a_frontier_is_a_line_between_two_provinces_and_not_a_wash():
+    g = gridlib.HexGrid(12, 9, size=10.0)
+    labels = np.full((9, 12), -1, dtype=np.int64)
+    labels[:, :6] = 0
+    labels[:, 6:] = 1
+    w, h = g.extent
+    canvas = Canvas(int(np.ceil(w)) + 8, int(np.ceil(h)) + 8, scale=1.0)
+    cell = g.cell(*canvas.grid())
+    a = region.frontier_alpha(g, labels, cell, dx=canvas.dx)
+    assert 0.0 < float(a.max()) <= 1.0
+    # Thin: nothing survives more than a couple of pixels inside a hex, so the
+    # frontier is a line on the shared edge and not a shaded band.
+    assert float(a[cell.edge_distance() > 2.0].max()) == 0.0
+
+
+def test_a_map_with_provinces_and_rivers_paints_the_same_bytes_twice():
+    a = paint.map_image(seed=5, cols=20, rows=14, size=10.0, provinces=6)
+    b = paint.map_image(seed=5, cols=20, rows=14, size=10.0, provinces=6)
+    assert hashlib.sha256(a.to_uint8().tobytes()).hexdigest() == \
+           hashlib.sha256(b.to_uint8().tobytes()).hexdigest()
+    c = paint.map_image(seed=5, cols=20, rows=14, size=10.0, provinces=0, river=0.0)
+    assert not np.array_equal(a.to_uint8(), c.to_uint8())
 
 
 if __name__ == "__main__":
