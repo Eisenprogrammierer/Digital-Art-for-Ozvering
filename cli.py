@@ -19,6 +19,7 @@ Usage
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
     python cli.py ui         --seed 7 --count 3 --scale 2
+    python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -41,6 +42,9 @@ from core.canvas import Canvas  # noqa: E402
 from export import png  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
+from gen.maps import grid as map_grid  # noqa: E402
+from gen.maps import paint as map_paint  # noqa: E402
+from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
@@ -780,6 +784,52 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     return _report(out)
 
 
+def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
+              size: float = 13.0, sea: float = 0.42) -> Path:
+    """Contact sheet of maps: the geography is the seed, and nothing else.
+
+    Each tile is labelled with the two halves of what a map *is* -- the seed that
+    makes it, and the shape of the grid it is played on -- plus the water fraction
+    and the commonest ground, which is what the sidecar records and what a
+    campaign needs to know about a place.
+    """
+    tiles = []
+    for i in range(count):
+        s = seed + i
+        g = map_grid.HexGrid(cols, rows, size)
+        f = map_terrain.fields(g, seed=s, sea_fraction=sea)
+        st = map_terrain.stats(f["biome"])
+        img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea)
+        ground = sorted(((v, k) for k, v in st.items() if k not in ("hexes", "water")),
+                        reverse=True)[:2]
+        tiles.append((s, img, st, ground))
+
+    gap = 24
+    sheet = render.sheet([t[1] for t in tiles], cols=min(2, len(tiles)), gap=gap,
+                         background=(0.90, 0.90, 0.93))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    cw = max(t[1].w for t in tiles)
+    ch = max(t[1].h for t in tiles)
+    per_row = min(2, len(tiles))
+    for i, (s, tile, st, ground) in enumerate(tiles):
+        r, col = divmod(i, per_row)
+        tx = gap + col * (cw + gap) + (cw - tile.w) // 2
+        ty = gap + r * (ch + gap) + (ch - tile.h) // 2
+        land = 100.0 * (1.0 - st["water"])
+        top = ", ".join(f"{k} {v}" for v, k in ground)
+        _label(img, (tx + 3, ty + tile.h + 4),
+               f"seed {s}   {cols}x{rows} hexes at {size:g} px   land {land:.0f}%   {top}")
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.maps", maps=[
+        {"seed": s, "cols": cols, "rows": rows, "hex_size": size,
+         "sea_target": sea, "water": st["water"], "biomes": st}
+        for s, _, st, _ in tiles
+    ])
+    return _report(out)
+
+
 def _json_style(spec: dict) -> dict:
     """A spec with the colours as hex, so the sidecar is readable and stable."""
     out = {}
@@ -805,6 +855,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
+    demo_maps(out / "maps.png", seed=seed, count=2)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
     print("done.")
@@ -897,6 +948,15 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--style", default=None, choices=ui_style.names(),
                    help="render one named style instead of all of them")
 
+    m = sub.add_parser("maps", help="hex maps: terrain, relief and coastline")
+    m.add_argument("--out", default="out/maps.png", type=Path)
+    m.add_argument("--seed", type=int, default=7)
+    m.add_argument("--count", type=int, default=2, help="how many seeded maps")
+    m.add_argument("--cols", type=int, default=26, help="hexes across")
+    m.add_argument("--rows", type=int, default=17, help="hexes down")
+    m.add_argument("--size", type=float, default=13.0, help="hex circumradius in pixels")
+    m.add_argument("--sea", type=float, default=0.42, help="fraction of the map that is water")
+
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
                     help="write credits.txt here (default: print it)")
@@ -943,6 +1003,9 @@ def main(argv=None) -> int:
     elif args.cmd == "ui":
         demo_ui(args.out, seed=args.seed, count=args.count, scale=args.scale,
                 style=args.style)
+    elif args.cmd == "maps":
+        demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
+                  rows=args.rows, size=args.size, sea=args.sea)
     elif args.cmd == "credits":
         if args.out is None:
             print(creditslib.credits(args.manifest), end="")

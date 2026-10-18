@@ -30,11 +30,12 @@ python cli.py demo --out out --seed 7
 
 The demo writes `out/icons.png`, `out/shapes.png`, `out/texture.png`,
 `out/palette.png`, `out/arms.png`, `out/flags.png`, `out/portraits.png`,
-`out/lineage.png` and `out/ui.png`, each with a `.json` sidecar recording the
-seed, the spec, the blazon, the genome of every portrait tile and the corner
-insets of every UI part, plus `out/credits.txt` and `out/credits.png`, which are
-built from those sidecars. The credits are not a seeded asset and carry no
-sidecar of their own: they are what the sidecars are *for*.
+`out/lineage.png`, `out/ui.png` and `out/maps.png`, each with a `.json` sidecar
+recording the seed, the spec, the blazon, the genome of every portrait tile, the
+corner insets of every UI part and the biome census of every map, plus
+`out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
+credits are not a seeded asset and carry no sidecar of their own: they are what
+the sidecars are *for*.
 
 ## Usage
 
@@ -51,12 +52,14 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
+python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 31 tests
 python tests/test_portraits.py                  # 25 tests
 python tests/test_ui.py                         # 22 tests
+python tests/test_maps.py                       # 27 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -356,6 +359,83 @@ changes no number: the same spec renders a 48 px icon-button and a 512 px hero
 panel, with the same corner geometry in both — which is what makes the insets
 mean something.
 
+## Maps (`gen/maps/`)
+
+A map is the first asset here that is *data* before it is a picture: a grid
+someone plays on, with a cell size, a coastline, movement costs and -- soon --
+provinces. So the generator works in cells and draws in pixels, and the two are
+kept strictly apart:
+
+> The map is `(seed, cols, rows)`. The hex size decides how many pixels it is
+> drawn in, and nothing else.
+
+| Module | What it provides |
+| --- | --- |
+| `grid` | The lattice in axial coordinates: centres, neighbours, hex distance, the corner normal form, and the per-pixel lookup that resolves a world point to a cell and a position inside it. |
+| `terrain` | The geography: a domain-warped elevation field, a moisture field, and the biome table that gives every class of ground a name, a colour and a movement cost. |
+| `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
+| `paint` | One raster pass for the ground and its relief, then strokes for the creases, the lattice and the coast. |
+
+### Why axial coordinates, and what they buy
+
+The map is stored as a rectangle of *offset* hexes, because that is the shape a
+strategy map has, and converted once to *axial* coordinates `(q, r)`, because in
+those a hexagon is a lattice and everything afterwards is arithmetic: the six
+neighbours are six constant offsets, distance is half the sum of three coordinate
+differences, and the centre of a cell is a linear function of its indices.
+
+The raster pass then rests on one fact -- **a hexagon is the Voronoi cell of its
+centre** -- so "which cell was this pixel in" is cube rounding and not a search.
+Every property of the ground is an array indexed by that answer, which is why the
+map has no seams, no anti-aliased cracks between tiles and no per-hex canvas, and
+costs one pass over the pixels whatever the hex size.
+
+It also means the hexagon can be measured analytically. Inside the sector towards
+one edge, the signed distance to the cell's own border is the apothem minus the
+projection of the pixel's offset onto that edge's direction -- so a test can
+compare the rasteriser's idea of the hexagon against `sdf.polygon` of the true
+corners, to machine precision, which is the check that catches a wrong lattice
+constant.
+
+### The relief, and why the creases are drawn
+
+The height under a pixel is not stored: it is interpolated *within* the pixel from
+its own cell's height out to the height of the neighbour across the sector's edge.
+One hex is six triangles from its centre, the two cells agree exactly on the edge
+they share, and the surface therefore creases there and only there -- which is
+what a hex map looks like, hills lit on one flank and the joins landing on the
+grid instead of fighting it.
+
+That is honest, and nearly invisible, because most of the map really is flat. So
+the creases get drawn: where the ground drops steeply across an edge, each of the
+two cells draws its own half of a dark band along it, and the threshold comes from
+the map's own distribution of drops rather than from a constant, so a smooth
+continent and a shattered one both get the right amount of shading.
+
+### The coastline is the edge of the land
+
+A coastline is not a curve fitted to the terrain, it is the set of hex edges with
+land on one side and water on the other, walked into closed loops. On a square
+grid that walk needs a rule for corners, because two cells can meet at one without
+sharing an edge. On a hex grid it does not:
+
+> at every corner exactly three hexes meet, and all three are pairwise
+> edge-neighbours, so a corner has at most one boundary edge arriving and one
+> leaving and there is never a choice to make.
+
+Which is why the whole walk is a dictionary from a corner to the next corner.
+Corners are named by the *lowest* of the three hexes that meet there -- an integer
+normal form, so a loop closes exactly on its first corner -- and the walk is built
+to keep the land on its left, which makes an island's loop counter-clockwise and a
+lake's clockwise. The tests use that: punch a hole in a block of hexes and the
+boundary becomes two loops, wound opposite ways.
+
+Two of the numbers are worth stating because they are the difference between a map
+and a picture of one. The sea level is a **quantile**, so `--sea 0.42` means 42% of
+the hexes are water for any seed; and the biome table keeps the *rules* -- what a
+cell costs to walk through -- in the same row as its colour, so the art and the
+gameplay cannot drift apart.
+
 ## Roadmap
 
 Generators to sit on top of the core, in the order they become useful:
@@ -376,8 +456,14 @@ Generators to sit on top of the core, in the order they become useful:
   box, which is the only part of a nine-slice asset that is never resampled)*;
   next, asymmetric insets for title bars, and wood/stone textures for the body via
   fBm + domain warping.
-- **maps** -- hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
-  from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching squares.
+- **maps** -- ~~hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
+  from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching
+  squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline,
+  drawn as one raster pass.  The plan's Delaunay and marching squares are
+  deliberately not there: on a hex map adjacency is one hex step, which is what an
+  army actually walks, and a coastline is the edge of the land, which the land
+  already knows)*; next, provinces by Lloyd relaxation, rivers downhill to the
+  sea, roads between capitals, and labels.
 - **textures** -- Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns.
 - **export extras** -- SVG for vector UI, atlas packing, and an ~~`assets.yaml`

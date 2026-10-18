@@ -1,0 +1,249 @@
+"""Painting the map: one per-pixel pass, then strokes on top.
+
+The whole terrain is drawn in a single raster pass rather than hex by hex, and
+that is the decision this module is built on.  A hexagon is the Voronoi cell of
+its centre, so "which hex is this pixel in" is arithmetic, and everything that
+depends on the cell -- its biome colour, its altitude, its distance to its own
+border, its position within its six triangular sectors -- becomes an array
+indexed by the cell the pixel landed in.  No seams, no anti-aliased cracks between
+tiles, no per-hex canvas, and a map costs one pass over the pixels whatever the
+hex size.
+
+The relief is the same trick twice.  The height of the ground is not stored per
+pixel; it is interpolated *within* the pixel from its hex's centre height out to
+the midpoint of the sector's edge, i.e. towards the neighbour across it.  That
+makes the surface piecewise-linear with creases on every hex edge, which is
+exactly what a hex strategy map looks like: hills catch the light on one flank and
+shadow the other, and the joins line up with the grid instead of fighting it.
+
+Strokes -- the coastline, the hex lattice, the border of the map -- are the only
+things drawn the traditional way, as distance fields over a window.  They are one
+dimensional objects and there are far fewer of them than there are pixels.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from core import noise, palette, render, sdf
+from core.canvas import Canvas
+
+from . import coast, terrain
+from .grid import HexGrid
+
+__all__ = ["LIGHT", "INK", "SEA_RAMP", "map_image", "terrain_layer", "stroke_polyline"]
+
+#: One light for the whole project.  On a map it means the north-west flanks of
+#: the hills are lit and the south-east ones are not, which is the convention
+#: every atlas uses and therefore the one that reads without being explained.
+LIGHT = (-0.45, 0.65)
+
+#: The dark used for coastlines, the map's edge and the lattice (sRGB).
+INK = palette.hex_to_srgb("#16222e")
+
+#: Water is a depth ramp rather than three flat classes.  The biome table still
+#: distinguishes shallows from ocean from deep -- that difference is real, and a
+#: navy needs to know it -- but the picture interpolates between them, because a
+#: hand-drawn sea is a wash and not a mosaic.
+SEA_RAMP = tuple(palette.hex_to_srgb(h) for h in ("#59a3bd", "#2a6a8c", "#122c44"))
+
+_AMBIENT = 0.66
+_DIFFUSE = 0.52
+
+
+def _window(canvas: Canvas, lo, hi) -> tuple:
+    """Pixel bounds of a world box on a canvas, clipped to it."""
+    sx = float(canvas.scale)
+    cx, cy = canvas.center
+    x0 = int(np.floor((lo[0] - cx) * sx - 0.5 + canvas.w / 2.0)) - 1
+    x1 = int(np.ceil((hi[0] - cx) * sx + 0.5 + canvas.w / 2.0)) + 1
+    if canvas.y_up:
+        y0 = int(np.floor((cy - hi[1]) * sx - 0.5 + canvas.h / 2.0)) - 1
+        y1 = int(np.ceil((cy - lo[1]) * sx + 0.5 + canvas.h / 2.0)) + 1
+    else:
+        y0 = int(np.floor((lo[1] - cy) * sx - 0.5 + canvas.h / 2.0)) - 1
+        y1 = int(np.ceil((hi[1] - cy) * sx + 0.5 + canvas.h / 2.0)) + 1
+    return (max(x0, 0), max(y0, 0), min(x1, canvas.w), min(y1, canvas.h))
+
+
+def stroke_polyline(canvas: Canvas, points, width: float, srgb, alpha: float = 1.0,
+                    closed: bool = False, chunk: int = 12) -> None:
+    """Stroke a polyline as a union of capsules, in chunks over a full-canvas mask.
+
+    The field is the minimum distance to any segment of the polyline, which is
+    exact rather than an approximation -- but only if it is not evaluated where
+    the line is not.  A coastline runs the length of the map, so one window round
+    the whole of it would evaluate every segment against every pixel; instead the
+    segments are taken in runs, each run is measured over its own small window,
+    and the runs are merged with ``max`` into one alpha mask.  Merging into a mask
+    rather than compositing each run is what keeps the joins invisible: a stroke
+    drawn in thirteen pieces at 80% alpha would show its seams.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    if len(pts) < 2:
+        return
+    if closed:
+        segs = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+    else:
+        segs = [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+    hw = 0.5 * float(width)
+    X, Y = canvas.grid()
+    acc = np.zeros((canvas.h, canvas.w), dtype=np.float64)
+    for i in range(0, len(segs), chunk):
+        part = segs[i:i + chunk]
+        ends = np.array([p for seg in part for p in seg])
+        x0, y0, x1, y1 = _window(canvas, ends.min(axis=0) - hw, ends.max(axis=0) + hw)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        Xs = X[y0:y1, x0:x1]
+        Ys = Y[y0:y1, x0:x1]
+        d = np.full(Xs.shape, np.inf)
+        for a, b in part:
+            d = np.minimum(d, sdf.segment(Xs, Ys, a, b))
+        cov = render.coverage(np.abs(d) - hw, canvas.dx)
+        acc[y0:y1, x0:x1] = np.maximum(acc[y0:y1, x0:x1], cov)
+    canvas.over(palette.srgb_to_linear(srgb), acc * float(alpha))
+
+
+def relief_height(grid: HexGrid, f: dict, cell, relief: float = 1.4):
+    """The height field the light is cast on, per pixel.
+
+    One hex is six triangles: the centre, and the midpoint of each edge.  Inside a
+    triangle the height runs linearly from the cell's own to its neighbour's
+    across that edge, so two hexes agree exactly at the edge they share and the
+    ground creases there and only there.  Scaled by the hex size, because a 1.0
+    of elevation across a 14 px hex has to be a slope in *pixels* to be a slope at
+    all.
+    """
+    r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
+    centre_h = f["height"][r, c]
+    d = cell.sector
+    nr = grid.nbr[r, c, d, 0]
+    nc = grid.nbr[r, c, d, 1]
+    ok = nr >= 0
+    across = f["height"][np.clip(nr, 0, grid.rows - 1), np.clip(nc, 0, grid.cols - 1)]
+    edge_h = np.where(ok, across, centre_h)
+    apothem = 0.5 * np.sqrt(3.0) * grid.size
+    t = np.clip(cell.rho / apothem, 0.0, 1.0)
+    return (centre_h + (edge_h - centre_h) * t) * relief * grid.size
+
+
+def terrain_layer(canvas: Canvas, grid: HexGrid, f: dict, seed: int = 0,
+                  relief: float = 4.0, texture: float = 0.07) -> None:
+    """The single raster pass: biome colour, depth ramp, relief and grain."""
+    X, Y = canvas.grid()
+    cell = grid.cell(X, Y)
+    r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
+    water = f["water"][r, c]
+
+    # Land: the flat colour of the cell's biome.
+    srgb = terrain.colour_table()[f["biome"][r, c]]
+    # Sea: a wash from the shelf out to the deep, keyed on how far below sea
+    # level the cell is, so the shelf hugs the coast it belongs to.
+    depth = np.clip((f["sea"] - f["elev"][r, c]) / 0.30, 0.0, 1.0)
+    sea = palette.ramp_map(SEA_RAMP, depth)
+    srgb = np.where(water[..., None], sea, srgb)
+
+    # Relief: Lambert on the piecewise-linear surface, as a multiplier so the
+    # biome colours survive the shading instead of being washed towards grey.
+    h = relief_height(grid, f, cell, relief)
+    n = render.height_normals(h, canvas.dx, y_up=canvas.y_up)
+    L = np.array([LIGHT[0], LIGHT[1], 0.65])
+    L = L / np.linalg.norm(L)
+    lam = np.clip(n @ L, 0.0, 1.0)
+    srgb = srgb * (_AMBIENT + _DIFFUSE * lam)[..., None]
+
+    # A little grain, at a frequency the hexes cannot produce, so the fields read
+    # as ground rather than as a chart.
+    grain = noise.fbm(X / 5.0, Y / 5.0, seed=seed + 404, freq=1.0, octaves=3)
+    srgb = srgb * (1.0 - texture + 2.0 * texture * grain)[..., None]
+
+    canvas.over(palette.srgb_to_linear(np.clip(srgb, 0.0, 1.0)), cell.ok.astype(np.float64))
+
+
+def cliff_alpha(canvas: Canvas, grid: HexGrid, f: dict, cell, strength: float = 0.55,
+                width: float = 0.09, lo_q: float = 0.80, hi_q: float = 0.97):
+    """A dark band along every edge the ground drops steeply across.
+
+    This is the one place the map stops being a height field and becomes a map.
+    A continuous surface shaded from its own gradient is honest and nearly
+    invisible, because the flatlands really are flat; what makes hills read as
+    hills at a glance is the crease, so the crease is drawn as a line.  The
+    threshold is taken from the map's own distribution of drops rather than from
+    a constant, so it works for a smooth continent and a shattered one, and each
+    hex draws its own half of the band -- the two halves meet on the edge, which
+    is where the crease actually is.
+    """
+    r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
+    own = f["height"][r, c]
+    d = cell.sector
+    nr = grid.nbr[r, c, d, 0]
+    nc = grid.nbr[r, c, d, 1]
+    across = np.where(nr >= 0, f["height"][np.clip(nr, 0, grid.rows - 1),
+                                            np.clip(nc, 0, grid.cols - 1)], own)
+    drop = np.abs(own - across)
+    lo = float(np.quantile(drop, lo_q))
+    hi = float(np.quantile(drop, hi_q))
+    weight = np.clip((drop - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+    band = render.coverage(cell.edge_distance() - 0.5 * width * grid.size, canvas.dx)
+    return band * weight * float(strength) * cell.ok.astype(np.float64)
+
+
+def map_image(
+    seed: int = 0,
+    cols: int = 26,
+    rows: int = 17,
+    size: float = 14.0,
+    margin: float = 7.0,
+    relief: float = 4.0,
+    texture: float = 0.07,
+    lattice: float = 0.09,
+    cliff: float = 0.55,
+    shadow: float = 0.34,
+    **kw,
+) -> Canvas:
+    """A finished map at one seed: terrain, relief, cliffs, lattice and coast.
+
+    ``seed`` and the grid shape are the whole specification of the *geography*;
+    ``size`` and ``margin`` only decide how many pixels it is drawn in, so a map
+    can be re-rendered at any scale and is still the same map.
+    """
+    grid = HexGrid(cols, rows, size)
+    f = terrain.fields(grid, seed=seed, **kw)
+    w, h = grid.extent
+    canvas = Canvas(int(np.ceil(w + 2.0 * margin)), int(np.ceil(h + 2.0 * margin)), scale=1.0)
+
+    block = np.ones((rows, cols), dtype=bool)
+    cell = grid.cell(*canvas.grid())
+
+    # A shadow under the whole block: the map is a sheet of ground, and the sheet
+    # is on a table.
+    if shadow > 0.0:
+        canvas.over_srgb((0.04, 0.04, 0.06),
+                         render.drop_shadow(cell.ok.astype(np.float64), canvas.scale,
+                                            offset=(0.0, -3.0), sigma=3.2, opacity=shadow))
+
+    terrain_layer(canvas, grid, f, seed=seed, relief=relief, texture=texture)
+
+    # The lattice, from the per-pixel distance to the pixel's own hex border --
+    # the one thing a per-hex stroke could not do without seams.
+    if lattice > 0.0:
+        d_edge = cell.edge_distance()
+        a = render.coverage(d_edge - 0.5 * lattice * size, canvas.dx)
+        # A fainter lattice over water: the grid is there to count steps on, and
+        # nobody counts steps on the sea.
+        weight = np.where(f["water"][np.clip(cell.rc[..., 0], 0, rows - 1),
+                                     np.clip(cell.rc[..., 1], 0, cols - 1)], 0.08, 0.22)
+        canvas.over_srgb(INK, a * weight * cell.ok)
+
+    if cliff > 0.0:
+        canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))
+
+    land = ~f["water"]
+    for loop in coast.boundary_loops(grid, land):
+        stroke_polyline(canvas, loop, 0.24 * size, INK, alpha=0.80, closed=True)
+    for loop in coast.boundary_loops(grid, block):
+        stroke_polyline(canvas, loop, 0.14 * size, INK, alpha=0.95, closed=True)
+    return canvas
