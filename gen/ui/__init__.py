@@ -10,8 +10,10 @@ nine-slice envelope -- and every module below is arranged around that fact:
     The numbers.  A style is a palette plus proportions in *design pixels*, which
     makes it resolution-independent: ``scale=2`` doubles the pixels and changes no
     number.  It also states the geometric invariant the whole package leans on --
-    every bit of curvature must fit inside the corner box -- and clamps a spec
-    onto that legal set.
+    every bit of curvature, rule included, must fit inside the corner box -- and
+    clamps a spec onto that legal set.  The insets and the band widths take one
+    number per side, so a title bar is a wider border (``style.title_bar``) rather
+    than a second kind of window.
 ``frame``
     The geometry: five concentric rounded rectangles and a corner ornament, all
     as distance fields.  The ornament's radius is a Fourier series, which is the
@@ -36,7 +38,7 @@ from . import frame, paint, slice, style
 
 __all__ = [
     "frame", "paint", "slice", "style",
-    "Panel", "draw", "panel", "frame_image", "button",
+    "Panel", "draw", "panel", "frame_image", "button", "title_bar",
 ]
 
 Panel = frame.Panel
@@ -44,3 +46,4 @@ draw = paint.draw
 panel = paint.panel
 frame_image = paint.frame
 button = paint.button
+title_bar = style.title_bar

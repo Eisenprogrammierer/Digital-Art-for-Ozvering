@@ -87,46 +87,90 @@ class Panel:
         return (self.w / self.scale, self.h / self.scale)
 
     @property
+    def insets(self) -> tuple:
+        """The nine-slice cuts, in design pixels: ``(left, top, right, bottom)``.
+
+        Per side, because a titled window's corners are not squares: the top-left
+        block is as wide as the left band and as tall as the title.  That is also
+        what an engine has to be handed -- a nine-slice is four numbers, and a panel
+        that has a title bar is the case that makes the difference visible.
+        """
+        return tuple(float(v) for v in self.spec["inset"])
+
+    @property
     def inset(self) -> float:
-        """The nine-slice cut, in design pixels (= world units)."""
-        return float(self.spec["inset"])
+        """The tightest of the four sides, as a scalar.
+
+        The curvature, the moulding and the ornament are shared by all four
+        corners, so this is the number that bounds them; a caller that wants the
+        cuts wants :attr:`insets`.
+        """
+        return min(self.insets)
 
     def content(self) -> tuple:
         """The rect the frame leaves for content, as pixel bounds ``(x0, y0, x1, y1)``.
 
         Pixel bounds, top-left origin -- the one place in this package where the
         output pixel grid is the right coordinate system, because that is where a
-        layout engine will put the text.
+        layout engine will put the text.  A title bar pushes the top of it down and
+        leaves the sides where they were, which is exactly what a title bar is for.
         """
-        m = stylelib.pad(self.spec) * self.scale
-        x0 = int(round(m))
-        y0 = int(round(m))
-        return (x0, y0, max(self.w - x0, x0 + 1), max(self.h - y0, y0 + 1))
+        m = stylelib.pad(self.spec)
+        x0 = int(round(m[0] * self.scale))
+        y0 = int(round(m[1] * self.scale))
+        x1 = max(self.w - int(round(m[2] * self.scale)), x0 + 1)
+        y1 = max(self.h - int(round(m[3] * self.scale)), y0 + 1)
+        return (x0, y0, min(x1, self.w), min(y1, self.h))
 
     def corner_box(self, i: int) -> tuple:
         """The world rect ``(x0, y0, x1, y1)`` of corner ``i``'s ornament box.
 
         ``y1`` is the top, matching :attr:`core.canvas.Canvas.grid`.  The box
-        reaches *inwards* from the panel corner by ``inset`` -- the ornament box
-        and the nine-slice corner block are the same square, so this is also the
-        region of the design that a resample never touches.
+        reaches *inwards* from the panel corner by that corner's two insets, which
+        are the same two numbers as its nine-slice block -- so this is also the
+        region of the design a resample never touches.
 
         Everything the design curves -- the radius, the bevel, the ornament --
         has to be inside it, which is exactly what the tests measure.
         """
         sx, sy = CORNERS[i]
+        ix, iy = stylelib._corner_pair(i, self.insets)
         cx = sx * self.hw
         cy = sy * self.hh
-        return (min(cx, cx - sx * self.inset), min(cy, cy - sy * self.inset),
-                max(cx, cx - sx * self.inset), max(cy, cy - sy * self.inset))
+        return (min(cx, cx - sx * ix), min(cy, cy - sy * iy),
+                max(cx, cx - sx * ix), max(cy, cy - sy * iy))
+
+    def corner_border(self, i: int) -> float:
+        """The band width at corner ``i``: the thinner of its two sides.
+
+        The ornament is a disc, and a disc on a band has one radius, so the thinner
+        of the two bands is what it fits.
+        """
+        return min(stylelib._corner_pair(i, self.spec["border"]))
 
     # ---------------------------------------------------------------- fields
+    def inner_radius(self) -> float:
+        """The inner rectangle's corner radius: the outer one, worn down by the band."""
+        return max(self.spec["radius"] - min(self.spec["border"]), 0.0)
+
+    def inner_box(self) -> tuple:
+        """The inner rectangle as ``(cx, cy, hw, hh)``, given the per-side bands.
+
+        A box with four different bands is still a box: it is the outer one shifted
+        by half the difference between opposite sides, and shrunk by half their sum.
+        Writing it that way means the symmetric case is the arithmetic it always
+        was, down to the same floating-point result.
+        """
+        l, t, r, b = self.spec["border"]
+        return (0.5 * (l - r), 0.5 * (b - t),
+                self.hw - 0.5 * (l + r), self.hh - 0.5 * (t + b))
+
     def outer(self, X, Y):
         return sdf.box(X, Y, self.hw, self.hh, self.spec["radius"])
 
     def inner(self, X, Y):
-        b = self.spec["border"]
-        return sdf.box(X, Y, self.hw - b, self.hh - b, max(self.spec["radius"] - b, 0.0))
+        cx, cy, hw, hh = self.inner_box()
+        return sdf.box(X - cx, Y - cy, hw, hh, self.inner_radius())
 
     def body(self, X, Y):
         """The frame band: the outer silhouette minus the inner rectangle."""
@@ -134,8 +178,9 @@ class Panel:
 
     def rule(self, X, Y):
         """The inner moulding, as a stroke around the third rounded rectangle."""
-        g = self.spec["border"] + self.spec["rule_gap"]
-        d = sdf.box(X, Y, self.hw - g, self.hh - g, max(self.spec["radius"] - g, 0.0))
+        g = self.spec["rule_gap"]
+        cx, cy, hw, hh = self.inner_box()
+        d = sdf.box(X - cx, Y - cy, hw - g, hh - g, max(self.inner_radius() - g, 0.0))
         return np.abs(d) - 0.5 * self.spec["rule"]
 
     def boss_centre(self, i: int) -> tuple:
@@ -144,12 +189,12 @@ class Panel:
         # A fraction of the frame width out along the diagonal, so a disc of
         # about that width straddles the moulding instead of hanging over the
         # hole -- which is what lets a hollow frame wear one too.
-        o = stylelib.BOSS_O * self.spec["border"] / np.sqrt(2.0)
+        o = stylelib.BOSS_O * self.corner_border(i) / np.sqrt(2.0)
         return (sx * (self.hw - o), sy * (self.hh - o))
 
     def boss_radius_at(self, i: int) -> float:
         """The ornament's base radius in design pixels; 0 when it is disabled."""
-        return stylelib.BOSS_R0 * self.spec["border"] * self.spec["boss"]
+        return stylelib.BOSS_R0 * self.corner_border(i) * self.spec["boss"]
 
     def boss_outline(self, i: int) -> float:
         """Half-width of the hairline drawn around the ornament."""
@@ -163,7 +208,7 @@ class Panel:
     # ----------------------------------------------------------- convenience
     def has_rule(self) -> bool:
         """Whether the inner moulding exists and there is room for it."""
-        g = self.spec["border"] + self.spec["rule_gap"] + 0.5 * self.spec["rule"]
+        g = min(self.spec["border"]) + self.spec["rule_gap"] + 0.5 * self.spec["rule"]
         return self.spec["rule"] > 0.0 and g < min(self.hw, self.hh)
 
     def has_boss(self) -> bool:
@@ -171,7 +216,7 @@ class Panel:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         d = self.design_size
-        return f"Panel({d[0]:g}x{d[1]:g}@x{self.scale:g}, inset={self.inset:g})"
+        return f"Panel({d[0]:g}x{d[1]:g}@x{self.scale:g}, inset={self.insets})"
 
 
 def _size(size) -> tuple:

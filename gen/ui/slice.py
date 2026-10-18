@@ -38,10 +38,10 @@ def insets(panel) -> tuple:
 
     Design pixels become pixels here and nowhere else, because this is the number
     an engine has to be told: it is the only part of the design that is not
-    allowed to scale.
+    allowed to scale.  Four numbers rather than one, since a window with a title
+    bar has a deeper top than sides.
     """
-    n = int(round(panel.inset * panel.scale))
-    return (n, n, n, n)
+    return tuple(int(round(v * panel.scale)) for v in panel.insets)
 
 
 def minimum(ins) -> tuple:

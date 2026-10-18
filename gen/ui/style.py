@@ -32,6 +32,7 @@ from core import palette
 __all__ = [
     "GEOMETRY",
     "COLOURS",
+    "SIDED",
     "DEFAULTS",
     "STYLES",
     "BOSS_R0",
@@ -42,6 +43,7 @@ __all__ = [
     "clamp",
     "validate",
     "random_style",
+    "title_bar",
     "pad",
     "boss_reach",
     "boss_limit",
@@ -67,6 +69,16 @@ GEOMETRY = (
     "inset", "radius", "border", "bevel", "rule", "rule_gap", "gradient",
     "alpha", "boss", "boss_harmonics", "boss_amp",
 )
+
+#: The keys that take **one number per side**, in the order ``(left, top, right,
+#: bottom)``: the nine-slice cut and the width of the frame band.
+#:
+#: A window with a title bar is not a different kind of window -- it is the same
+#: window whose top band is wide enough to write in -- so the asymmetry is a number
+#: per side rather than a second asset.  The scalar form is still accepted and
+#: broadcasts to all four, which is why every style written before this existed is
+#: still exactly what it was.
+SIDED = ("inset", "border")
 
 #: Colour keys, all sRGB triples.
 COLOURS = ("body", "body_low", "edge", "ink", "accent")
@@ -147,11 +159,22 @@ def get(name: str) -> dict:
     return clamp(STYLES[name])
 
 
+def _four(value) -> tuple:
+    """One number, or four, as ``(left, top, right, bottom)``."""
+    if np.isscalar(value) or (isinstance(value, np.ndarray) and value.ndim == 0):
+        v = float(value)
+        return (v, v, v, v)
+    v = tuple(float(x) for x in value)
+    if len(v) != 4:
+        raise ValueError(f"expected one number or four (left, top, right, bottom), got {value!r}")
+    return v
+
+
 def _clean(spec: dict) -> dict:
     """Coerce the numeric keys to floats and the colours to sRGB arrays."""
     s = {**DEFAULTS, **dict(spec)}
     for k in GEOMETRY:
-        s[k] = float(s[k])
+        s[k] = _four(s[k]) if k in SIDED else float(s[k])
     for k in COLOURS:
         s[k] = np.asarray(s[k], dtype=np.float64)[:3].copy()
     return s
@@ -162,30 +185,60 @@ def clamp(spec: dict, size=None) -> dict:
 
     ``inset`` is an *output* of this function, not really an input: the style
     states a floor, and the derived corner box is widened to whatever the look
-    actually needs -- the radius plus its bevel, or the ornament's reach.  So the
-    nine-slice cut can never be too small to hold the curvature, by construction
-    rather than by check.  ``size`` runs the argument the other way: at a size too
-    small for the corner box the *look* gives way instead, keeping the radius --
-    the shape -- and flattening the bevel -- the shading -- first.
+    actually needs -- the frame and its rule, the radius plus its bevel, or the
+    ornament's reach.  So the nine-slice cut can never be too small to hold the
+    design, by construction rather than by check.  ``size`` runs the argument the
+    other way: at a size too small for the corner box the *look* gives way instead,
+    keeping the radius -- the shape -- and flattening the bevel -- the shading --
+    first, and thinning the rule rather than letting it spill out of the box.
+
+    Everything here is per side, because a title bar is nothing but a wider top
+    band.  What is *not* per side is the curvature: there is one corner radius, one
+    bevel and one ornament size for the whole kit, so the number that bounds them
+    is the smallest of the four sides, and a bar that is thin on one axis limits
+    the ornament on all four corners.
     """
     s = _clean(spec)
 
-    request = max(float(s["inset"]), 4.0)
+    floor = tuple(max(v, 4.0) for v in s["inset"])
+    cap = None
     if size is not None:
         w, h = _size(size)
-        # Two corner boxes and at least one pixel of stretchable middle.
-        request = min(request, max(4.0, 0.5 * min(w, h) - 0.5))
-    border = float(np.clip(s["border"], 0.5, request))
-    radius = float(np.clip(s["radius"], 0.0, max(request - 0.5, 0.0)))
-    bevel = float(np.clip(s["bevel"], 0.0, max(request - radius, 0.0)))
-    rule = float(np.clip(s["rule"], 0.0, request))
-    rule_gap = float(np.clip(s["rule_gap"], 0.0, request))
+        # Each pair of corner boxes on an axis shares that axis' pixels, and has to
+        # leave at least one for the stretchable middle.
+        lim_x = max(4.0, 0.5 * (w - 1.0))
+        lim_y = max(4.0, 0.5 * (h - 1.0))
+        cap = (lim_x, lim_y, lim_x, lim_y)
+    limit = cap if cap is not None else floor
+    border = tuple(float(np.clip(v, 0.5, lim)) for v, lim in zip(s["border"], limit))
+    room = min(min(f, lim) for f, lim in zip(floor, limit))
+    radius = float(np.clip(s["radius"], 0.0, max(room - 0.5, 0.0)))
+    bevel = float(np.clip(s["bevel"], 0.0, max(room - radius, 0.0)))
+    rule = float(np.clip(s["rule"], 0.0, room))
+    rule_gap = float(np.clip(s["rule_gap"], 0.0, room))
+    # The corner box has to hold the *whole* frame, rule included, and this is the
+    # second thing that can push an inset outwards.  The rule is design, not body: a
+    # rule that crossed out of the corner box would lie in the strip that gets
+    # stretched sideways and break in two at the first resize.  When there is not
+    # room for it -- only ever at a size too small for the frame it was drawn for --
+    # the *rule* is what gives way, thinning rather than spilling.
+    avail = min(lim - b for lim, b in zip(limit, border))
+    span = rule_gap + rule
+    if span > avail + 1e-9 and span > 1e-9:
+        k = max(avail, 0.0) / span
+        rule_gap *= k
+        rule *= k
+    request = tuple(max(min(f, lim), b + rule_gap + rule)
+                    for f, lim, b in zip(floor, limit, border))
     amp = float(np.clip(s["boss_amp"], 0.0, 0.30))
     # The ornament yields to the frame, not the other way round: a thinner frame
-    # would change what the whole kit looks like, a smaller rivet would not.
-    boss = float(np.clip(s["boss"], 0.0, min(BOSS_MAX, boss_limit(request, border, amp))))
+    # would change what the whole kit looks like, a smaller rivet would not.  One
+    # size for four corners means the tightest of them has the last word.
+    cornices = tuple(_corner(i, request, border) for i in range(4))
+    reach = min(boss_limit(ixy, bxy, amp) for ixy, bxy in cornices)
+    boss = float(np.clip(s["boss"], 0.0, min(BOSS_MAX, reach)))
 
-    s["inset"] = max(request, radius + bevel)
+    s["inset"] = tuple(max(req, radius + bevel) for req in request)
     s["border"] = border
     s["bevel"] = bevel
     s["radius"] = radius
@@ -197,6 +250,25 @@ def clamp(spec: dict, size=None) -> dict:
     s["boss_harmonics"] = int(np.clip(round(s["boss_harmonics"]), 3, 12))
     s["boss_amp"] = amp
     return s
+
+
+def _corner(i: int, inset, border) -> tuple:
+    """Corner ``i``'s box and band, as the two numbers the ornament is bounded by.
+
+    The box is an ``(x, y)`` pair now that the sides can differ, so the honest
+    measure of "how much room is there" is the *smaller* of the two, taken with the
+    smaller of the two band widths -- the ornament is a disc, and a disc has one
+    radius.
+    """
+    ix, iy = _corner_pair(i, inset)
+    bx, by = _corner_pair(i, border)
+    return (min(ix, iy), min(bx, by))
+
+
+def _corner_pair(i: int, sides) -> tuple:
+    """``(horizontal, vertical)`` member of ``sides`` for corner ``i``."""
+    left, top, right, bottom = sides
+    return (left, top) if i == 0 else (right, top) if i == 1 else (left, bottom) if i == 2 else (right, bottom)
 
 
 def boss_reach(inset: float, border: float, boss: float, amp: float) -> float:
@@ -230,19 +302,26 @@ def validate(spec: dict, size=None) -> list:
     """Return the design invariants ``spec`` breaks; an empty list means legal.
 
     These are not style opinions -- every one of them is a precondition for the
-    nine-slice resample to be faithful, or for a shape to exist at all.
+    nine-slice resample to be faithful, or for a shape to exist at all.  With the
+    sides free to differ, each of those preconditions is per side, so the checks
+    that used to compare one number with itself now walk the four: a band may be
+    wide on the top and thin on the left, and only the left is then wrong.
     """
     s = _clean(spec)
     bad = []
-    if s["inset"] < 4.0:
+    ins, bor = s["inset"], s["border"]
+    if min(ins) < 4.0:
         bad.append("inset: a corner box narrower than 4 px cannot hold anything")
-    if s["border"] > s["inset"] + 1e-9:
-        bad.append("border: the inner rectangle's corner would leave the corner box")
-    if s["bevel"] > s["border"] + 1e-9:
-        bad.append("bevel: the moulding is wider than the band it moulds")
-    if s["radius"] > s["inset"] - s["bevel"] + 1e-9:
+    for side, i, b in zip(("left", "top", "right", "bottom"), ins, bor):
+        if b > i + 1e-9:
+            bad.append(f"border ({side}): the inner rectangle's corner would leave the corner box")
+        if b + s["rule_gap"] + s["rule"] > i + 1e-9:
+            bad.append(f"rule ({side}): the inner moulding would leave the corner box")
+    if s["bevel"] > min(bor) + 1e-9:
+        bad.append("bevel: the moulding is wider than the narrowest band it moulds")
+    if s["radius"] > min(ins) - s["bevel"] + 1e-9:
         bad.append("radius: the corner curvature leaks out of the corner box")
-    if s["radius"] < 0.0 or s["border"] <= 0.0 or s["bevel"] < 0.0 or s["rule"] < 0.0:
+    if s["radius"] < 0.0 or min(bor) <= 0.0 or s["bevel"] < 0.0 or s["rule"] < 0.0:
         bad.append("negative thickness")
     if not (0.0 <= s["gradient"] <= 1.0) or not (0.05 <= s["alpha"] <= 1.0):
         bad.append("range: gradient or alpha out of bounds")
@@ -250,21 +329,54 @@ def validate(spec: dict, size=None) -> list:
         bad.append("boss_amp: outside the range the radius function is bounded on")
     if s["boss"] > BOSS_MAX + 1e-9:
         bad.append("boss: larger than the design allows")
-    elif boss_reach(s["inset"], s["border"], s["boss"], s["boss_amp"]) > s["inset"] + 1e-9:
-        bad.append("boss: the corner ornament leaves its corner box")
+    else:
+        for i in range(4):
+            room, band = _corner(i, ins, bor)
+            if boss_reach(room, band, s["boss"], s["boss_amp"]) > room + 1e-9:
+                bad.append(f"boss: the corner ornament leaves its corner box (corner {i})")
+                break
     if size is not None:
         w, h = _size(size)
-        if 2.0 * s["inset"] > min(w, h) + 1e-9:
-            bad.append("inset: the two corner boxes would meet in the middle")
-        if 2.0 * (s["border"] + s["rule_gap"] + s["rule"]) >= min(w, h):
+        if ins[0] + ins[2] > w + 1e-9 or ins[1] + ins[3] > h + 1e-9:
+            bad.append("inset: the corner boxes would meet in the middle")
+        if 2.0 * (min(bor) + s["rule_gap"] + s["rule"]) >= min(w, h):
             bad.append("rule: no body left inside the frame at this size")
     return bad
 
 
-def pad(spec: dict) -> float:
-    """How far the frame eats into the panel: the content inset, in design px."""
+def title_bar(spec: dict, height: float, edge: str = "top") -> dict:
+    """The same design with a title bar ``height`` design pixels deep.
+
+    Both numbers have to move together -- the band has to be wide enough for the
+    bar, and the corner box deep enough for the band -- so this is one call rather
+    than two, and the bar is a **border**, not a second panel.  That is the whole
+    point: the frame's moulding then runs around the title, which is what makes it
+    look carved out of the window instead of stuck onto it.
+
+    The floor is raised only as far as the bar, never lowered: a style that already
+    reserves more room for its corners keeps it.
+    """
+    if edge not in ("top", "bottom"):
+        raise ValueError(f"a title bar goes top or bottom, not {edge!r}")
+    i = 1 if edge == "top" else 3
     s = _clean(spec)
-    return float(s["border"] + s["rule_gap"] + s["rule"])
+    bar = max(float(height), float(min(s["border"])))
+    border = list(s["border"])
+    border[i] = bar
+    inset = list(s["inset"])
+    inset[i] = max(inset[i], bar)
+    return clamp({**dict(spec), "border": tuple(border), "inset": tuple(inset)})
+
+
+def pad(spec: dict) -> tuple:
+    """How far the frame eats into the panel, per side, in design px.
+
+    The inner edge of the frame plus the rule: the rectangle a layout engine may
+    put content in.  Per side, because a titled window's content starts lower than
+    it starts to the right.
+    """
+    s = _clean(spec)
+    return tuple(b + s["rule_gap"] + s["rule"] for b in s["border"])
 
 
 def random_style(seed: int, name: str | None = None) -> dict:
@@ -310,7 +422,13 @@ def random_style(seed: int, name: str | None = None) -> dict:
         boss_amp=float(rng.uniform(0.06, 0.20)),
         boss_harmonics=int(rng.integers(5, 10)),
     )
-    return clamp(s)
+    s = clamp(s)
+    # One kit in five is a *window*, with a title bar: the asymmetry a UI actually
+    # needs, drawn from the same seed and legally, rather than a second code path.
+    if rng.random() < 0.2:
+        edge = "top" if rng.random() < 0.75 else "bottom"
+        s = title_bar(s, float(rng.uniform(1.8, 3.2)) * border, edge=edge)
+    return s
 
 
 def _size(size) -> tuple:

@@ -63,7 +63,7 @@ python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 47 tests
 python tests/test_portraits.py                  # 25 tests
-python tests/test_ui.py                         # 22 tests
+python tests/test_ui.py                         # 26 tests
 python tests/test_maps.py                       # 46 tests
 python tests/test_textures.py                   # 23 tests
 ```
@@ -405,7 +405,7 @@ Everything in the package is arranged around that sentence.
 
 | Module | What it provides |
 | --- | --- |
-| `style` | The numbers: a palette plus proportions in **design pixels**, the named kits (`parchment`, `slate`, `brass`, `moss`, `glass`), a seeded `random_style`, and the geometric invariant the rest of the package leans on. |
+| `style` | The numbers: a palette plus proportions in **design pixels**, one per side where a title bar needs it, the named kits (`parchment`, `slate`, `brass`, `moss`, `glass`), `title_bar`, a seeded `random_style`, and the geometric invariant the rest of the package leans on. |
 | `frame` | The geometry as distance fields: concentric rounded rectangles, the band between them, the inner rule, and a corner ornament whose radius is a Fourier series. |
 | `slice` | The contract itself — the insets, the nine rectangles, and the resample a game engine will perform, implemented here so that it can be tested here. |
 | `paint` | Five passes over one fixed light: shadow, body, band, rule, ornament. |
@@ -419,9 +419,15 @@ and the design must be constant across whatever axis gets stretched.
 
 A nine-slice resample keeps the corners and stretches the four edges and the
 middle. A straight edge survives that; a curve does not — it would smear. So the
-corner radius, the bevel and the ornament all have to live within `inset` pixels
-of the corner, and the style may vary *along* the stretch axis but never across
-it (which is why the body gradient is a function of `y` and of nothing else).
+corner radius, the bevel, the frame band, the rule and the ornament all have to
+live within the corner box, and the style may vary *along* the stretch axis but
+never across it (which is why the body gradient is a function of `y` and of
+nothing else).
+
+The rule is in that list because it is design, not body: a rule that crossed out
+of the corner box would lie in the strip that gets stretched sideways and break in
+two at the first resize, which is a flaw the eye finds immediately and the algebra
+does not mention.
 
 `style.validate` states that, `style.clamp` enforces it, and the test checks the
 *pixels* rather than the algebra: outside the corner boxes, every column of the
@@ -430,14 +436,35 @@ identical across it. That one assertion catches an ornament that has grown out o
 its corner, a rule that curves too far, and a drop shadow that is not separable,
 all at once.
 
+### The corner box is a rectangle, not a square
+
+The insets and the band widths take **one number per side** —
+`(left, top, right, bottom)` — because a window with a title bar is not a second
+kind of window: it is the same window whose top band is wide enough to write in.
+`style.title_bar(spec, height)` is the whole API for it: it raises the top band and
+the top corner box together, since the two numbers have to move as a pair.
+
+Everything that is *not* per side stays shared. There is one radius, one bevel and
+one ornament size for the kit, so the number that bounds them is the smallest of
+the four sides — a bar that is thin on one axis limits the ornament on all four
+corners — and the ornament keeps its single radius by measuring itself against the
+thinner of the two bands meeting at each corner.
+
+What this changes downstream is exactly one thing, and it is the thing an engine
+cares about: the nine-slice is still four numbers, but the top-left block is no
+longer a square. Stretching a titled window sideways leaves that block *and* the
+strip below it untouched, which is what the tests measure, block by block, against
+a source image.
+
 ### `inset` is derived, not requested
 
 The style states a floor, and `clamp` widens the corner box to whatever the look
-actually needs — `radius + bevel`, or the ornament's reach. The nine-slice cut can
-therefore never be too small to hold the curvature, by construction rather than by
-check. `size` runs the argument the other way: at a size with no room for the
-corner box the *look* gives way instead, keeping the radius (which is the shape)
-and flattening the bevel (which is only the shading) first.
+actually needs — `radius + bevel`, the frame plus its rule, or the ornament's
+reach. The nine-slice cut can therefore never be too small to hold the design, by
+construction rather than by check. `size` runs the argument the other way: at a
+size with no room for the corner box the *look* gives way instead, keeping the
+radius (which is the shape) and flattening the bevel (which is only the shading)
+first, and thinning the rule rather than letting it spill.
 
 ### The Fourier series goes in the corner
 
@@ -780,10 +807,14 @@ Generators to sit on top of the core, in the order they become useful:
   in depth (a proper 3-D skull projected to 2-D, not a 2-D face that fakes a turn),
   and expressions that move the whole face rather than three features.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
-  of a radius function~~ *(done: `gen/ui/`, with the series moved into the corner
-  box, which is the only part of a nine-slice asset that is never resampled)*;
-  next, asymmetric insets for title bars, and wood/stone textures for the body via
-  fBm + domain warping.
+  of a radius function~~ and ~~asymmetric insets for title bars~~ *(done: `gen/ui/`,
+  with the series moved into the corner box, which is the only part of a nine-slice
+  asset that is never resampled, and the insets and bands taking one number per side
+  so that a title bar is a wider border rather than a second kind of window)*; next,
+  wood/stone textures for the body via fBm + domain warping, which is where the
+  nine-slice starts to cost something -- a procedural body is not constant along
+  the stretched axis, so a panel may have a stretchable middle or a material, and
+  the honest thing is to measure which one it has and say so in the sidecar.
 - **maps** -- ~~hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching
   squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline drawn

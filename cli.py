@@ -766,6 +766,11 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     for name in ([style] if style else ui_style.names()):
         spec = ui_style.get(name)
         kits.append((name, spec, _ui_kit(spec, scale)))
+    # One window with a title bar, because that is the case the per-side insets
+    # exist for: the corners are blocks instead of squares, and the header has a
+    # carved band to sit in rather than a blitted strip over the body.
+    titled = ui_style.title_bar(ui_style.get(ui_style.names()[0]), 30.0)
+    kits.append(("title bar", titled, _ui_kit(titled, scale)))
     for i in range(count):
         spec = ui_style.random_style(seed + i)
         kits.append((f"seed {seed + i}", spec, _ui_kit(spec, scale)))
@@ -794,8 +799,11 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
             else:
                 _label(img, (tx + where[0] * scale, ty + where[1] * scale), text,
                        dark=ink, plate=plate)
+        ins = info["insets"]
+        shown = f"{ins[0]}" if len(set(ins)) == 1 else "/".join(str(v) for v in ins)
+        lo = ui_slice.minimum(ins)
         _label(img, (tx + 4, ty + tile.h + 4),
-               f"{name}   inset {info['insets'][0]} px @ {scale}x   min {info['insets'][0] * 2} px")
+               f"{name}   inset {shown} px @ {scale}x   min {lo[0]}x{lo[1]} px")
     img.save(out, "PNG", optimize=True)
 
     _sidecar(out, seed, "procedural:gen.ui.style", kits=[
@@ -890,6 +898,8 @@ def _json_style(spec: dict) -> dict:
     for k, v in spec.items():
         if k in ui_style.COLOURS:
             out[k] = palette.srgb_to_hex(v)
+        elif k in ui_style.SIDED:
+            out[k] = [round(float(x), 4) for x in v]
         elif isinstance(v, (int, np.integer)):
             out[k] = int(v)
         else:
