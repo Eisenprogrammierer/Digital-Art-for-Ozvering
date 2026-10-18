@@ -33,18 +33,70 @@ behaves too: the hardware averages each tile together with its own continuation,
 is the average the tile would have had if it were tiled, and the only place that goes
 wrong is a few pixels either side of the *shared* boundary between two different tiles,
 at the coarsest levels.  A per-level sheet is still the honest way to ship mips, since
-halving the tiles wants a fresh packing for each level; that is a separate job.
+halving the tiles wants a fresh packing for each level -- a quarter-size tile with a
+two-texel margin needs a different sheet, not a quarter of this one -- and that is what
+:func:`mips` is for.
+
+A level is built by :func:`reduce`-ing the tiles and then packing them, and the two
+halves of that sentence are each a decision.  The reduction averages a 2x2 block **in
+linear light**, because that is the average the eye is entitled to, and it averages
+**periodically**, because a tile has no edge -- so the reduced tile is still seamless,
+which is the one property a mip chain can destroy and the one that would be invisible
+until the coarsest level of a floor.
 """
 from __future__ import annotations
 
 import numpy as np
 
+from core.canvas import Canvas
 from export import atlas as packing
 
-__all__ = ["bleed", "build"]
+__all__ = ["bleed", "build", "mips", "reduce"]
 
 #: Pixels of a tile's own continuation on every side of it in the sheet.
 MARGIN = 2
+
+
+def reduce(canvas) -> Canvas:
+    """One mip level down: a 2x2 box average, in linear light and on the torus.
+
+    Two decisions, and both are the difference between a mip chain and a picture that
+    merely looks like one.
+
+    The average is taken in **linear light**.  :class:`~core.canvas.Canvas` holds linear
+    RGB, so this is the arithmetic the eye is entitled to; averaging sRGB-encoded values
+    instead would darken every level, and darken it by more the further down the chain
+    you go, which is the kind of drift that is invisible in code and obvious in a mip.
+
+    The average is taken **periodically**.  A tile has no edge, so every texel's
+    neighbours wrap, and an odd-sized row is averaged with the row it already meets
+    rather than with an invented border.  A non-periodic filter would have to anchor on
+    an edge the tile does not have, and the last level of a floor would be a picture of
+    a floor with a frame around it.
+
+    Alpha is resampled the way a resample has to be: the colour is averaged
+    *premultiplied* and divided back out, because a transparent texel has no colour to
+    contribute and counting it as black would drag the edge of a sprite inward.  A tile
+    of one texel is already as small as a level goes, so it comes back unchanged.
+    """
+    rgb = np.asarray(canvas.rgb, dtype=np.float64)
+    a = np.asarray(canvas.a, dtype=np.float64)
+    h, w = a.shape
+    if h < 1 or w < 1:
+        raise ValueError(f"a tile has pixels, got {h}x{w}")
+    if h == 1 and w == 1:
+        return canvas.clone()
+    pad_y, pad_x = h % 2, w % 2
+    if pad_y or pad_x:
+        rgb = np.pad(rgb, ((0, pad_y), (0, pad_x), (0, 0)), mode="wrap")
+        a = np.pad(a, ((0, pad_y), (0, pad_x)), mode="wrap")
+    oh, ow = h // 2 + pad_y, w // 2 + pad_x
+    out = Canvas(ow, oh, scale=canvas.scale, center=canvas.center, y_up=canvas.y_up)
+    out.a = a.reshape(oh, 2, ow, 2).mean(axis=(1, 3))
+    premultiplied = (rgb * a[..., None]).reshape(oh, 2, ow, 2, 3).mean(axis=(1, 3))
+    opaque = out.a[..., None] > 0.0
+    out.rgb = np.where(opaque, premultiplied / np.where(opaque, out.a[..., None], 1.0), 0.0)
+    return out
 
 
 def bleed(canvas, margin: int = MARGIN) -> np.ndarray:
@@ -113,3 +165,65 @@ def build(members, margin: int = MARGIN, max_size: int = 4096,
         "members": entries,
     }
     return packing.canvas_from(sheet), info
+
+
+def level_count(members) -> int:
+    """How many levels a part of this set of tiles can halve down to.
+
+    The chain is as long as the *largest* tile supports, and the smaller ones simply
+    reach one texel early and stay there.  That is what an engine expects -- a mip chain
+    is one length for the whole set -- and it is why the number is a property of the set
+    rather than of a tile.
+    """
+    items = [(str(name), canvas) for name, canvas in members]
+    if not items:
+        raise ValueError("an atlas with no members is an empty file")
+    top = max(max(int(c.w), int(c.h)) for _name, c in items)
+    levels = 1
+    while top > 1:
+        top = (top + 1) // 2
+        levels += 1
+    return levels
+
+
+def mips(members, levels: int | None = None, margin: int = MARGIN,
+         max_size: int = 4096, power_of_two: bool = True) -> list:
+    """A sheet per mip level, each packed fresh; returns ``[(canvas, info), ...]``.
+
+    The chain starts at level 0, which is exactly what :func:`build` returns -- so the
+    single sheet is the head of the chain and not a different picture -- and each level
+    after it is the level above reduced and packed again.
+
+    Packing again is the whole point.  A quarter-size tile with two texels of margin
+    wants a sheet of its own: the margin is the same *two texels* at every level, since
+    that is the reach of the filter that reads it, so it is four times as large a
+    fraction of a quarter-size tile as of the original.  Keeping level 0's rectangles
+    and letting the hardware average would leave each level with a margin that shrinks
+    away exactly as it becomes needed.
+
+    ``levels`` defaults to the longest chain the set supports (:func:`level_count`).
+    Asking for more is refused rather than clamped, because level 8 of a 64-pixel tile
+    is level 6 over again, and a chain that quietly repeats itself is a chain that
+    quietly lies about its own depth.
+    """
+    items = sorted((str(name), canvas) for name, canvas in members)
+    if not items:
+        raise ValueError("an atlas with no members is an empty file")
+    most = level_count(items)
+    n = most if levels is None else int(levels)
+    if n < 1:
+        raise ValueError(f"a mip chain has at least one level, not {n}")
+    if n > most:
+        raise ValueError(
+            f"these tiles halve down to {most} levels, so level {n} would be level "
+            f"{most - 1} over again")
+
+    names = [name for name, _canvas in items]
+    canvases = [canvas for _name, canvas in items]
+    chain = []
+    for k in range(n):
+        sheet, info = build(list(zip(names, canvases)), margin=margin,
+                            max_size=max_size, power_of_two=power_of_two)
+        chain.append((sheet, {**info, "level": k, "levels": n}))
+        canvases = [reduce(canvas) for canvas in canvases]
+    return chain

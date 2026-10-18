@@ -22,7 +22,11 @@
 ``atlas``
     Ship the set: the tiles packed into one sheet with a table of rectangles, and with
     margins that are each tile wrapped onto itself rather than a gap -- because a tile
-    has no transparent border to trim and nothing useful to blend into.
+    has no transparent border to trim and nothing useful to blend into.  ``mips``
+    packs a chain, one sheet per level, each one repacked rather than resampled: the
+    margin is two texels at every level, so it is a larger share of a smaller tile,
+    and a level is built by averaging in linear light and around the wrap so that the
+    level below still tiles.
 
 Typical use::
 

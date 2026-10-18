@@ -556,6 +556,11 @@ def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: 
 #: What a cloth in the flags sheet can hang from, in the order ``mixed`` walks them.
 HANGINGS = ("pole", "bar", "staff")
 
+#: How deep the demo's texture mip chain goes.  Four levels is the whole top of the
+#: chain plus one where a tile is small enough for the margin to be the story, which
+#: is the level the interesting number comes from.
+TILE_MIPS = 4
+
 
 def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols: int = 4,
                ratio=(3, 2), shape: str = "rectangle", wave: bool = True,
@@ -1230,7 +1235,7 @@ def _wang_tiles(cells: int, colours: int, seed: int, source: str,
 
 
 def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
-               steps: int = 5000, atlas: bool = True) -> Path:
+               steps: int = 5000, atlas: bool = True, mips: int = 1) -> Path:
     """Contact sheet of tiling textures: Truchet, Wang, reaction-diffusion, boards.
 
     Every cell is the tile laid down **four times** rather than shown once.  That is
@@ -1247,6 +1252,15 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     The two boards are the same floor at two lengths, which is the parameter that
     decides whether it reads as a wooden floor or as brickwork: a board six times as
     long as it is wide is a floorboard, and one twice as long is a tile.
+
+    ``mips`` decides how the sheet a *game* loads is shaped.  At 1 -- the default --
+    it is one packed sheet.  Above that it is a chain of sheets, one per mip level,
+    each packed fresh, because halving a tile wants a new layout and not a quarter of
+    the old one: the margin is the same two *texels* at every level, which is what a
+    bilinear filter reaches, so it is a larger fraction of a smaller tile.  The
+    sidecar of each level carries that level's own density, which is where the price
+    of the convention shows up -- the coarsest levels of a chain are almost all
+    margin, and the demo prints the number rather than arguing about it.
     """
     half = int(size) // 2
     wang_cells = half // 16
@@ -1314,13 +1328,26 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     # members and leaves a transparent gap, and for a tile both of those are wrong.  A
     # tile's edge is its *seam*, so there is nothing to trim, and its margin has to be
     # more of the tile -- the tile wrapped onto itself -- so that a filtered sample
-    # beside it reads the material rather than a neighbour or a gap.
+    # beside it reads the material rather than a neighbour or a gap.  Above one level,
+    # the same thing is done at every scale: ``mips`` repacks rather than resampling a
+    # sheet, because a margin is two texels at every level and not two pixels at level
+    # zero divided by eight.
     if atlas:
-        image, info = tex_atlas.build([(name, panel) for name, panel, _f in panels])
-        path = out.with_name(f"{out.stem}-atlas.png")
-        image.save(path)
-        _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
-        _report(path)
+        members = [(name, panel) for name, panel, _f in panels]
+        if int(mips) > 1:
+            # A chain: level 0 is the single sheet, so the chain does not have a
+            # different head from the sheet it grew out of.
+            for image, info in tex_atlas.mips(members, levels=int(mips)):
+                path = out.with_name(f"{out.stem}-mip{info['level']}.png")
+                image.save(path)
+                _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+                _report(path)
+        else:
+            image, info = tex_atlas.build(members)
+            path = out.with_name(f"{out.stem}-atlas.png")
+            image.save(path)
+            _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+            _report(path)
     return _report(out)
 
 
@@ -1406,7 +1433,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     demo_vectors(out, seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
-    demo_tiles(out / "tiles.png", seed=seed)
+    demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
@@ -1510,6 +1537,8 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")
     t.add_argument("--sim", type=int, default=80, help="cells the reaction-diffusion runs on")
     t.add_argument("--steps", type=int, default=5000, help="steps of reaction-diffusion, at most")
+    t.add_argument("--mips", type=int, default=1,
+                   help="levels of packed mip sheets (1 = the one atlas sheet)")
 
     fa = sub.add_parser("factions", help="a faction from its name: shield, banner, blazon")
     fa.add_argument("--out", default="out/factions.png", type=Path)
@@ -1607,7 +1636,7 @@ def main(argv=None) -> int:
                       ratio=_ratio(args.ratio))
     elif args.cmd == "tiles":
         demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim,
-                   steps=args.steps, atlas=not args.no_atlas)
+                   steps=args.steps, atlas=not args.no_atlas, mips=args.mips)
     elif args.cmd == "credits":
         if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))

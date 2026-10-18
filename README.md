@@ -31,13 +31,16 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/tiles.png`, `out/tiles-atlas.png` and `out/factions.png`, each with a `.json`
+`out/tiles.png`, `out/factions.png`, a sheet per mip level as
+`out/tiles-mip0.png` through `out/tiles-mip3.png`, and an SVG per UI kit as
+`out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for every map its biome census, its rivers, its roads, its realms, its
 provinces and the sea provinces with the realms that hold them, for every tiling
-texture its seam error and how many tiles its tiling used, for the two atlases the
-rectangle each sprite or tile occupies and how densely the sheet packed, for the
+texture its seam error and how many tiles its tiling used, for the atlases the
+rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
+for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
@@ -69,6 +72,7 @@ python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit she
 python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit as SVG
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
+python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
@@ -77,7 +81,7 @@ python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 73 tests
-python tests/test_textures.py                   # 42 tests
+python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 ```
 
@@ -1558,7 +1562,7 @@ edge: not *does the pattern line up*, but *does it know which way it is pointing
 | `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus or read off a quantised height field, and the bilinear blend of those corners into ground. |
 | `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
 | `boards` | A plank floor: the one material here with a direction, where a board that runs off one edge and comes back on the other has to be the same board, and where the grain is long along it. |
-| `atlas` | Ship the set: tiles packed into one sheet with a rectangle table, and with margins that are each tile wrapped onto itself rather than a gap. |
+| `atlas` | Ship the set: tiles packed into one sheet with a rectangle table, and with margins that are each tile wrapped onto itself rather than a gap — plus `mips`, a chain of sheets packed one per level, because a margin is two *texels* at every level and a level is a repack rather than a resample. |
 
 ### Seamless is a number, not a compliment
 
@@ -1810,9 +1814,33 @@ a tile should be able to reach is more of that tile, so the blocks are laid flus
 That margin also means a mip chain built from this sheet behaves. The hardware
 averages each tile together with its own continuation, which is the average the tile
 would have had if it were tiled out, and the only place that goes wrong is a few pixels
-either side of the boundary *between two different tiles*, at the coarsest levels. A
-per-level sheet is still the honest way to ship mips -- halving the tiles wants a
-fresh packing at each level -- which is a separate job.
+either side of the boundary *between two different tiles*, at the coarsest levels. But
+the hardware is guessing, and the honest thing is still to hand it sheets that are
+right rather than sheets that nearly are: `atlas.mips` packs one per level, and it
+repacks rather than resampling a sheet, because a margin is measured in **texels**.
+
+Two texels is what a bilinear filter reaches, at *every* level, so it is two texels of
+a tile that is four times smaller -- four times as large a share of it. Keep level 0's
+rectangles and let the GPU average, and each level's margin shrinks away exactly as it
+starts to matter. Level 0 of the chain is `atlas.build` byte for byte, so a single
+sheet is the head of a chain of one, and the price of the convention is a number per
+level in the sidecar: on the demo's ten tiles the top level packs at **0.31** and the
+bottom, a sheet of one-texel tiles, at **0.02**, and the whole eight-level chain costs
+1.34 times the pixels of level 0 alone. The extra third is entirely margin -- spent at
+the levels where a tile has become smaller than its own bleed. That is the same
+argument as the density rule above, arriving at the level where it is hardest to argue
+with.
+
+Two decisions make a level a level rather than a blur. The average is taken in **linear
+light**, because half the light is not half the byte -- a black-and-white checker
+reduces to 188 and not 128, and a chain of sRGB averages would darken every level and
+compound; and it is taken **periodically**, because a tile has no edge, so the reduced
+tile still tiles. That second one is exact and is tested as an equality: reducing a tile
+laid out twice gives the same picture as laying the reduced tile out twice. A periodic
+tile of odd size cannot be halved exactly -- an odd period does not divide in two, so
+the reduction rounds up and carries a phase error of at most one texel -- but it still
+cannot invent a step, because every output texel is an average of neighbours the tile
+actually had.
 
 And the density rule from the icon sheet applies here in its sharpest form. Ten
 128-pixel tiles with two pixels of margin are 132, and three of those fit across a 512
@@ -1979,7 +2007,17 @@ Generators to sit on top of the core, in the order they become useful:
   tile wrapped onto itself rather than a gap, so a filtered sample beside a tile
   reads the material and not a neighbour; the block costs about six percent of the
   sheet and the power-of-two rounding cost is in the sidecar, which is where the demo
-  shows the margin pushing a set over an edge and doubling the sheet)*.
+  shows the margin pushing a set over an edge and doubling the sheet)*; ~~a sheet per
+  mip level~~ *(done: `gen/textures/atlas.mips` -- the chain's head is `build` byte for
+  byte, so a single sheet is a chain of one, and each level below is the level above
+  reduced and *repacked*, because a margin is two texels at every level and a texel of
+  a quarter-size tile is a quarter of the picture; a level averages in linear light (a
+  black-and-white checker reduces to 188, not 128, and an sRGB chain darkens at every
+  step) and averages periodically, which is tested as an equality -- reducing a tile
+  laid out twice is laying the reduced tile out twice -- so the level below still
+  tiles; an odd-sized tile cannot be halved exactly and the reduction says so instead
+  of pretending, and the sidecar carries each level's own density, where the coarsest
+  sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*.
 - **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the
   `vector` module in `gen/ui/`: a panel is four rounded rectangles and a polar
   ornament, so it is the one asset here with an exact vector form. The paths are

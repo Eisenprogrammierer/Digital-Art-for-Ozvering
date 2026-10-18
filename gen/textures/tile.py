@@ -174,12 +174,16 @@ def seam_error(field) -> float:
     Measure **one copy**.  A field tiled twice over has each of its seams among the
     interior boundaries, and the number then cannot exceed one however bad the field is
     -- which is why the demo sheet hands this a tile and not the tiling of it.
+
+    A tile one texel across has no boundary inside it, on that axis, so that axis
+    contributes nothing: the bottom of a mip chain is a tile with no seam to have, and
+    the answer there is zero rather than an error.
     """
     f = np.asarray(field, dtype=np.float64)
     if f.ndim < 2:
         raise ValueError("a tile is at least two dimensional")
-    dy = np.abs(np.diff(f, axis=0)).mean(axis=1).max()
-    dx = np.abs(np.diff(f, axis=1)).mean(axis=0).max()
+    dy = np.abs(np.diff(f, axis=0)).mean(axis=1).max() if f.shape[0] > 1 else 0.0
+    dx = np.abs(np.diff(f, axis=1)).mean(axis=0).max() if f.shape[1] > 1 else 0.0
     wrap_y = np.abs(f[0] - f[-1]).mean()
     wrap_x = np.abs(f[:, 0] - f[:, -1]).mean()
     return float(max(wrap_x, wrap_y) / max(dy, dx, 1e-12))

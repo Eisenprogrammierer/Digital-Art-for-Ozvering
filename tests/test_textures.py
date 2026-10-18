@@ -42,6 +42,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gen.textures import atlas, boards, reaction, tile, truchet, wang  # noqa: E402
+from core import palette  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 
 
@@ -750,6 +751,219 @@ def test_a_sheet_that_is_not_a_sheet_is_refused():
             pass
         else:
             raise AssertionError(f"{kwargs} should not build a sheet")
+
+
+# --------------------------------------------------------------------- mips
+def _tiled(canvas, n: int = 2) -> Canvas:
+    """The tile laid out ``n`` by ``n``: the picture a seamless tile makes."""
+    out = Canvas(canvas.w * int(n), canvas.h * int(n), scale=canvas.scale,
+                 y_up=canvas.y_up)
+    for i in range(int(n)):
+        for j in range(int(n)):
+            out.blit(canvas.rgb, canvas.a, j * canvas.w, i * canvas.h)
+    return out
+
+
+def test_a_mip_level_is_the_average_of_the_light_and_not_of_the_code():
+    """Halving a tile averages in linear light; averaging the bytes would darken it.
+
+    Half the light is not half the code, and this is the one place the difference is
+    not academic: a mip chain is nothing *but* averages, so an sRGB average compounds
+    -- every level a shade darker than the one above it, which is the classic "the
+    mips go muddy" bug and is invisible in any single picture.  A black-and-white
+    checker reduced once is the grey that is half the *light*: 188 in a byte, not 128.
+
+    A box filter also preserves the mean, which is the same statement from the other
+    side: the level below has the average light of the level above, so a chain of them
+    cannot drift.
+    """
+    checker = Canvas(2, 2, scale=1.0, y_up=False)
+    black = palette.srgb_to_linear(np.array([0.0, 0.0, 0.0]))
+    white = palette.srgb_to_linear(np.array([1.0, 1.0, 1.0]))
+    checker.rgb[0, 0] = black
+    checker.rgb[0, 1] = white
+    checker.rgb[1, 0] = white
+    checker.rgb[1, 1] = black
+    checker.a[:] = 1.0
+    half = atlas.reduce(checker)
+    assert (half.w, half.h) == (1, 1)
+    assert np.allclose(half.rgb[0, 0], 0.5, atol=1e-12)
+    assert list(half.to_uint8()[0, 0][:3]) == [188, 188, 188]
+
+    # Every output texel is the mean of its own 2x2, and nothing else.
+    rng = np.random.default_rng(4)
+    c = Canvas(6, 4, scale=2.0, y_up=False)
+    c.rgb = rng.random((4, 6, 3))
+    c.a = np.ones((4, 6))
+    r = atlas.reduce(c)
+    assert (r.w, r.h) == (3, 2)
+    for i in range(2):
+        for j in range(3):
+            want = c.rgb[2 * i:2 * i + 2, 2 * j:2 * j + 2].reshape(-1, 3).mean(axis=0)
+            assert np.allclose(r.rgb[i, j], want, atol=1e-12), (i, j)
+    assert np.allclose(r.rgb.mean(axis=(0, 1)), c.rgb.mean(axis=(0, 1)), atol=1e-12)
+    assert (r.scale, r.y_up, r.center) == (c.scale, c.y_up, c.center)
+
+
+def test_a_mip_level_averages_a_tile_onto_itself():
+    """The reduction commutes with tiling the tile -- which *is* what seamless means.
+
+    A level below the first is a smaller tile, and it is worth having only if it still
+    tiles.  The property that says so is exact rather than approximate: reducing the
+    tile laid out twice gives the same picture, to the last bit, as laying the reduced
+    tile out twice.  A filter that averaged only *inside* the tile would need an edge
+    to anchor on and would fail this on the spot, which is the whole reason the
+    reduction wraps an odd row rather than reaching for a border.
+    """
+    canvas = boards.texture(seed=7, size=32, across=1, down=6, stagger=2)
+    big = atlas.reduce(_tiled(canvas, 2))
+    small = _tiled(atlas.reduce(canvas), 2)
+    assert (big.w, big.h) == (small.w, small.h)
+    assert np.allclose(big.rgb, small.rgb, atol=1e-12)
+    assert np.allclose(big.a, small.a, atol=1e-12)
+
+
+def test_an_odd_tile_halves_to_the_ceiling_and_invents_nothing():
+    """Three texels have no half, so the reduction rounds up and the phase is its own.
+
+    A periodic tile of odd size cannot be halved exactly: its period is an odd number
+    of texels and does not divide in two, so *any* reduction is an approximation whose
+    phase is off by at most one original texel.  What it must not do is invent a step,
+    and it cannot: every output texel is the average of texels that were already
+    adjacent, so the reduced tile is never sharper than the tile it came from.
+    """
+    c = Canvas(3, 1, scale=1.0, y_up=False)
+    c.rgb[:, :, 0] = [[0.0, 0.5, 1.0]]
+    c.rgb[:, :, 1:] = 0.0
+    c.a[:] = 1.0
+    r = atlas.reduce(c)
+    assert (r.w, r.h) == (2, 1)                       # ceil(3/2)
+    assert np.allclose(r.rgb[0, :, 0], [0.25, 0.5], atol=1e-12)
+    steps = np.abs(np.diff(c.rgb[0, :, 0]))
+    assert abs(r.rgb[0, -1, 0] - r.rgb[0, 0, 0]) <= steps.max() + 1e-12
+
+
+def test_a_mip_level_resamples_alpha_premultiplied():
+    """A transparent texel has no colour, and it must not contribute black.
+
+    Averaging straight RGB would let a pixel with no colour drag the average towards
+    whatever is stored in it, which on the edge of a sprite is a dark halo.  So the
+    colour is averaged premultiplied and divided back out: one red texel in a 2x2 is a
+    red texel covering a quarter of the area, and it stays red.
+    """
+    c = Canvas(2, 2, scale=1.0, y_up=False)
+    c.rgb[:] = 0.0
+    c.rgb[0, 0] = (1.0, 0.0, 0.0)
+    c.a[:] = 0.0
+    c.a[0, 0] = 1.0
+    r = atlas.reduce(c)
+    assert np.allclose(r.a[0, 0], 0.25, atol=1e-12)
+    assert np.allclose(r.rgb[0, 0], (1.0, 0.0, 0.0), atol=1e-12)
+    # A tile with nothing in it stays empty rather than dividing by zero.
+    empty = atlas.reduce(Canvas(4, 4, scale=1.0, y_up=False))
+    assert np.all(empty.a == 0.0) and np.all(np.isfinite(empty.rgb))
+
+
+def test_a_mip_chain_starts_where_the_single_sheet_is():
+    """The chain's head is the sheet, not a second opinion about it.
+
+    Level 0 is what :func:`atlas.build` returns, byte for byte and field for field, so
+    a single sheet is the head of a chain of one; and each level below it is the level
+    above halved, tile size for tile size, which is where the two conventions of
+    rounding show up.
+    """
+    members = _atlas_members()
+    sheet, info = atlas.build(members)
+    chain = atlas.mips(members, levels=4)
+    assert len(chain) == 4
+    head, head_info = chain[0]
+    assert np.array_equal(head.to_uint8(), sheet.to_uint8())
+    assert {k: v for k, v in head_info.items() if k not in ("level", "levels")} == info
+    assert (head_info["level"], head_info["levels"]) == (0, 4)
+
+    sizes = [(canvas.w, canvas.h) for canvas, _info in chain]
+    assert all(b[0] <= a[0] and b[1] <= a[1] for a, b in zip(sizes, sizes[1:])), sizes
+    for k, (_canvas, level) in enumerate(chain):
+        assert level["level"] == k
+        assert level["margin"] == atlas.MARGIN          # two texels at every level
+        by_name = {entry["name"]: entry for entry in level["members"]}
+        for name, member in members:
+            want = (member.w, member.h)
+            for _ in range(k):
+                want = (want[0] // 2 + want[0] % 2, want[1] // 2 + want[1] % 2)
+            assert tuple(by_name[name]["source"]) == want, (k, name, want)
+
+
+def test_a_mip_chain_repacks_because_the_margin_does_not_shrink():
+    """Why a chain is a job and not a loop: the margin is measured in *texels*.
+
+    Two texels is what a bilinear filter reaches, at every level, so it is two texels
+    of a tile that is now four times smaller -- four times as large a share of it.
+    Keeping level 0's rectangles and letting the hardware average would leave each
+    level's margin shrinking away exactly as it starts to matter.  The cost of packing
+    again is real, and it is in the sidecar instead of in an argument: the coarsest
+    level of a chain is very nearly all margin.
+    """
+    chain = atlas.mips(_atlas_members())
+    assert len(chain) == atlas.level_count(_atlas_members())
+    shares = []
+    for canvas, level in chain:
+        assert level["margin"] == atlas.MARGIN
+        x, y, w, h = level["members"][0]["rect"]
+        assert 0 <= x and 0 <= y and x + w <= canvas.w and y + h <= canvas.h
+        shares.append(atlas.MARGIN / min(level["members"][0]["source"]))
+    assert shares[0] < shares[-1]
+    assert chain[-1][1]["density"] < chain[0][1]["density"]
+    assert chain[-1][1]["size"][0] < chain[0][1]["size"][0]
+
+
+def test_a_mip_level_that_cannot_exist_is_refused():
+    """A chain that quietly repeated itself would quietly lie about its own depth.
+
+    Level 8 of a 64-pixel tile is level 6 over again, so the number is not clamped: it
+    is refused, and the message says which level the set actually reaches.  The
+    default, with no number given, is the longest chain the tiles support.
+    """
+    members = _atlas_members()
+    most = atlas.level_count(members)
+    assert most == 7                      # 64 pixels: 64,32,16,8,4,2,1
+    assert len(atlas.mips(members)) == most
+    for levels in (0, -1):
+        try:
+            atlas.mips(members, levels=levels)
+        except ValueError as e:
+            assert "at least one" in str(e), str(e)
+        else:
+            raise AssertionError(f"a chain of {levels} levels should not exist")
+    for levels in (most + 1, 99):
+        try:
+            atlas.mips(members, levels=levels)
+        except ValueError as e:
+            assert str(most) in str(e) and "over again" in str(e), str(e)
+        else:
+            raise AssertionError(f"a chain of {levels} levels should not exist")
+
+
+def test_the_seam_of_a_tile_survives_the_whole_chain():
+    """A mip chain that broke the wrap would break it exactly where the tile is used.
+
+    The reduction is a local average, so it cannot introduce a step the tile did not
+    have; the boundary that could still go wrong is the wrap, which is the one part of
+    a tile that is not local.  So the number is measured at every level of the chain,
+    including the one-texel tile at the bottom, which has no boundary inside it at all
+    and reads zero.  A wrapping field reads about 1 and a cliff reads tens; this
+    asserts the chain stays in the first reading all the way down.
+    """
+    worst = 0.0
+    for name, canvas in _atlas_members():
+        current = canvas
+        for _level in range(atlas.level_count([(name, canvas)])):
+            seam = tile.seam_error(tile.luminance(current.to_uint8()))
+            worst = max(worst, seam)
+            assert seam <= 4.0, (name, seam)
+            current = atlas.reduce(current)
+        assert (current.w, current.h) == (1, 1)
+    assert worst > 0.0        # the bound is not vacuous: something is actually measured
 
 
 if __name__ == "__main__":
