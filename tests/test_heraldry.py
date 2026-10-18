@@ -777,6 +777,197 @@ def test_a_faction_banner_can_be_flown_on_a_pole():
     assert one == two, "crest.render and crest.flag disagree about the banner"
 
 
+# ---------------------------------------------------------- the bar
+def _fold_contrast(canvas, fractions=(0.05, 0.5, 0.95)):
+    """How much the luminance varies across the cloth at each of these heights.
+
+    The columns are inset by a fifth at each side, because the cloth's own rim is a
+    still, uniform darkening that would otherwise be most of the number being read --
+    and a still darkening is exactly what must not be mistaken for a fold.
+    """
+    lum = _lum(canvas)
+    rows = np.where(np.isfinite(lum).any(axis=1))[0]
+    cols = np.where(np.isfinite(lum).any(axis=0))[0]
+    pad = (cols[-1] - cols[0]) // 5
+    inset = slice(cols[0] + pad, cols[-1] - pad)
+    return [float(np.nanstd(lum[rows[int(f * (len(rows) - 1))], inset])) for f in fractions]
+
+
+def test_a_bar_is_a_spec_and_refuses_a_name_it_does_not_know():
+    a = pole.bar()
+    assert a == pole.bar()
+    assert set(a) == {"width", "reach", "over", "material"}
+    assert a["material"] in pole.MATERIALS
+    assert "finial" not in a, "a bar's ends are turned towards the shoulders"
+    for wrong in (lambda: pole.bar(material="cheese"),
+                  lambda: pole.bar(width=0.0),
+                  lambda: pole.bar(reach=-0.1),
+                  lambda: pole.bar(over=-0.1)):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a bar that cannot be drawn should be refused")
+
+
+def test_a_gonfalon_hangs_from_its_bar_and_the_folds_deepen_downwards():
+    """The whole of the second hanging, in one number read at three heights.
+
+    A flag on a pole has folds that are the *same* at every height: what decides how
+    deep they are is how far across the cloth the point is, and a row near the top of
+    the cloth and a row near the bottom are the same row.  A gonfalon's folds are not:
+    the bar holds the top of them and they deepen downwards from it, so the luminance
+    across a row -- the measure of a fold -- starts small and grows.  The contrast of
+    the pole's flag is constant to a couple of percent and the gonfalon's nearly
+    doubles; both are measured on the same wind and the same plain field, so the only
+    thing between them is which edge is holding the cloth.
+    """
+    base = flags.render(flags.plain("azure", ratio=(3, 2)), size=192)
+    wave = cloth.wave(2, amplitude=0.05, wavelength=0.25, harmonic=0.0)
+    box = (-1.5, 1.5)
+    hung = _fold_contrast(cloth.hang(base.clone(), wave, box=box))
+    draped = _fold_contrast(cloth.drape(base.clone(), wave, box=box, drop=(1.0, -1.0)))
+    assert max(hung) / min(hung) < 1.02, hung
+    assert draped[0] < draped[1] < draped[-1], draped
+    assert draped[-1] > 1.5 * draped[0], draped
+
+
+def test_an_anchored_gonfalon_is_still_at_the_bar_and_free_at_the_hem():
+    """A cloth cannot move where it is held, and a bar holds the whole top edge.
+
+    Two phases of one wind, and the difference between them read as a function of
+    height.  The measured claim is comparative rather than absolute -- the same wind
+    left loose moves the top of the cloth several times as much -- and the exact claim
+    is the algebra underneath it: at the bar the envelope, the height and both
+    displacements are all zero, not merely small.  The bar's own pixels are not part
+    of this; the bar is drawn over the cloth and never moves at all, which
+    :func:`test_the_bar_is_the_one_thing_the_wave_does_not_move` is about.
+    """
+    base = flags.render(flags.plain("azure", ratio=(3, 2)), size=192)
+    wave = cloth.wave(2, amplitude=0.05, wavelength=0.25, harmonic=0.0)
+    box = (-1.5, 1.5)
+
+    def top_and_hem(spec):
+        one = cloth.drape(base.clone(), spec, box=box, drop=(1.0, -1.0))
+        two = cloth.drape(base.clone(), {**spec, "phase": spec["phase"] + 1.2},
+                          box=box, drop=(1.0, -1.0))
+        diff = np.abs(_lum(one) - _lum(two))
+        idx = np.where(np.isfinite(diff).any(axis=1))[0]
+        return float(np.nanmax(diff[idx[0]])), float(np.nanmean(diff[idx[-2]]))
+
+    loose_top, _ = top_and_hem(wave)
+    held_top, held_hem = top_and_hem(pole.anchor(wave))
+    assert held_top < 0.25 * loose_top, (held_top, loose_top)
+    assert held_hem > 5.0, held_hem
+    assert float(cloth.freedom(pole.anchor(wave), 0.0)) == 0.0
+    assert float(cloth.surface(pole.anchor(wave), 0.3, 3.0, envelope=0.0)) == 0.0
+    along, down = cloth.drift(pole.anchor(wave), 0.3, 3.0, envelope=0.0, drop=2.0)
+    assert float(along) == 0.0 and float(down) == 0.0
+    # And the bar is not asking for more than the cloth's own height: the drop it is
+    # given is the cloth's, because the cloth keeps its coordinates however the frame
+    # grew around it.
+    assert float(cloth.surface(wave, 0.5, 3.0, envelope=0.5)) > 0.0
+
+
+def test_a_bar_gets_room_in_the_frame_and_never_touches_it():
+    """The bar is the widest thing on the canvas, and the margin already holds it.
+
+    A bar reaches past both sides of the cloth and above its top edge.  A pole asks
+    the *shape* for room because a pole is tall; a bar does not have to, and the
+    reason is worth measuring rather than asserting: the frame is scaled by the wider
+    of the cloth's two dimensions and drawn with a margin of several percent of it, so
+    a bar that reaches a few hundredths of a unit past the cloth is already inside.
+    The flat gonfalon is measured first, where the bar is the only thing that can be
+    outside the cloth's own box, and then the border at every proportion and shape.
+    """
+    spec = {**flags.plain("azure", ratio=(3, 2)), "bar": pole.bar()}
+    a = np.asarray(flags.render(spec, size=192).a)
+    x0, x1, y0, y1 = _cloth_box(192, flags.FLAG_STYLE["margin"])
+    ys, xs = np.where(a > 0.5)
+    assert ys.min() < y0, "the rod is above the cloth's top edge"
+    assert xs.min() < x0 and xs.max() > x1, "and past both of its sides"
+    assert float(a.max()) > 0.9
+    for ratio in ((3, 2), (1, 1), (5, 3), (2, 3), (3, 5)):
+        for shape in ("rectangle", "swallowtail", "pennant", "guidon"):
+            for size in (64, 160):
+                spec = flags.random_flag(seed=4, ratio=ratio, shape=shape, wave=True, bar=True)
+                a = flags.render(spec, size=size).a
+                border = max(float(a[0].max()), float(a[-1].max()),
+                             float(a[:, 0].max()), float(a[:, -1].max()))
+                assert border < 1e-6, (ratio, shape, size, border)
+                assert float(a.max()) > 0.9
+
+
+def test_the_bar_is_the_one_thing_the_wave_does_not_move():
+    """A bar is rigid and drawn last: the cloth moves under it and it does not.
+
+    Measured on the band above the cloth's own box, where only the bar is drawn --
+    two phases of the wind, and the pixels there have to be identical, not close.  The
+    cloth's pixels below are not, which is the other half of the same statement and is
+    why the band has to be taken outside the cloth rather than on it.
+    """
+    spec = flags.random_flag(seed=6, ratio=(3, 2), wave=True, bar=True)
+    one = flags.render(spec, size=256)
+    two = flags.render({**spec, "wave": {**spec["wave"], "phase": spec["wave"]["phase"] + 1.0}}, size=256)
+    a1, a2 = np.asarray(one.a), np.asarray(two.a)
+    margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(spec["wave"])
+    y0 = _cloth_box(256, margin)[2]
+    band = np.arange(0, max(y0, 1))
+    assert (a1[band] > 0.5).any(), "the bar is above the cloth's box"
+    assert np.array_equal(a1[band], a2[band]), "the bar moved with the wind"
+    assert not np.array_equal(a1[y0 + 4:], a2[y0 + 4:]), "the cloth did not"
+
+
+def test_a_bar_may_not_hold_up_a_shield_but_may_share_a_frame_with_a_pole():
+    spec = {**flags.plain("azure", ratio=(3, 2)), "bar": pole.bar(), "shield": "heater"}
+    try:
+        flags.render(spec, size=64)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a bar hangs a cloth, not a shield")
+    # The classic gonfalon is a staff with a crossbar on it: one spec with both, and
+    # the frame takes the larger of the two demands rather than the sum.
+    staff = {**flags.plain("azure", ratio=(3, 2)), "pole": pole.spec(), "bar": pole.bar(),
+             "wave": pole.anchor(cloth.wave(1))}
+    a = np.asarray(flags.render(staff, size=160).a)
+    assert float(a.max()) > 0.9 and float(a[0].max()) < 1e-6
+    margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(staff["wave"])
+    # The *cloth's* top edge, not the frame's: the frame is taller than the cloth by
+    # exactly the room the staff asked for, and the staff fills it.
+    y0 = _cloth_box(160, margin)[2]
+    assert np.where(a > 0.5)[0].min() < y0, "the staff rises above the cloth on the bar"
+
+
+def test_a_gonfalon_survives_a_round_trip():
+    import json
+
+    spec = flags.random_flag(seed=8, ratio=(3, 2), wave=True, bar=True)
+    again = json.loads(json.dumps(spec))
+    assert again["bar"] == spec["bar"] and again["wave"] == spec["wave"]
+    assert flags.render(again, size=96).to_uint8().tobytes() == \
+        flags.render(spec, size=96).to_uint8().tobytes()
+
+
+def test_a_faction_banner_can_be_hung_from_a_bar():
+    name = "Kingdom of Alder"
+    assert "bar" not in crest.flag(name), "the bar is opt-in, so the default stands"
+    hung = crest.flag(name, bar=True)
+    assert hung["bar"]["material"] in pole.MATERIALS
+    assert hung["field"] == crest.flag(name)["field"]
+    assert hung["wave"]["taper"] == 0.0
+    assert hung["wave"]["droop"] > 0.0
+    assert crest.flag(name, bar=True)["wave"] == hung["wave"], "the wind is the name's"
+    # A bar and a pole are two mountings of one cloth, so the faction's wind -- which
+    # is the name's -- is the same either way, and only the spec key differs.
+    assert crest.flag(name, pole=True)["wave"] == hung["wave"]
+    table = crest.shade_table(name)
+    one = crest.render(name, size=64, which="flag", bar=True).to_uint8().tobytes()
+    two = flags.render(hung, size=64, shade=table).to_uint8().tobytes()
+    assert one == two, "crest.render and crest.flag disagree about the banner"
+
+
 # --------------------------------------------------------------- end to end
 def test_rendering_is_deterministic_and_byte_identical():
     with tempfile.TemporaryDirectory() as tmp:

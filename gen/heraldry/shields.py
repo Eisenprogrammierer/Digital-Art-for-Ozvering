@@ -132,11 +132,12 @@ def get(name) -> tuple:
 def flag(ratio=(3, 2), kind: str = "rectangle", room: float = 0.0) -> tuple:
     """Return ``(field_fn, hw, hh)`` for a flag of the given proportions.
 
-    ``room`` is room for something that is *not* the cloth -- a pole, and the
-    finial on it -- as a fraction of the cloth's own half-height.  Only the frame
-    grows, and it grows symmetrically: the cloth keeps its coordinates, so the same
-    field function serves a flag on a pole and a flag without one, and the pole's
-    own geometry does not have to know that its room came from anywhere.
+    ``room`` is room for something that is *not* the cloth -- a pole and the finial on
+    it, or a crossbar over the top -- as a fraction of the cloth's own half-height.
+    Only the frame grows, and it grows symmetrically: the cloth keeps its coordinates,
+    so the same field function serves a flag on a pole, a gonfalon on a bar and a
+    cloth with nothing holding it, and a holder's own geometry does not have to know
+    that its room came from anywhere.
     """
     if kind not in FLAG_SHAPES:
         raise KeyError(f"unknown flag shape {kind!r}; known: {', '.join(FLAG_SHAPES)}")

@@ -58,7 +58,7 @@ python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
-python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--flat]  # on their poles
+python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--hang bar]  # & staffs
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -70,7 +70,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
-python tests/test_heraldry.py                   # 65 tests
+python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
@@ -277,9 +277,9 @@ is a small compiler, not a drawing routine.
 | `charges` | 29 charges built from SDF primitives in a normalised unit box — a lion is a set of capsules and discs, so it reads as a *generated* beast rather than a traced one. |
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
 | `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`, and `render(spec, size, shade=...)` — one extra argument, and the classical palette is what you get without it. |
-| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. A `pole` in the spec flies it. |
-| `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected. |
-| `pole` | The shaft, its finial and the material it is made of; the room the flag's frame has to make for it, the anchor it puts on the cloth's hoist, and the droop that follows. |
+| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. A `pole` in the spec flies it and a `bar` hangs it. |
+| `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected -- and the two ways to hold it, at the side of its folds (`hang`) or across the top of them (`drape`). |
+| `pole` | The shaft, its finial and the material it is made of; the room the flag's frame has to make for it, the anchor it puts on the cloth's hoist, and the droop that follows. A crossbar (`bar`) is the same rod turned a quarter turn. |
 | `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, the livery it wears, the words for both, and `render`, which cannot be handed a coat without its colours. |
 
 An asset is a **spec** — a plain dict — and everything else is a view of it:
@@ -539,6 +539,75 @@ image is nearer the camera than the plane it cuts, and the shaft wins the whole
 overlap. A pole is opt-in -- `random_flag(..., pole=...)`, `crest.flag(...,
 pole=...)`, `crest.render(..., which="flag", pole=True)` -- so a crest used as a
 sign stays flat, and `cli.py flags --flat` is the special case on the other side.
+
+### A gonfalon is the same cloth, hung the other way
+
+A pole holds the cloth at an edge that runs **beside** its folds: the hoist is
+parallel to every fold line, so the fold's own coordinate is also the coordinate
+that says how far the cloth is from what is holding it, and one `t` serves both.
+Hang the same cloth from a **bar** and the holding edge runs **across** the folds --
+and that quarter turn is the whole of the difference, which is why `cloth.drape` is
+a sibling of `cloth.hang` rather than a second cloth module.
+
+What changes is not the physics but which coordinate the physics is read from. The
+folds still run down the cloth and still vary across it; what decides how deep they
+are is now the distance *down* from the bar, so `surface` and `drift` take an
+`envelope` to read the freedom at when it is not the same coordinate as the fold's
+profile. The droop needs the same treatment for a subtler reason: `drop` is the span
+the cloth hangs through, because a droop of a tenth is a tenth *of what the cloth
+has to fall*. A tenth of a wide flag and a tenth of a long one are not the same
+number of pixels, and only the span the cloth actually hangs through can say which
+is which.
+
+The other consequence is what the droop **is**. A flag trails: the free edge slips
+sideways-down and a pennant hangs point down. A gonfalon cannot trail, because the
+bar does not move, so the same slip becomes a **stretch** down the cloth -- the hem
+hangs lower than the cloth was cut -- and gravity's contribution is length rather
+than a trail. This is the one claim in the increment that a number can settle, and
+it is settled on a plain field, where the only structure in a row is the light: the
+contrast across a row of a pole-held flag is **constant** to within a couple of
+percent from the hoist to the fly, and across a row of a gonfalon it nearly doubles
+from the bar to the hem. The same wind, the same field, the same `t` -- and the
+only thing between them is which edge is holding the cloth.
+
+A bar is a **shaft turned a quarter turn**, and the proof is that it is shaded by
+the same function: `pole.bar_paint` and `pole.paint` both end in one `_rod` that
+applies the one light and the one rim, because a frame carrying a mast and a
+crossbar lit by two pieces of code is the one frame where the difference would be
+visible. What a bar does *not* have is a finial -- its ends are turned towards the
+shoulders rather than the sky, and the same rim finishes them -- and it has no
+anchor or droop of its own, because those are the *cloth's* statements about where
+it is held, and `pole.anchor` serves whichever thing is doing the holding.
+
+Its room is the part that looks like it should be complicated and is not. A pole is
+tall, so it asks the flag's *shape* for room; a bar is wide, and asks for none,
+because the frame is scaled by the wider of the cloth's two dimensions and drawn
+with a margin of several percent of it -- so a bar that reaches a few hundredths of
+a unit past the cloth's sides is already inside the margin the flag is drawn with.
+That is measured rather than assumed: five proportions, four silhouettes and two
+sizes, and the border stays empty. Its `over` is the sleeve: a banner has a hand's
+width of cloth above its field, the rod passes through *that*, and the default --
+just under half the rod's own thickness -- is the rod's underside meeting the cloth's
+top edge and biting a hair into it, because a rod that only touches leaves a
+background hairline at some sizes and a rod whose axis sits on the edge crops a rod's
+width off the top of the artwork. An `over` of a few hundredths is the same bar hung
+on rings above the cloth, which is a different object rather than a wrong one.
+
+A pole and a bar may be asked for together, and that is not a contradiction but the
+classic processional gonfalon: a staff with a crossbar across the top of it and the
+banner hanging from the crossbar. Each asks for its own headroom, the frame takes
+the larger of the two, and the bar is composited after the staff because it is
+mounted in front of it. A bar on something that is not a cloth is refused, on the
+same line the pole and the icon vocabulary draw.
+
+`random_flag(..., bar=...)`, `crest.flag(..., bar=...)` and
+`crest.render(..., which="flag", bar=True)` are the entry points, and `cli.py flags
+--hang bar|staff|mixed` is the sheet. `mixed` walks the three hangings in turn,
+which is what `cli.py demo` does with its flags: the three are one cloth, and
+putting them beside each other is the only way to see that the hanging is all that
+differs. The **description** does not change with the mounting -- "Azure, a cross
+Or" is what the cloth says, and whether it is on a pole or a bar is not something a
+blazon has a word for -- which is the same reason `crest.faction` carries neither.
 
 ## Portraits (`gen/portraits/`)
 
@@ -1554,15 +1623,15 @@ Generators to sit on top of the core, in the order they become useful:
   sidecar, so a province is not just owned but *worn*, which is the first place the
   livery has to survive being scaled down to a hex.
 - **flags** -- ~~bands by projection onto directions, overlaps by half-plane
-  clipping~~, ~~cloth folds as sinusoidal normal displacement~~ and ~~a pole and a fly
-  that trails~~ *(done: `gen/heraldry/flags.py`, `cloth.py` and `pole.py`, where one
-  height field supplies both the lighting and the projection, in world coordinates
-  so that the folds are the same folds at any resolution; a taper of zero is an
-  exact anchor at the hoist and a droop is gravity taken downwards, so a pennant has
-  a direction to hang from and now something to hang from; and the pole is a
-  cylinder and a sphere shaded by the one light rather than a bevel)*; next, a
-  gonfalon -- a banner hung from a crossbar rather than a mast, which is a second
-  *hanging* rather than a second pole.
+  clipping~~, ~~cloth folds as sinusoidal normal displacement~~, ~~a pole and a fly
+  that trails~~ and ~~a gonfalon hung from a crossbar~~ *(done: `gen/heraldry/`,
+  where one height field supplies both the lighting and the projection, in world
+  coordinates so that the folds are the same folds at any resolution; a taper of
+  zero is an exact anchor at the hoist and a droop is gravity taken downwards, so a
+  pennant has a direction to hang from and now something to hang from; the pole is a
+  cylinder and a sphere shaded by the one light rather than a bevel; and a bar is
+  the same rod turned a quarter turn and the same cloth held the other way, so the
+  folds deepen downwards from it and what gravity does to the cloth is stretch it).*
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
   heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
   line~~ *(done: a collar stroke, three kinds, one per seed)*; ~~turn the head in

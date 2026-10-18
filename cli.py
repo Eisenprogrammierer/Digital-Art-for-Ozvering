@@ -13,7 +13,7 @@ Usage
     python cli.py palette --out out/palette.png --seed 3 --count 6
     python cli.py shapes  --out out/shapes.png
     python cli.py arms    --out out/arms.png --seed 7 --count 12
-    python cli.py flags   --out out/flags.png --seed 7 --count 12 [--flat]  # on their poles
+    python cli.py flags   --out out/flags.png --seed 7 --count 12 [--hang bar]  # & poles, staffs
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
@@ -501,17 +501,41 @@ def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: 
     return _report(out)
 
 
+#: What a cloth in the flags sheet can hang from, in the order ``mixed`` walks them.
+HANGINGS = ("pole", "bar", "staff")
+
+
 def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols: int = 4,
-               ratio=(3, 2), shape: str = "rectangle", wave: bool = True) -> Path:
+               ratio=(3, 2), shape: str = "rectangle", wave: bool = True,
+               hang: str = "pole") -> Path:
     """Contact sheet of generated flags, described vexillologically.
 
     The flags hang by default -- from a pole, because a flag that hangs hangs from
     something: the pole stands the cloth up, anchors its hoist and lets the fly
-    trail.  One is asked for cloth with ``--flat``, because a flag on a pole is what
-    the asset is and a flat flag is the special case.
+    trail.  One sheet is asked for cloth with ``--flat``, because a flag on a pole is
+    what the asset is and a flat flag is the special case.
+
+    ``hang`` chooses what the cloth hangs from, and a bar is not a pole: a gonfalon
+    hung from a crossbar has its folds deepening *downwards* from the bar rather than
+    growing along the wave, and a staff with a crossbar across it is the classic form
+    that carries both.  ``mixed`` walks the three in turn, which is what the ``demo``
+    sheet does -- the three hangings are one cloth, and putting them beside each other
+    is the only way to see that the hanging is all that differs.
     """
+    if hang not in HANGINGS + ("mixed", "none"):
+        raise ValueError(f"a cloth hangs from one of {', '.join(HANGINGS)}, "
+                         f"one of them in turn, or nothing -- not {hang!r}")
+
+    def holder(i: int) -> dict:
+        if hang == "none":
+            return {}
+        kind = HANGINGS[i % len(HANGINGS)] if hang == "mixed" else hang
+        return {"pole": {"pole": True},
+                "bar": {"bar": True},
+                "staff": {"pole": True, "bar": True}}[kind]
+
     specs = [flaglib.random_flag(seed=seed + i, ratio=ratio, shape=shape, wave=wave,
-                                 pole=wave)
+                                 **holder(i))
              for i in range(count)]
     tiles = [flaglib.render(spec, size=size) for spec in specs]
 
@@ -1266,7 +1290,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_texture(out / "texture.png", seed=seed, size=256)
     demo_palette(out / "palette.png", seed=seed, count=6)
     demo_arms(out / "arms.png", seed=seed, count=12)
-    demo_flags(out / "flags.png", seed=seed, count=12)
+    demo_flags(out / "flags.png", seed=seed, count=12, hang="mixed")
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
@@ -1331,8 +1355,12 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--ratio", default="3:2", help="flag proportion, e.g. 3:2 or 5:8")
     f.add_argument("--shape", default="rectangle",
                    choices=["rectangle", "swallowtail", "pennant", "guidon"])
+    f.add_argument("--hang", default="pole",
+                   choices=list(HANGINGS) + ["mixed", "none"],
+                   help="what the cloth hangs from: a pole, a crossbar (a gonfalon), "
+                        "a staff with a crossbar on it, the three in turn, or nothing")
     f.add_argument("--flat", action="store_true",
-                   help="draw the flags in a plane, without a pole, instead of hanging them")
+                   help="draw the flags in a plane, holding nothing, instead of hanging them")
 
     b = sub.add_parser("blazon", help="print the blazon of a coat (and render it)")
     b.add_argument("--seed", type=int, default=5)
@@ -1433,7 +1461,8 @@ def main(argv=None) -> int:
                   shield=args.shield)
     elif args.cmd == "flags":
         demo_flags(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
-                   ratio=_ratio(args.ratio), shape=args.shape, wave=not args.flat)
+                   ratio=_ratio(args.ratio), shape=args.shape, wave=not args.flat,
+                   hang="none" if args.flat else args.hang)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":

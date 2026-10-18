@@ -22,12 +22,18 @@ The package mirrors the structure of the tradition itself:
 ``flags``
     Flag layouts, built from the very same primitives.
 ``cloth``
-    Why a flag hangs instead of sitting: one height field, lit and projected.
+    Why a flag hangs instead of sitting: one height field, lit and projected --
+    held at the side of its folds on a pole, or across the top of them on a bar.
+``pole``
+    What a cloth hangs from: the shaft, its finial, the crossbar that turns the
+    same cloth into a gonfalon, and the room, anchor and droop that holding one
+    brings with it.
 ``crest``
     A faction's whole identity from its name: the name is the seed, the banner
     flies what the shield bears, and the blazon comes with it in both languages.
 """
-from . import blazon, charges, cloth, crest, field, flags, ordinaries, paint, shields, tinctures
+from . import (blazon, charges, cloth, crest, field, flags, ordinaries, paint, pole,
+               shields, tinctures)
 
 __all__ = [
     "blazon",
@@ -38,6 +44,7 @@ __all__ = [
     "flags",
     "ordinaries",
     "paint",
+    "pole",
     "shields",
     "tinctures",
 ]

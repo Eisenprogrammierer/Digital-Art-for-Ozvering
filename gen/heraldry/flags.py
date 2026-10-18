@@ -15,6 +15,11 @@ because it shapes this module:
   the room it needs in the frame, the anchor it puts on the cloth's hoist and the
   droop that follows -- is :mod:`gen.heraldry.pole`.  It is composited *after* the
   wave and *over* the cloth, because a pole is the one rigid thing on the canvas.
+* **Or hung.**  ``spec["bar"]`` is a crossbar, and it turns the same cloth into a
+  gonfalon: the bar holds the cloth along the top of its folds rather than beside
+  them, so it is :func:`gen.heraldry.cloth.drape` that hangs it and the bar that is
+  drawn over the seam.  One spec key decides it, and both keys come from
+  :mod:`gen.heraldry.pole`, because a bar is a shaft turned a quarter turn.
 
 A flag pattern therefore returns an ordinary *spec* -- exactly the dict
 :mod:`gen.heraldry.blazon` renders -- so flags and arms share one renderer, one
@@ -246,24 +251,33 @@ def describe(spec: dict, lang: str = "en") -> str:
 
 
 def _frame_for(spec: dict) -> dict:
-    """The spec with room made for its pole, if it has one.
+    """The spec with room made for what is holding the cloth, if anything is.
 
     The room goes into the *shape* rather than into the style margin, because the
-    margin is a fraction of the whole frame while the pole's demand is vertical:
-    the shape's half-height grows and the cloth keeps its own coordinates inside it,
-    so the same field function serves both cases.  A pole on something that is not
-    a flag is refused rather than ignored -- there is no pole that holds a shield.
+    margin is a fraction of the whole frame while the demand is vertical: the shape's
+    half-height grows and the cloth keeps its own coordinates inside it, so the same
+    field function serves every case.  A holder on something that is not a flag is
+    refused rather than ignored -- there is no pole that holds a shield.
+
+    A pole and a bar can both be asked for, and that is not a contradiction but the
+    classic gonfalon: a staff with a crossbar at the top and the banner hanging from
+    the crossbar.  Each asks for its own headroom and the frame gets the larger of the
+    two, because a frame is one rectangle and one of its two dimensions is the one
+    that binds.
     """
     pole = spec.get("pole")
-    if not pole:
+    bar = spec.get("bar")
+    if not pole and not bar:
         return spec
     out = dict(spec)
     shield = out.get("shield")
     if isinstance(shield, str) and shield in _shields.FLAG_SHAPES:
         shield = {"kind": "flag", "ratio": (3, 2), "shape": shield}
     if not isinstance(shield, dict) or shield.get("kind") != "flag":
-        raise ValueError(f"a pole holds up a flag, not {shield!r}")
-    out["shield"] = dict(shield, room=_pole.room(pole))
+        raise ValueError(f"only a cloth hangs from a pole or a bar, and this is {shield!r}")
+    room = max(_pole.room(pole) if pole else 0.0,
+               _pole.bar_room(bar) if bar else 0.0)
+    out["shield"] = dict(shield, room=room)
     return out
 
 
@@ -275,9 +289,12 @@ def render(spec: dict, size=512, background=None, shade=None):
     gets the same cloth from the same dict.  The margin is widened first: a flag
     that is going to move needs somewhere to move to.
 
-    A ``pole`` in the spec rides along.  It changes the frame rather than the flag,
-    and it is composited *after* the wave and *over* the cloth: a pole is the one
-    rigid thing on the canvas, so the cloth moves and the pole does not.
+    A ``pole`` in the spec rides along, and so does a ``bar``, and between them they
+    decide how the cloth hangs: a pole holds it at the side of its folds, a bar across
+    the top of them, and :mod:`gen.heraldry.cloth` has the one function for each.  Both
+    are composited *after* the wave and *over* the cloth -- a holder is the one rigid
+    thing on the canvas, and a bar is over the cloth's own top edge because a cloth is
+    sleeved onto it.
 
     ``shade`` is a faction's livery; a banner that is flown for a faction is painted
     in that faction's colours, which is what keeps a shield and its flag from being
@@ -285,8 +302,9 @@ def render(spec: dict, size=512, background=None, shade=None):
     """
     frame = _frame_for(spec)
     wave = frame.get("wave")
+    bar = frame.get("bar")
     cloth_hw = 1.0
-    if wave or frame.get("pole"):
+    if wave or frame.get("pole") or bar:
         cloth_hw = _blazon.resolve_shape(frame)[1]
     if wave:
         style = dict(frame.get("style", FLAG_STYLE))
@@ -298,13 +316,20 @@ def render(spec: dict, size=512, background=None, shade=None):
         # fold measured against *that* would start at the hoist only by accident.
         along_x = wave.get("direction", _cloth.DEFAULTS["direction"]) == "vertical"
         box = (-cloth_hw, cloth_hw) if along_x else (-1.0, 1.0)
-        canvas = _cloth.hang(canvas, wave, box=box)
+        if bar:
+            # A bar hangs the cloth down through its own height, and the cloth is one
+            # unit tall by construction whatever the frame grew to around it.
+            canvas = _cloth.drape(canvas, wave, box=box, drop=(1.0, -1.0))
+        else:
+            canvas = _cloth.hang(canvas, wave, box=box)
     else:
         canvas = _blazon.render(frame, size=size, background=background, shade=shade)
     if frame.get("pole"):
         # A flag's cloth is one unit tall by construction, whatever the frame grew
         # to around it, and the pole is measured against the cloth.
         _pole.paint(canvas, frame["pole"], cloth_hw, 1.0)
+    if bar:
+        _pole.bar_paint(canvas, bar, cloth_hw, 1.0)
     return canvas
 
 
@@ -360,7 +385,7 @@ def _maybe(rng, pool):
 
 
 def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=None,
-                wave=False, pole=False) -> dict:
+                wave=False, pole=False, bar=False) -> dict:
     """Generate a random flag spec.
 
     Real flags break the rule of tincture, so this does too -- but it does keep
@@ -375,6 +400,12 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
     at rest is still on a pole.  When both are asked for, the pole decides the
     cloth as well: the wave is anchored at the hoist and the fly trails, because a
     cloth tied to a pole cannot move where it is tied.
+
+    ``bar`` hangs it from a crossbar instead, which is a gonfalon, and it decides the
+    cloth by the same rule in the other direction: the bar holds the top of the folds,
+    the folds deepen downwards from it, and the hem -- not the fly -- is what trails.
+    The two may be asked for together, which is a staff with a crossbar on it; they may
+    not be asked for with something that is not a cloth, which :func:`render` refuses.
     """
     rng = np.random.default_rng(seed)
     name = str(rng.choice(list(_FACTORIES)))
@@ -391,6 +422,10 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
     # A pole is not cloth, so it is drawn before the wave and cannot change it.
     if pole:
         spec["pole"] = _pole.spec(**(dict(pole) if isinstance(pole, dict) else {}))
+    # A bar is not cloth either, and it is drawn after the pole because it is
+    # mounted on it: a gonfalon on a staff has the crossbar in front of the shaft.
+    if bar:
+        spec["bar"] = _pole.bar(**(dict(bar) if isinstance(bar, dict) else {}))
     # Drawn last, so that asking for cloth cannot change a flag that does not.
     if wave:
         pinned = dict(wave) if isinstance(wave, dict) else {}
@@ -403,6 +438,6 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
             direction=pinned.pop("direction", "vertical"),
             **pinned,
         )
-        if pole:
+        if pole or bar:
             spec["wave"] = _pole.anchor(spec["wave"])
     return spec
