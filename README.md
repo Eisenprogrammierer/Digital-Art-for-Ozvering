@@ -71,7 +71,7 @@ python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
-python tests/test_maps.py                       # 65 tests
+python tests/test_maps.py                       # 70 tests
 python tests/test_textures.py                   # 23 tests
 python tests/test_icons.py                      # 19 tests
 ```
@@ -895,10 +895,10 @@ kept strictly apart:
 | `terrain` | The geography: a domain-warped elevation field, a moisture field, and the biome table that gives every class of ground a name, a colour and a movement cost. |
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
-| `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names. |
+| `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names -- and, by the same code, the *sea* provinces a fleet moves between. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
-| `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
+| `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
 | `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads, the coast and the frame. |
 
 ### Why axial coordinates, and what they buy
@@ -1133,6 +1133,35 @@ a coast that would put the road in the water. The pixels are checked too, since 
 stroke is a hex wide -- the same map is drawn with the roads off and on, and every
 pixel that changed has to be a pixel of a land cell.
 
+### The water is provinces too
+
+A navy moves from sea province to sea province the way an army moves from province
+to province, so the sea is divided by the *same code* that divides the land: seeds
+spread by best candidate, assignment by breadth-first search, capitals at the
+one-medians, the same relaxation. Nothing in the division knows which of the two it
+was handed, which is deliberate -- a second implementation for the water is how two
+divisions drift apart. The two calls tile the map between them: every hex comes out
+in exactly one province, and none in both.
+
+Two things are the sea's own. The seeds come off **their own stream** -- the land's
+stream would put a sea capital wherever a land capital happened to be, which is a
+coincidence no chart has ever shown -- and the **names** take water endings
+(``-sound``, ``-shoal``, ``-deep``, ``-bay``) where the land takes ``-fell`` and
+``-fen``. The stem may repeat between a land province and a sea province, because
+the stem is the province's number; the ending is the whole of what tells them
+apart, so the two sets of endings are disjoint and a test insists on it.
+
+The sea is drawn as a **maritime boundary and nothing else**: no wash, because the
+water is a depth ramp and a wash over it would be mud, a thinner line than a land
+frontier, because the sea is not divided by walls, and a pale ink rather than the
+map's ink, because the sea under it is dark. So the claim is exact and the test
+measures it on the pixels: turning the sea provinces on changes water and not one
+pixel of land.
+
+Nobody owns the sea. The campaign file carries every sea province with its cells
+and an owner of ``-1``, which is what "nobody" means everywhere else in this
+project -- and the field is there because one day somebody will.
+
 ### A map is data, and the picture is one of its outputs
 
 Everything above this line is a *picture*: a raster pass, washes, strokes, and a
@@ -1150,7 +1179,10 @@ not a photograph of one:
   political map can be redrawn without re-deriving anybody's livery;
 * **where the roads go**, as the hexes they walk, and what they cost to walk --
   because the road is a claim about the ground, and a client has to be able to check
-  that claim against the same numbers the generator checked it against.
+  that claim against the same numbers the generator checked it against;
+* **where the sea is divided**, because a fleet needs somewhere to be: the sea
+  provinces go in with their cells exactly as the land ones do, and the client does
+  not have to re-implement the whole of `region` to move a ship.
 
 Cells are named the way the generator names them, `r * cols + c`, row by row, so a
 client indexes the same arrays this project indexes. And nothing in the file is a
@@ -1164,8 +1196,8 @@ That last decision has a test of its own -- the same map exported at 9 px and at
 26 px has to produce the same bytes -- and it is the same rule the terrain has kept
 from the beginning, one layer up: the geography is a function of `(seed, cols,
 rows)`, and everything derived from it inherits that. A 26x17 map is 442 hexes,
-eight provinces and a file of about 9 kB, which is a size a player can download one
-of per map without noticing.
+eight provinces, the sea divided as finely again, and a file of about 13 kB -- a
+size a player can download one of per map without noticing.
 
 ## Tiling textures (`gen/textures/`)
 
@@ -1382,9 +1414,13 @@ Generators to sit on top of the core, in the order they become useful:
   `gen/maps/campaign.py` -- the map as data, one file per map, with the biome table
   in the file, one biome index per hex, the owner of every province and the hexes
   the roads and rivers walk; nothing in it is a pixel, so the same map exports the
-  same bytes at every scale it can be drawn at)*; next, sea provinces -- the water is
-  drawn and kept out of the political map, but nothing owns it yet -- and a naval
-  layer for the campaign file to carry them in.
+  same bytes at every scale it can be drawn at)*; ~~sea provinces~~ *(done: the sea
+  is divided by the same code as the land -- `region.seas`, one stream of seeds for
+  the water, water endings on the names, drawn as a maritime boundary and nothing
+  else so that charting the sea changes water and not one pixel of land, and carried
+  in the campaign file with an owner of `-1`)*; next, territorial waters: the realm
+  that holds a coast is the realm that should hold the sea it can reach from it, and
+  the field is already in the file waiting for it.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

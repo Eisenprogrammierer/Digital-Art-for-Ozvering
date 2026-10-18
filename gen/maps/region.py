@@ -26,6 +26,13 @@ on a small island would attract every other one, and the main continent would be
 one enormous province.  An island that ends up with no seed at all becomes a
 province of its own, with its capital at its own one-median -- which is not a
 special case bolted on but what an island is.
+
+**The sea is divided the same way, by the same code** (:func:`seas`).  A fleet moves
+from sea province to sea province the way an army moves from province to province, so
+the water needs the same two properties and gets them from the same functions; the
+only things that change are which cells are in play and which endings the names
+take.  Between the two calls, every hex on the map is in exactly one province, and
+no hex is in both.
 """
 from __future__ import annotations
 
@@ -46,8 +53,14 @@ __all__ = [
     "one_median",
     "provinces",
     "relax",
+    "seas",
     "sites",
 ]
+
+#: The sea draws its seeds from its own stream.  Sharing one with the land would
+#: put a sea capital wherever a land capital happened to be, which is a
+#: coincidence no chart has ever shown.
+_SEA_SALT = 4099
 
 #: Stems and endings for province names.  Deliberately few: twenty times sixteen
 #: is more distinct names than a map has provinces, and a generator that invents
@@ -71,6 +84,12 @@ _END = {
     "marsh": ("fen", "moor", "mere"),
     "desert": ("reach", "waste", "dune"),
     "shore": ("haven", "mere", "wick"),
+    # The water's own endings, and deliberately none of them a land ending: a land
+    # province and a sea province may draw the same stem, since the stem is the
+    # province's number, and the ending is the whole of what tells them apart.
+    "deep water": ("deep", "gulf", "trench"),
+    "ocean": ("sea", "ocean", "sound"),
+    "shallows": ("shoal", "shelf", "strand", "bay"),
 }
 
 
@@ -254,24 +273,29 @@ def relax(grid: HexGrid, mask, labels, passes: int = 2):
 
 
 # ---------------------------------------------------------------- provinces
-def provinces(grid: HexGrid, f: dict, count: int = 8, seed: int = 0,
-              passes: int = 2) -> dict:
-    """Divide the land into provinces.
+def _divide(grid: HexGrid, f: dict, mask, count: int, seed: int, passes: int,
+            salt: int) -> dict:
+    """Divide one kind of ground into parts, and describe each part.
 
-    Returns ``{"labels", "provinces", "count", "islands"}``.  ``labels`` is ``-1``
-    on water; each province carries its cells, its capital, its neighbours, its
-    area, its commonest ground and a name.
+    The land and the sea are divided by the same code because they are the same
+    problem: a set of cells, connected by the lattice, wanted in pieces that are
+    connected and about as big as each other.  Nothing below this line knows which
+    of the two it was handed -- which is the point, because a second implementation
+    for the water is how two divisions drift apart.
     """
-    land = ~np.asarray(f["water"], dtype=bool)
-    seeds = sites(grid, land, count, seed=seed)
-    labels = assign(grid, land, seeds)
+    mask = np.asarray(mask, dtype=bool)
+    if not mask.any():
+        return {"labels": np.full((grid.rows, grid.cols), -1, dtype=np.int64),
+                "provinces": [], "count": 0, "islands": 0}
+    seeds = sites(grid, mask, count, seed=int(seed) + int(salt))
+    labels = assign(grid, mask, seeds)
     islands = 0
     if seeds:
         before = len(seeds)
-        seeds = _add_islands(grid, land, labels, seeds)
+        seeds = _add_islands(grid, mask, labels, seeds)
         islands = len(seeds) - before
     if seeds and passes:
-        labels, seeds = relax(grid, land, labels, passes)
+        labels, seeds = relax(grid, mask, labels, passes)
     label_flat = labels.reshape(-1)
 
     centres = grid.centers.reshape(-1, 2)
@@ -300,10 +324,10 @@ def provinces(grid: HexGrid, f: dict, count: int = 8, seed: int = 0,
         # player uses, and the generator has enough of them that a collision is
         # only ever a hashing accident, not a shortage.
         label = name(seed, i, gname)
-        salt = 0
-        while label in used and salt < 64:
-            salt += 1
-            label = name(seed, i, gname, salt)
+        salt_used = 0
+        while label in used and salt_used < 64:
+            salt_used += 1
+            label = name(seed, i, gname, salt_used)
         used.add(label)
         out.append({
             "index": i,
@@ -317,6 +341,34 @@ def provinces(grid: HexGrid, f: dict, count: int = 8, seed: int = 0,
             "name": label,
         })
     return {"labels": labels, "provinces": out, "count": len(out), "islands": islands}
+
+
+def provinces(grid: HexGrid, f: dict, count: int = 8, seed: int = 0,
+              passes: int = 2) -> dict:
+    """Divide the land into provinces.
+
+    Returns ``{"labels", "provinces", "count", "islands"}``.  ``labels`` is ``-1``
+    on water; each province carries its cells, its capital, its neighbours, its
+    area, its commonest ground and a name.
+    """
+    return _divide(grid, f, ~np.asarray(f["water"], dtype=bool), count, seed, passes, 0)
+
+
+def seas(grid: HexGrid, f: dict, count: int = 8, seed: int = 0, passes: int = 2) -> dict:
+    """Divide the water into sea provinces, and for the same reasons.
+
+    A fleet moves province to province the way an army does, so the water needs the
+    same two properties: a sea province is connected, or a ship cannot reach part of
+    its own patrol, and the parts are about as big as each other, or one ocean is a
+    single province with a coastline of two thousand miles.
+
+    A body of water the seeds did not reach -- a lake, or a bay that is all coast --
+    becomes a sea province of its own, exactly as an island becomes a land province.
+    The shapes are the same shape; the water names end in ``-sea`` and ``-bay``
+    rather than in ``-fell`` and ``-fen``.
+    """
+    return _divide(grid, f, np.asarray(f["water"], dtype=bool), count, seed, passes,
+                   _SEA_SALT)
 
 
 def frontier_alpha(grid: HexGrid, labels, cell, width: float = 0.26, dx: float = 1.0):

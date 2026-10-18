@@ -1039,8 +1039,100 @@ def test_the_same_map_lays_the_same_roads():
         assert np.array_equal(one["points"], two["points"])
 
 
+# ------------------------------------------------------------------- the sea
+def _waters(seed=7, cols=22, rows=15, size=11.0, count=7, sea=0.42):
+    """A map, its land provinces and its sea provinces."""
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed, sea_fraction=sea)
+    return g, f, region.provinces(g, f, count=6, seed=seed), region.seas(g, f, count=count,
+                                                                         seed=seed)
+
+
+def test_the_sea_is_divided_the_way_the_land_is():
+    """A sea province is connected, and the whole sea is in exactly one of them.
+
+    A fleet moves province to province, so a sea province in two pieces is the same
+    defect a land province in two pieces is; and water the seeds never reached is a
+    province of its own rather than a hole, which is what an island is on land.
+    """
+    g, f, land, sea = _waters()
+    water = np.asarray(f["water"], dtype=bool).reshape(-1)
+    lab = sea["labels"].reshape(-1)
+    assert sea["count"] >= 7
+    seen = np.zeros(g.count, dtype=bool)
+    for p in sea["provinces"]:
+        assert water[p["cells"]].all(), "a sea province was given a hex of land"
+        mine = np.zeros(g.count, dtype=bool)
+        mine[p["cells"]] = True
+        assert not (mine & seen).any()
+        seen |= mine
+        # connected: a flood over the province's own cells reaches all of them
+        start = int(p["cells"][0])
+        got = {start}
+        q = deque([start])
+        inside = set(int(j) for j in p["cells"])
+        while q:
+            j = q.popleft()
+            r, c = divmod(j, g.cols)
+            for rr, cc in g.nbr[r, c]:
+                rr, cc = int(rr), int(cc)
+                if rr >= 0 and rr * g.cols + cc in inside and rr * g.cols + cc not in got:
+                    got.add(rr * g.cols + cc)
+                    q.append(rr * g.cols + cc)
+        assert got == inside, p["name"]
+    assert np.array_equal(seen, water), "the sea is not covered exactly once"
+    assert (lab[~water] == -1).all(), "the sea division labelled the land"
+
+
+def test_the_two_divisions_tile_the_whole_map_between_them():
+    """Every hex is a province or a sea province, and no hex is both."""
+    g, f, land, sea = _waters()
+    a = np.asarray(land["labels"]).reshape(-1)
+    b = np.asarray(sea["labels"]).reshape(-1)
+    assert not ((a >= 0) & (b >= 0)).any(), "a hex was in a province and a sea"
+    assert ((a >= 0) | (b >= 0)).all(), "a hex was in neither"
+
+
+def test_a_sea_province_reads_as_the_water_it_is():
+    """The name is the only place a player reads what a province is like.
+
+    So the water's endings and the land's are disjoint: a stem may repeat -- the
+    stem is the province's number -- but nothing on the map should be called
+    ``Aldfell`` and be water.
+    """
+    _g, _f, land, sea = _waters()
+    wet = region._END["ocean"] + region._END["shallows"] + region._END["deep water"]
+    dry = region._END["hills"] + region._END["plains"] + region._END["forest"]
+    names = [p["name"] for p in sea["provinces"]]
+    land_names = [p["name"] for p in land["provinces"]]
+    assert len(set(names) | set(land_names)) == len(names) + len(land_names)
+    for n in names:
+        assert any(n.endswith(e) for e in wet), n
+    for n in land_names:
+        assert not any(n.endswith(e) for e in wet), n
+    assert not (set(wet) & set(dry))
+
+
+def test_charting_the_sea_does_not_touch_the_land():
+    """The claim at the size it is read: a political layer over the water only."""
+    g = gridlib.HexGrid(22, 15, 11.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.42)
+    kw = dict(seed=7, cols=22, rows=15, size=11.0, sea_fraction=0.42, provinces=8, road=0.85)
+    plain = paint.map_image(seas=0, **kw).to_uint8()
+    charted = paint.map_image(seas=8, **kw).to_uint8()
+    assert not np.array_equal(plain, charted), "the sea provinces were not drawn"
+    changed = np.any(plain != charted, axis=-1)
+    assert 0.0 < changed.mean() < 0.04, changed.mean()
+    w, h = g.extent
+    canvas = Canvas(int(np.ceil(w + 2 * 7.0)), int(np.ceil(h + 2 * 7.0)), scale=1.0)
+    cell = g.cell(*canvas.grid())
+    water = np.asarray(f["water"], dtype=bool)[cell.rc[..., 0], cell.rc[..., 1]] & cell.ok
+    assert (changed & ~water).sum() == 0, "a sea province was drawn on the land"
+
+
 # ---------------------------------------------------------------- campaign
-def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=0.42):
+def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=0.42,
+              sea_provinces=8):
     """A map, its realms, its roads, its rivers -- and the file that carries them."""
     g = gridlib.HexGrid(cols, rows, size)
     f = terrain.fields(g, seed=seed, sea_fraction=sea)
@@ -1054,9 +1146,34 @@ def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=
                        for n in names)
     courses, _thr = paint.river_courses(g, f)
     routes = roads.network(g, f, res) if res is not None else []
+    seas = region.seas(g, f, count=sea_provinces, seed=seed) if sea_provinces else None
     doc = campaign.campaign(g, f, res, seed=seed, owner=own, realms=record,
-                            routes=routes, courses=courses)
+                            routes=routes, courses=courses, seas=seas)
     return g, f, res, own, routes, courses, doc
+
+
+def test_the_sea_sails_into_the_campaign_file_too():
+    """And it is checked the same way the land is: a partition of the water.
+
+    A fleet needs somewhere to be, and a client that had to re-derive the sea
+    division would have to re-implement the whole of :mod:`gen.maps.region` to move
+    a ship.  So the sea provinces go in with their cells, exactly as the land ones
+    do, and nobody owns them -- which is what ``-1`` says.
+    """
+    g, f, res, _own, routes, courses, doc = _campaign()
+    sea = region.seas(g, f, count=8, seed=7)
+    water = np.asarray(f["water"], dtype=bool).reshape(-1)
+    assert len(doc["seas"]) == sea["count"] >= 8
+    seen = np.zeros(g.count, dtype=bool)
+    for p in doc["seas"]:
+        mine = np.zeros(g.count, dtype=bool)
+        mine[p["cells"]] = True
+        assert water[p["cells"]].all(), "a sea province was given a hex of land"
+        assert int(mine.sum()) == int(mine[water].sum()) == p["area"]
+        assert not (mine & seen).any()
+        seen |= mine
+        assert p["owner"] == -1
+    assert np.array_equal(seen, water), "the sea is not in the file exactly once"
 
 
 def test_the_campaign_file_is_the_whole_map_in_numbers():

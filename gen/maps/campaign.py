@@ -13,6 +13,11 @@ it and run the map.
   green on the same province;
 * **whose hex it is**, one realm index per province and each realm's own colour, so
   the political map can be redrawn without re-deriving the livery;
+* **where the sea is divided**, because a fleet moves from sea province to sea
+  province the way an army moves from province to province: the water is divided by
+  the same code, and each sea province is named and carries its cells.  The owner
+  of a sea province is ``-1`` -- nobody holds the water yet -- and the field is
+  there because somebody will;
 * **where the roads go**, as the hexes they walk and what they cost to walk --
   because a road is a claim about the ground, and a client has to be able to check
   that claim against the same costs;
@@ -56,8 +61,29 @@ def _flat(cells, cols: int) -> list:
     return out
 
 
+def _parts(res: dict | None, owner, cols: int) -> list:
+    """Provinces as the file writes them: cells, capital, ground, neighbours."""
+    if res is None or not res["count"]:
+        return []
+    owner = list(owner)
+    out = []
+    for i, p in enumerate(res["provinces"]):
+        out.append({
+            "index": i,
+            "name": p["name"],
+            "owner": int(owner[i]) if i < len(owner) else -1,
+            "ground": p["ground"],
+            "capital": [int(p["capital"][0]), int(p["capital"][1])],
+            "coastal": bool(p["coastal"]),
+            "area": int(p["area"]),
+            "neighbours": [int(n) for n in p["neighbours"]],
+            "cells": _flat(p["cells"], cols),
+        })
+    return out
+
+
 def campaign(grid: HexGrid, f: dict, res: dict | None = None, *, seed: int = 0,
-             owner=(), realms=(), routes=(), courses=()) -> dict:
+             owner=(), realms=(), routes=(), courses=(), seas: dict | None = None) -> dict:
     """One map, as the dict that becomes the campaign file.
 
     Everything is passed in rather than derived here, because every caller already
@@ -86,24 +112,12 @@ def campaign(grid: HexGrid, f: dict, res: dict | None = None, *, seed: int = 0,
         ],
         "water": round(float(water.mean()), 3),
         "cells": [int(v) for v in np.asarray(f["biome"]).reshape(-1)],
-        "provinces": [],
+        "provinces": _parts(res, owner, grid.cols),
+        "seas": _parts(seas, (), grid.cols),
         "realms": [dict(r) for r in realms],
         "roads": [],
         "rivers": [],
     }
-    if res is not None and res["count"]:
-        for i, p in enumerate(res["provinces"]):
-            doc["provinces"].append({
-                "index": i,
-                "name": p["name"],
-                "owner": int(owner[i]) if i < len(owner) else -1,
-                "ground": p["ground"],
-                "capital": [int(p["capital"][0]), int(p["capital"][1])],
-                "coastal": bool(p["coastal"]),
-                "area": int(p["area"]),
-                "neighbours": [int(n) for n in p["neighbours"]],
-                "cells": _flat(p["cells"], grid.cols),
-            })
     for road in routes:
         doc["roads"].append({
             "from": int(road["from"]),

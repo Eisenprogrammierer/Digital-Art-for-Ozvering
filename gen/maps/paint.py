@@ -36,6 +36,7 @@ __all__ = [
     "RIVER",
     "ROAD",
     "ROAD_EDGE",
+    "SEA_BORDER",
     "SEA_RAMP",
     "map_image",
     "province_layer",
@@ -70,6 +71,11 @@ RIVER = palette.hex_to_srgb("#5f9cc0")
 #: one in forest -- and a road has to be followable across both.
 ROAD = palette.hex_to_srgb("#ecdcb0")
 ROAD_EDGE = palette.hex_to_srgb("#4a3826")
+
+#: Sea provinces are drawn the way a chart draws a maritime boundary: a thin pale
+#: line, because the water it is drawn on is already dark and an ink line over dark
+#: water reads as a crack in it.
+SEA_BORDER = palette.hex_to_srgb("#86b4cd")
 
 _AMBIENT = 0.66
 _DIFFUSE = 0.52
@@ -297,7 +303,8 @@ def province_tints(n: int, L: float = 0.73, C: float = 0.13, hue0: float = 0.03)
 
 def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
                    fill: float = 0.22, frontier: float = 1.0, tints=None,
-                   owners=None, internal: float = 0.35) -> None:
+                   owners=None, internal: float = 0.35, line: float = 0.26,
+                   ink=INK) -> None:
     """The political map: a wash per province, and a line where two meet.
 
     Both are drawn per pixel, and the frontier is drawn from the labels on either
@@ -309,6 +316,11 @@ def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
     because a realm that is drawn as one block is a realm a player can see.  The
     provinces are still there -- faintly, which is what a province is on a map of
     realms.
+
+    ``line`` and ``ink`` are how the same function draws a sea province: no wash,
+    because the water is a depth ramp and a wash over it would be mud, a thinner
+    line than a land frontier, because the sea is not divided by walls, and a pale
+    ink, because the sea is dark.
     """
     labels = np.asarray(res["labels"])
     if not res["count"]:
@@ -321,10 +333,11 @@ def province_layer(canvas: Canvas, grid: HexGrid, res: dict, cell,
         colour = table[np.clip(lab, 0, len(table) - 1)]
         canvas.over_srgb(colour, float(fill) * (lab >= 0) * cell.ok)
     if frontier > 0.0:
-        a = float(frontier) * region.frontier_alpha(grid, labels, cell, dx=canvas.dx)
+        a = float(frontier) * region.frontier_alpha(grid, labels, cell, width=float(line),
+                                                    dx=canvas.dx)
         if owners is not None and internal < 1.0:
             a = a * _border_weight(grid, labels, cell, owners, internal)
-        canvas.over_srgb(INK, a)
+        canvas.over_srgb(ink, a)
 
 
 def _border_weight(grid: HexGrid, labels, cell, owners, internal: float):
@@ -411,6 +424,7 @@ def map_image(
     province_owners=None,
     province_internal: float = 0.35,
     frontier: float = 1.0,
+    seas: int = 0,
     capitals: bool = True,
     shadow: float = 0.34,
     **kw,
@@ -427,6 +441,11 @@ def map_image(
     The roads need capitals to run between, so they exist only with provinces --
     and they are routed by the biome table's own movement costs, which is why they
     belong to the geography rather than to the picture of it.
+
+    ``seas`` divides the *water* into sea provinces, which are drawn as a maritime
+    boundary and nothing else: the sea's colour is the depth of the sea and a
+    political wash over it would be mud.  A map with sea provinces and a map without
+    are the same map on land, down to the pixel.
     """
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
@@ -454,6 +473,11 @@ def map_image(
         province_layer(canvas, grid, res, cell, fill=province_fill,
                        tints=province_tints, owners=province_owners,
                        internal=province_internal, frontier=frontier)
+
+    if seas > 0 and f["water"].any():
+        charted = region.seas(grid, f, count=int(seas), seed=seed)
+        province_layer(canvas, grid, charted, cell, fill=0.0, frontier=0.58,
+                       line=0.19, ink=SEA_BORDER)
 
     if river > 0.0 and (~f["water"]).any():
         courses, threshold = river_courses(grid, f, river_fraction)
