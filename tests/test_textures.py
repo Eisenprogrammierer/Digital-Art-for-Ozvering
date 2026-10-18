@@ -19,7 +19,12 @@ The claims worth a test here are the ones the *word* seamless hides:
 * the reaction-diffusion Laplacian wraps, which is checked as an exact algebraic
   property (translating the field translates the Laplacian) rather than by looking
   at a picture, because a boundary condition is exactly the kind of thing a picture
-  hides.
+  hides;
+* a texture atlas is a sprite atlas with both of its margin rules reversed: a tile
+  cannot be trimmed, because a tile's edge is its seam and not a margin, and its
+  margin cannot be a gap, because a tile is opaque and the margin is what a filtered
+  sample beside it will read.  So the margin is the tile wrapped onto itself, and the
+  test checks that pixel for pixel.
 
 Run either way::
 
@@ -36,7 +41,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.textures import boards, reaction, tile, truchet, wang  # noqa: E402
+from gen.textures import atlas, boards, reaction, tile, truchet, wang  # noqa: E402
+from core.canvas import Canvas  # noqa: E402
 
 
 def _canvas_bytes(canvas) -> bytes:
@@ -631,6 +637,117 @@ def test_a_floor_that_is_not_a_floor_is_refused():
         pass
     else:
         raise AssertionError("a floor of no pixels should be refused")
+
+
+# ---------------------------------------------------------------------- atlas
+def _atlas_members():
+    return [
+        ("boards", boards.texture(seed=7, size=64, across=1, down=4, stagger=2)),
+        ("ground", wang.texture(seed=7, size=64, cells=8, colours=3)),
+        ("stone", truchet.texture(seed=7, size=64, grains=4, kinds=("arcs",))),
+    ]
+
+
+def test_a_margin_is_not_a_gap_it_is_the_tile_continuing():
+    """The whole difference between this atlas and the sprite one, in one array.
+
+    A sprite's margin is padding and its job is to be *nothing*, so that a filter
+    stepping off the sprite finds no neighbour.  A tile's margin cannot be nothing: the
+    tile is opaque, and the margin is exactly what a filtered sample near the edge is
+    going to read.  So it is the tile wrapped onto itself -- the row above the first is
+    the last row, the column left of the first is the last column, and the corner
+    between them is the tile's own far corner.  Nothing in the margin is a pixel the
+    tile does not have, which is what makes it material rather than a border.
+    """
+    stone = truchet.texture(seed=7, size=64, grains=4, kinds=("arcs",))
+    raw = stone.to_uint8()
+    assert np.array_equal(atlas.bleed(stone, 0), raw)
+    block = atlas.bleed(stone, 2)
+    assert block.shape == (68, 68, 4)
+    assert np.array_equal(block[2:-2, 2:-2], raw)          # the tile, moved and whole
+    n = raw.shape[0]
+    for d in (1, 2):
+        assert np.array_equal(block[2 - d, 2:-2], raw[n - d])
+        assert np.array_equal(block[2:-2, 2 - d], raw[:, n - d])
+    assert np.array_equal(block[1, 1], raw[n - 1, n - 1])  # and the corner meets itself
+
+    # Not only for squares: a wide tile wraps in y and in x by its own two sizes.
+    noise = tile.periodic_noise((96, 48), seed=3, scale=6.0)
+    wide = Canvas(48, 96, scale=1.0, y_up=False)
+    wide.rgb = np.repeat(noise[..., None], 3, axis=2)
+    wide.a = np.ones((96, 48), dtype=np.float64)
+    assert atlas.bleed(wide, 3).shape == (102, 54, 4)
+    assert np.array_equal(atlas.bleed(wide, 3)[3:-3, 3:-3], wide.to_uint8())
+
+
+def test_a_texture_atlas_moves_tiles_and_does_not_trim_them():
+    members = _atlas_members()
+    sheet, info = atlas.build(members)
+    rgba = sheet.to_uint8()
+    assert info["margin"] == atlas.MARGIN
+    by_name = {entry["name"]: entry for entry in info["members"]}
+    assert set(by_name) == {name for name, _canvas in members}
+    for name, canvas in members:
+        x, y, w, h = by_name[name]["rect"]
+        assert (w, h) == (canvas.w, canvas.h)       # nothing was trimmed: it is a tile
+        assert np.array_equal(rgba[y:y + h, x:x + w], canvas.to_uint8())
+        # and the pixel diagonal from the tile's first is its last: the margin of the
+        # sheet around every member is that member
+        assert np.array_equal(rgba[y - 1, x - 1], canvas.to_uint8()[-1, -1])
+
+
+def test_the_margins_of_two_tiles_are_flush_and_do_not_overlap():
+    # No padding *between* blocks either, which is the other reversal: a padding pixel
+    # would be a hole in an opaque sheet, and the only thing a sample beside a tile
+    # should be able to reach is more of that tile.  The blocks touch; they do not
+    # interpenetrate.
+    _sheet, info = atlas.build(_atlas_members())
+    m = info["margin"]
+    blocks = [(x - m, y - m, w + 2 * m, h + 2 * m)
+              for x, y, w, h in (entry["rect"] for entry in info["members"])]
+    for i, (x0, y0, w0, h0) in enumerate(blocks):
+        for x1, y1, w1, h1 in blocks[i + 1:]:
+            apart = (x0 + w0 <= x1 or x1 + w1 <= x0
+                     or y0 + h0 <= y1 or y1 + h1 <= y0)
+            assert apart, (blocks[i], (x1, y1, w1, h1))
+
+
+def test_a_texture_atlas_is_byte_identical_twice_and_does_not_depend_on_order():
+    first, info = atlas.build(_atlas_members())
+    again, other_info = atlas.build(_atlas_members())
+    assert hashlib.sha256(_canvas_bytes(first)).hexdigest() == \
+           hashlib.sha256(_canvas_bytes(again)).hexdigest()
+    assert info == other_info
+    shuffled, shuffled_info = atlas.build(list(reversed(_atlas_members())))
+    assert hashlib.sha256(_canvas_bytes(shuffled)).hexdigest() == \
+           hashlib.sha256(_canvas_bytes(first)).hexdigest()
+    assert info == shuffled_info
+
+
+def test_the_density_of_a_sheet_counts_tiles_and_not_their_margins():
+    # The margin is not sprite and not sprite's absence: it is more of the tile.  What
+    # the number is *for* is the cost of the conventions, and on this set the cost of
+    # power-of-two and of a margin are both visible.
+    members = _atlas_members()
+    content = sum(canvas.w * canvas.h for _name, canvas in members)
+    tight, tight_info = atlas.build(members, margin=0, power_of_two=False)
+    sheet, info = atlas.build(members)
+    for got in (tight_info, info):
+        assert got["density"] == round(content / (got["size"][0] * got["size"][1]), 4)
+        assert 0.0 < got["density"] < 1.0
+    assert info["margin"] == 2 and tight_info["margin"] == 0
+    assert info["power_of_two"] and not tight_info["power_of_two"]
+    assert info["density"] < tight_info["density"]     # the margin and the rounding
+
+
+def test_a_sheet_that_is_not_a_sheet_is_refused():
+    for kwargs in ({"members": []}, {"members": _atlas_members(), "margin": -1}):
+        try:
+            atlas.build(**kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{kwargs} should not build a sheet")
 
 
 if __name__ == "__main__":

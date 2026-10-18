@@ -527,7 +527,7 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         images = {p.name for p in d.glob("*.png")}
         assert images == {"icons.png", "icons-atlas.png", "shapes.png", "texture.png",
                           "palette.png", "portraits.png", "ui.png", "maps.png",
-                          "tiles.png", "factions.png"}
+                          "tiles.png", "tiles-atlas.png", "factions.png"}
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images
 

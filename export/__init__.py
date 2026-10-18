@@ -1,4 +1,4 @@
-"""Export back-ends.  PNG today; SVG, atlases and credits come next."""
-from . import png
+"""Export back-ends.  PNG and atlas packing today; SVG and a manifest come next."""
+from . import atlas, png
 
-__all__ = ["png"]
+__all__ = ["atlas", "png"]

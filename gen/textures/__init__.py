@@ -19,12 +19,16 @@
     A floor: the one material here with a *direction*, where the tile has to carry
     the length of a board and the way its grain runs across the seam -- including for
     the board that runs off one edge and comes back on the other.
+``atlas``
+    Ship the set: the tiles packed into one sheet with a table of rectangles, and with
+    margins that are each tile wrapped onto itself rather than a gap -- because a tile
+    has no transparent border to trim and nothing useful to blend into.
 
 Typical use::
 
     from gen.textures import truchet
     truchet.texture(seed=3, size=256, grains=4).save("out/truchet.png")
 """
-from . import boards, reaction, tile, truchet, wang
+from . import atlas, boards, reaction, tile, truchet, wang
 
-__all__ = ["boards", "reaction", "tile", "truchet", "wang"]
+__all__ = ["atlas", "boards", "reaction", "tile", "truchet", "wang"]

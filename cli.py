@@ -55,6 +55,7 @@ from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import roads as map_roads  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
+from gen.textures import atlas as tex_atlas  # noqa: E402
 from gen.textures import boards as tex_boards  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
@@ -1093,7 +1094,7 @@ def _wang_tiles(cells: int, colours: int, seed: int, source: str,
 
 
 def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
-               steps: int = 5000) -> Path:
+               steps: int = 5000, atlas: bool = True) -> Path:
     """Contact sheet of tiling textures: Truchet, Wang, reaction-diffusion, boards.
 
     Every cell is the tile laid down **four times** rather than shown once.  That is
@@ -1171,6 +1172,19 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
         }
         for name, panel, facts in panels
     ])
+
+    # The contact sheet is for a person; this is the sheet a *game* loads.  Same ten
+    # tiles, and the difference is entirely in the margins: a sprite atlas trims its
+    # members and leaves a transparent gap, and for a tile both of those are wrong.  A
+    # tile's edge is its *seam*, so there is nothing to trim, and its margin has to be
+    # more of the tile -- the tile wrapped onto itself -- so that a filtered sample
+    # beside it reads the material rather than a neighbour or a gap.
+    if atlas:
+        image, info = tex_atlas.build([(name, panel) for name, panel, _f in panels])
+        path = out.with_name(f"{out.stem}-atlas.png")
+        image.save(path)
+        _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+        _report(path)
     return _report(out)
 
 
@@ -1351,6 +1365,7 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("tiles", help="tiling textures: Truchet, Wang, reaction-diffusion, boards")
     t.add_argument("--out", default="out/tiles.png", type=Path)
     t.add_argument("--seed", type=int, default=7)
+    t.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
     t.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")
     t.add_argument("--sim", type=int, default=80, help="cells the reaction-diffusion runs on")
     t.add_argument("--steps", type=int, default=5000, help="steps of reaction-diffusion, at most")
@@ -1441,7 +1456,8 @@ def main(argv=None) -> int:
         demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
                       ratio=_ratio(args.ratio))
     elif args.cmd == "tiles":
-        demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim, steps=args.steps)
+        demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim,
+                   steps=args.steps, atlas=not args.no_atlas)
     elif args.cmd == "credits":
         if args.out is None:
             print(creditslib.credits(args.manifest), end="")

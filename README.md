@@ -31,12 +31,13 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/tiles.png` and `out/factions.png`, each with a `.json` sidecar recording the
+`out/tiles.png`, `out/tiles-atlas.png` and `out/factions.png`, each with a `.json`
+sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for every map its biome census, its rivers, its roads, its realms, its
 provinces and the sea provinces with the realms that hold them, for every tiling
-texture its seam error and how many tiles its tiling used, for the icon atlas the
-rectangle each sprite occupies and how densely the sheet packed, and for the
+texture its seam error and how many tiles its tiling used, for the two atlases the
+rectangle each sprite or tile occupies and how densely the sheet packed, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
@@ -65,7 +66,7 @@ python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
-python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction-diffusion
+python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
@@ -73,7 +74,7 @@ python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
-python tests/test_textures.py                   # 36 tests
+python tests/test_textures.py                   # 42 tests
 python tests/test_icons.py                      # 19 tests
 ```
 
@@ -218,7 +219,9 @@ atlas.
 
 The reason the atlas lives in `export/` and not in `gen/icons/` is that it knows
 nothing about icons. It takes a list of `(name, canvas)` pairs, and it is the same
-code for a texture set or a font sheet.
+*layout* for a texture set or a font sheet. What a texture set needs on top of the
+layout is a different question, and it has its own module and its own section below
+-- the honest summary being that a tile breaks both of this atlas's rules.
 
 Two decisions in it are worth stating, because both are measurable rather than
 stylistic:
@@ -1241,6 +1244,7 @@ edge: not *does the pattern line up*, but *does it know which way it is pointing
 | `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus or read off a quantised height field, and the bilinear blend of those corners into ground. |
 | `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
 | `boards` | A plank floor: the one material here with a direction, where a board that runs off one edge and comes back on the other has to be the same board, and where the grain is long along it. |
+| `atlas` | Ship the set: tiles packed into one sheet with a rectangle table, and with margins that are each tile wrapped onto itself rather than a gap. |
 
 ### Seamless is a number, not a compliment
 
@@ -1455,6 +1459,56 @@ field: a *roll* of a field that wraps is continuous, which is the same property 
 made the noise worth having in the first place, so no two boards are cut from the same
 piece while every board's grain still crosses the seam without a step in it.
 
+### An atlas of materials is not an atlas of sprites
+
+A game does not load ten floor textures, it loads one, so a texture set needs what a
+sprite set needs: a packer and a table of rectangles. The layout is the same
+bottom-left skyline as `export.atlas`, and the reason this is a separate module rather
+than a call to `export.atlas.build` is that a tile **breaks both of that atlas's
+rules**, and it breaks them for the same reason twice over -- a tile's edge is not a
+border, it is the seam.
+
+The first rule is that a sprite is **trimmed** to the pixels it uses, because the
+transparent margin around a sprite is not part of it. A tile cannot be trimmed at all.
+Crop the empty-looking border off a floor tile and the tile no longer joins to itself,
+because the pixels that got cropped are the ones the wrap was made of; a trim would
+remove exactly what the texture spent its whole design earning.
+
+The second is that a sprite's gap in the sheet is **padding**, and its job is to be
+*nothing* -- a filter that steps off the sprite should find transparent pixels rather
+than the neighbour's. A tile's margin cannot be nothing. A tile is opaque, and the
+margin is precisely what a filtered sample near the edge is going to read. So the
+margin is filled with the tile's **own continuation**: the tile wrapped onto itself,
+so that the row above a tile's first row is the tile's last row, the column left of its
+first column is its last column, and the corner between the two is the tile's own far
+corner. It is not a compromise between neighbouring tiles and a hole; for a seamless
+texture it is *exactly right*. Nothing in the margin is a pixel the tile does not have,
+and the property is not taken on trust -- the test compares the margin with the tile,
+in bytes, and does it for a wide tile as well as a square one.
+
+The word for it is a **bleed**, and it is the printer's word: the part of the plate
+that runs past the cut. What runs past the cut here is the tile running past itself.
+Two pixels of it is what a bilinear filter needs, and it costs about six percent of
+the sheet. There is no gap *between* tiles either, which is the same reversal one more
+time: a padding pixel in an opaque sheet is a hole, and the only thing a sample beside
+a tile should be able to reach is more of that tile, so the blocks are laid flush.
+
+That margin also means a mip chain built from this sheet behaves. The hardware
+averages each tile together with its own continuation, which is the average the tile
+would have had if it were tiled out, and the only place that goes wrong is a few pixels
+either side of the boundary *between two different tiles*, at the coarsest levels. A
+per-level sheet is still the honest way to ship mips -- halving the tiles wants a
+fresh packing at each level -- which is a separate job.
+
+And the density rule from the icon sheet applies here in its sharpest form. Ten
+128-pixel tiles with two pixels of margin are 132, and three of those fit across a 512
+sheet with 116 pixels to spare -- so the fourth row goes over the edge, the sheet
+doubles to 512x1024, and the density falls from 0.63 to **0.31**. Two pixels of margin
+did that, and nothing is lost or wrong: the sheet is simply twice the pixels it needs.
+Power-of-two is still the default, because that is what an engine wants, and the price
+is in the sidecar rather than in a comment -- 0.31 as the sheet ships, against 0.78 for
+the same ten tiles with the rounding turned off.
+
 ### The bug that did not raise
 
 `smooth` had to blur a three-channel field, and the first version reshaped the field
@@ -1585,8 +1639,14 @@ Generators to sit on top of the core, in the order they become useful:
   *torus* so that the board running off the left edge and back on the right is one
   board and its grain carries across; the surface is the bevel into the groove and
   nothing more, because grain with relief of its own is corrugated iron, and
-  `periodic_noise` grew a `stretch` for the grain to be long along the board)*; next,
-  a texture atlas.
+  `periodic_noise` grew a `stretch` for the grain to be long along the board)*;
+  ~~a texture atlas~~ *(done: `gen/textures/atlas.py` -- the same skyline as the sprite
+  atlas and the opposite margins, because a tile's edge is its seam: nothing is
+  trimmed, since the border a trim would remove is the wrap, and the margin is the
+  tile wrapped onto itself rather than a gap, so a filtered sample beside a tile
+  reads the material and not a neighbour; the block costs about six percent of the
+  sheet and the power-of-two rounding cost is in the sidecar, which is where the demo
+  shows the margin pushing a set over an edge and doubling the sheet)*.
 - **export extras** -- SVG for vector UI, ~~atlas packing~~ *(done, as
   `export/atlas.py` and shared with the icons sheet)*, and an ~~`assets.yaml`
   registry carrying `source/license/attribution/seed` for every asset~~

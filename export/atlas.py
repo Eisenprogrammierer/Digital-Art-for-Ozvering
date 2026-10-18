@@ -26,7 +26,7 @@ import numpy as np
 from core import palette
 from core.canvas import Canvas
 
-__all__ = ["trim", "pack", "build", "density"]
+__all__ = ["trim", "pack", "build", "density", "canvas_from"]
 
 #: Aspect ratios to try when no width is given.  A wide atlas and a tall one both
 #: pack badly once power-of-two rounding is applied, so the search is worth the few
@@ -197,6 +197,22 @@ def pack(sizes, width=None, padding: int = 1, max_size: int = 4096,
     return best[1], best[2]
 
 
+def canvas_from(rgba) -> Canvas:
+    """A :class:`~core.canvas.Canvas` from an 8-bit RGBA buffer.
+
+    Atlases are assembled in 8-bit bytes, because that is what a sprite sheet is and
+    because a byte is the only unit in which "the pixels were moved and not redrawn"
+    is a statement precise enough to test.
+    """
+    a = np.asarray(rgba, dtype=np.uint8)
+    if a.ndim != 3 or a.shape[2] != 4:
+        raise ValueError(f"an atlas works in 8-bit RGBA, got {a.shape}")
+    out = Canvas(int(a.shape[1]), int(a.shape[0]), scale=1.0)
+    out.rgb = palette.srgb_to_linear(a[..., :3].astype(np.float64) / 255.0)
+    out.a = a[..., 3].astype(np.float64) / 255.0
+    return out
+
+
 def build(members, padding: int = 2, max_size: int = 4096,
           power_of_two: bool = True):
     """Pack ``(name, canvas)`` pairs into one image; returns ``(canvas, info)``.
@@ -232,9 +248,7 @@ def build(members, padding: int = 2, max_size: int = 4096,
             "trim": trim_box,
         })
 
-    atlas = Canvas(W, H, scale=1.0)
-    atlas.rgb = palette.srgb_to_linear(out[..., :3].astype(np.float64) / 255.0)
-    atlas.a = out[..., 3].astype(np.float64) / 255.0
+    atlas = canvas_from(out)
     info = {
         "size": [int(W), int(H)],
         "density": round(density(rects, size), 4),
