@@ -36,7 +36,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.textures import reaction, tile, truchet, wang  # noqa: E402
+from gen.textures import boards, reaction, tile, truchet, wang  # noqa: E402
 
 
 def _canvas_bytes(canvas) -> bytes:
@@ -47,12 +47,15 @@ def _canvas_bytes(canvas) -> bytes:
 def test_a_wrapping_field_does_not_step_at_its_edge_and_a_cliff_does():
     wrapped = tile.periodic_noise((64, 64), seed=3, scale=5.0)
     assert 0.0 <= float(wrapped.min()) and float(wrapped.max()) <= 1.0
-    assert tile.seam_error(wrapped) < 1.4
+    assert tile.seam_error(wrapped) <= 1.5
 
     # A gradient is the simplest field that does not wrap: two tiles apart the value
     # jumps back to the start, and the step is the whole height of the tile.
     ramp = np.tile(np.linspace(0.0, 1.0, 64)[None, :], (64, 1))
     assert tile.seam_error(ramp) > 8.0
+    # The claim in one line, without a threshold to argue about: a seam is a cliff
+    # standing well clear of anything the same field does inside itself.
+    assert tile.seam_error(ramp) > 10.0 * tile.seam_error(wrapped)
 
 
 def test_periodic_noise_wraps_exactly():
@@ -172,7 +175,7 @@ def test_an_arrangement_is_a_function_of_the_seed():
 
 def test_a_truchet_texture_wraps_and_wraps_the_same_way_twice():
     canvas = truchet.texture(seed=3, size=128, grains=4)
-    assert tile.seam_error(tile.luminance(canvas.to_uint8())) < 1.6
+    assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 1.5
     again = truchet.texture(seed=3, size=128, grains=4)
     assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
            hashlib.sha256(_canvas_bytes(again)).hexdigest()
@@ -213,7 +216,7 @@ def test_shared_corners_agree_across_every_seam_including_the_wrap():
 
 def test_the_blend_of_the_corners_is_continuous_which_is_why_it_tiles():
     canvas = wang.texture(seed=3, size=128, cells=8, colours=3)
-    assert tile.seam_error(tile.luminance(canvas.to_uint8())) < 1.4
+    assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 1.5
     again = wang.texture(seed=3, size=128, cells=8, colours=3)
     assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
            hashlib.sha256(_canvas_bytes(again)).hexdigest()
@@ -295,7 +298,7 @@ def test_a_height_field_fills_its_range_and_wraps():
     assert f.shape == (32, 32)
     assert abs(float(f.min())) < 1e-9 and abs(float(f.max()) - 1.0) < 1e-9
     assert 0.0 <= float(f.min()) and float(f.max()) <= 1.0
-    assert tile.seam_error(f) < 1.4
+    assert tile.seam_error(f) <= 1.5
     assert np.array_equal(f, wang.height_field(seed=5, cells=32))
     assert not np.array_equal(f, wang.height_field(seed=6, cells=32))
 
@@ -377,23 +380,13 @@ def test_every_band_of_a_field_is_used_and_a_ramp_palette_is_ordered():
     assert all(b > a for a, b in zip(heights, heights[1:]))
 
 
-def _no_worse_than_an_interior_seam(f, size: int) -> None:
-    """The wrap's step is no worse than the worst step *inside* one copy of it.
-
-    ``seam_error`` on its own is a threshold, and a texture with a strong relief has
-    large steps everywhere: the ratio of the wrap to the average rises with the relief
-    even when nothing is wrong at the edge.  What would mean a seam is the wrap
-    standing out among the same texture's own boundaries, so it is measured against
-    those -- every column boundary of one copy, which is every place a seam could be.
-    """
-    worst = max(tile.seam_error(np.roll(f, k, axis=1)) for k in range(1, size))
-    assert tile.seam_error(f) <= worst, (tile.seam_error(f), worst)
-
-
 def test_a_field_texture_wraps_is_byte_identical_twice_and_is_not_a_searched_one():
     canvas = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
                           source="field", relief=20.0)
-    _no_worse_than_an_interior_seam(tile.luminance(np.tile(canvas.to_uint8(), (2, 2, 1))), 128)
+    # One copy, not the tiling of it: tiled, the seams are among the interior
+    # boundaries the number is measured against, and it can then read no worse than 1
+    # whatever the texture does.
+    assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 1.5
     again = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
                          source="field", relief=20.0)
     assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
@@ -503,17 +496,141 @@ def test_upsampling_wraps_and_keeps_the_range():
     assert big.shape == (64, 64)
     assert float(big.min()) >= float(f.min()) - 1e-9
     assert float(big.max()) <= float(f.max()) + 1e-9
-    assert tile.seam_error(big) < 1.4
+    assert tile.seam_error(big) <= 1.5
 
 
 def test_a_reaction_texture_wraps_and_is_byte_identical_twice():
     canvas = reaction.texture(seed=3, size=96, sim=48, preset_name="worms", steps=400)
-    assert tile.seam_error(tile.luminance(canvas.to_uint8())) < 1.5
+    assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 1.5
     again = reaction.texture(seed=3, size=96, sim=48, preset_name="worms", steps=400)
     assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
            hashlib.sha256(_canvas_bytes(again)).hexdigest()
     other = reaction.texture(seed=4, size=96, sim=48, preset_name="worms", steps=400)
     assert not np.array_equal(canvas.to_uint8(), other.to_uint8())
+
+
+# --------------------------------------------------------------------- boards
+def test_a_board_that_crosses_the_seam_has_one_name():
+    """The one thing a floor needs that nothing else in the package does.
+
+    The stagger moves each band's joints along, so in most bands a joint falls inside
+    the tile and the board it ends runs off the left edge and comes back on the right.
+    That is *one* board, and its grain and its tone have to say so -- a tile-local name
+    would give its two halves different wood, and the seam would read as a mistake
+    rather than as the joint it is.  The identity comes out right because it is taken
+    modulo the number of boards *on the torus*, and this is where that is checked: over
+    a sweep of board counts, band counts, staggers and sizes, on every row, and at the
+    wrap itself.
+
+    The coordinate is the sharper half of the check.  It has to carry on across the
+    edge by exactly one pixel's worth, and where it instead runs off the end, the
+    identity has to step by exactly one board -- because that is what running off the
+    end *is*: a joint, and the next board along.
+    """
+    for across in (1, 2, 3, 4):
+        for down in (1, 2, 3, 5, 6):
+            for stagger in (0, 1, 2, 3):
+                for size in (96, 128):
+                    lay = boards.layout(size=size, across=across, down=down,
+                                        stagger=stagger)
+                    u, board = lay["u"], lay["board"]
+                    step = across / size
+                    drift = np.mod(u[:, 0] - u[:, -1] - step, 1.0)
+                    assert float(np.minimum(drift, 1.0 - drift).max()) < 1e-9
+                    crossed = u[:, -1] + step >= 1.0
+                    ok = np.where(crossed,
+                                  np.mod(board[:, 0] - board[:, -1], across) == 1 % across,
+                                  board[:, 0] == board[:, -1])
+                    assert ok.all(), (across, down, stagger, size)
+
+                    # The same two claims across the horizontal seam, where the thing
+                    # that has to line up is the band and not a board.
+                    v = lay["v"]
+                    vstep = down / size
+                    vdrift = np.mod(v[0, :] - v[-1, :] - vstep, 1.0)
+                    assert float(np.minimum(vdrift, 1.0 - vdrift).max()) < 1e-9
+
+
+def test_a_floor_is_a_whole_number_of_boards_across_and_down():
+    # A board is a rectangle on a grid, so the grid has to divide the tile: every band
+    # present, every board position present, and one identity per board and no more.
+    # It is the whole of why a floor tiles, and it costs one modulo to be sure of.
+    for across, down in ((1, 1), (1, 6), (2, 5), (3, 3), (4, 2)):
+        lay = boards.layout(size=128, across=across, down=down, stagger=2)
+        assert set(np.unique(lay["band"]).tolist()) == set(range(down))
+        assert set(np.unique(lay["board"]).tolist()) == set(range(across))
+        assert set(np.unique(lay["id"]).tolist()) == set(range(across * down))
+        assert lay["id"].shape == (128, 128) and lay["edge"].shape == (128, 128)
+        assert float(lay["edge"].min()) >= 0.0
+
+
+def test_stretching_the_noise_stretches_its_features():
+    """``stretch`` is the primitive the whole floor is built on, so it gets its own test.
+
+    A feature eight times longer along x than along y means the field is far more
+    correlated with itself when it is shifted along x than when it is shifted along y,
+    which is a measurement rather than a look at a picture.  And at 1 it is the noise
+    it always was -- not "close to", the same array, because the only thing a stretch
+    does is multiply a width by itself.
+    """
+    plain = tile.periodic_noise((96, 96), seed=4, scale=5.0)
+    assert np.array_equal(plain, tile.periodic_noise((96, 96), seed=4, scale=5.0,
+                                                    stretch=1.0))
+
+    def corr(a, lag, axis):
+        return float(np.corrcoef(np.roll(a, lag, axis=axis).ravel(), a.ravel())[0, 1])
+
+    assert abs(corr(plain, 4, 1) - corr(plain, 4, 0)) < 0.05      # round, as noise is
+    long = tile.periodic_noise((96, 96), seed=4, scale=5.0, stretch=8.0)
+    assert corr(long, 4, 1) > 0.9          # four pixels along and still itself
+    assert corr(plain, 4, 1) < 0.9         # ... where the plain noise has moved on
+    assert corr(long, 8, 1) > corr(long, 8, 0) + 0.4
+
+
+def test_a_floor_wraps_and_is_byte_identical_twice():
+    # A floor's seam *is* a joint -- the groove where two boards meet is the sharpest
+    # thing in a floor, and the tile edge is one of them.  So "about 1" is the honest
+    # reading here and not "far below 1", and what makes it seamless is structural
+    # rather than a small number: the boards carry across, and the test above is the
+    # one that says so.
+    canvas = boards.texture(seed=7, size=192, across=1, down=6, stagger=2)
+    assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 2.5
+    again = boards.texture(seed=7, size=192, across=1, down=6, stagger=2)
+    assert hashlib.sha256(_canvas_bytes(canvas)).hexdigest() == \
+           hashlib.sha256(_canvas_bytes(again)).hexdigest()
+    other = boards.texture(seed=8, size=192, across=1, down=6, stagger=2)
+    assert not np.array_equal(canvas.to_uint8(), other.to_uint8())
+
+
+def test_a_floor_has_knots_and_they_are_marks_rather_than_planks():
+    # The knot parameter has to reach the picture, and reaching it *a little* is the
+    # point: a knot is a defect in a board, so it should deepen the variation within
+    # the boards and not repaint them.
+    size = 192
+    lay = boards.layout(size=size, across=1, down=6, stagger=2)
+    inside = lay["edge"] > 5.0
+
+    def spread(knots):
+        cv = boards.texture(seed=7, size=size, across=1, down=6, stagger=2, knots=knots)
+        return float(tile.luminance(cv.to_uint8())[inside].std())
+
+    assert spread(1.0) > spread(0.0)
+
+
+def test_a_floor_that_is_not_a_floor_is_refused():
+    for across, down in ((0, 6), (1, 0), (-2, 3)):
+        try:
+            boards.layout(size=64, across=across, down=down)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{across} boards across and {down} down is not a floor")
+    try:
+        boards.texture(seed=1, size=0, across=1, down=6)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a floor of no pixels should be refused")
 
 
 if __name__ == "__main__":

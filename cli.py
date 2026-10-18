@@ -55,6 +55,7 @@ from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import roads as map_roads  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
+from gen.textures import boards as tex_boards  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
 from gen.textures import truchet as tex_truchet  # noqa: E402
@@ -1078,9 +1079,11 @@ def _wang_tiles(cells: int, colours: int, seed: int, source: str,
     The interesting number about the two ways of getting a tiling out of ``wang`` is
     this one.  A search has to find an arrangement in which every shared corner
     agrees, and there are not many ways to do that with corner colours that were
-    chosen at random, so it ends up using most of the set.  A tiling read off a field
-    uses whatever the landscape happens to walk through -- a fraction of it -- which
-    is why it looks like a landscape and not like a set of tiles.
+    chosen at random, so the arrangement it finds is close to *free*: nearly every
+    cell ends up with a different tile, 168 of 256 on the demo's grid.  A tiling read
+    off a field repeats -- 40 of the same 256 -- because a landscape keeps coming back
+    through the same bands, which is why it looks like ground and not like a set of
+    tiles.
     """
     if source == "field":
         grid, _tiles = tex_wang.from_field(tex_wang.height_field(seed, cells), colours, cells)
@@ -1091,7 +1094,7 @@ def _wang_tiles(cells: int, colours: int, seed: int, source: str,
 
 def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
                steps: int = 5000) -> Path:
-    """Contact sheet of tiling textures: Truchet, Wang and reaction-diffusion.
+    """Contact sheet of tiling textures: Truchet, Wang, reaction-diffusion, boards.
 
     Every cell is the tile laid down **four times** rather than shown once.  That is
     the only way to see whether a texture tiles: one copy of it is seamless by
@@ -1103,6 +1106,10 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
     read off a quantised height field, so its corners are heights of one landscape and
     its seamlessness is not a property of the search at all.  Its grid is twice as
     fine, because there the tiles carry samples rather than being the picture.
+
+    The two boards are the same floor at two lengths, which is the parameter that
+    decides whether it reads as a wooden floor or as brickwork: a board six times as
+    long as it is wide is a floorboard, and one twice as long is a tile.
     """
     half = int(size) // 2
     wang_cells = half // 16
@@ -1130,10 +1137,16 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
                                                preset_name="worms", steps=steps), {}),
         ("reaction, holes", tex_reaction.texture(seed=seed, size=half, sim=sim,
                                                preset_name="holes", steps=steps), {}),
+        ("boards, floor", tex_boards.texture(seed=seed, size=half, across=1, down=6,
+                                            stagger=2),
+         {"across": 1, "down": 6, "stagger": 2}),
+        ("boards, short", tex_boards.texture(seed=seed + 1, size=half, across=3, down=6,
+                                            stagger=1),
+         {"across": 3, "down": 6, "stagger": 1}),
     ]
 
     gap = 22
-    per_row = 4
+    per_row = 5
     sheet = render.sheet([_repeat_canvas(panel, 2) for _name, panel, _facts in panels],
                          cols=per_row, gap=gap, background=(0.90, 0.90, 0.93))
     sheet.save(out)
@@ -1153,7 +1166,7 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
             "size": cw,
             "seed": seed,
             "seam_error": round(tilelib.seam_error(
-                tilelib.luminance(np.tile(panel.to_uint8(), (2, 2, 1)))), 3),
+                tilelib.luminance(panel.to_uint8())), 3),
             **facts,
         }
         for name, panel, facts in panels
@@ -1335,7 +1348,7 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--size", type=int, default=208)
     ln.add_argument("--children", type=int, default=6)
 
-    t = sub.add_parser("tiles", help="tiling textures: Truchet, Wang tiles, reaction-diffusion")
+    t = sub.add_parser("tiles", help="tiling textures: Truchet, Wang, reaction-diffusion, boards")
     t.add_argument("--out", default="out/tiles.png", type=Path)
     t.add_argument("--seed", type=int, default=7)
     t.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")

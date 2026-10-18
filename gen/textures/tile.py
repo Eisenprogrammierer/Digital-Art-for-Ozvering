@@ -38,7 +38,7 @@ __all__ = ["LIGHT", "lit", "luminance", "periodic_noise", "repeat", "seam_error"
 LIGHT = (-0.45, 0.65)
 
 
-def periodic_noise(shape, seed: int = 0, scale: float = 6.0):
+def periodic_noise(shape, seed: int = 0, scale: float = 6.0, stretch: float = 1.0):
     """Smooth noise that wraps, in ``[0, 1]``, with features about ``scale`` px wide.
 
     Made by damping the spectrum of seeded white noise with a Gaussian.  That is
@@ -50,13 +50,23 @@ def periodic_noise(shape, seed: int = 0, scale: float = 6.0):
     periodic and cannot be made so by choosing a round cell size: the value two
     tiles apart hashes to a different lattice cell, so a texture whose *pattern*
     wraps perfectly still shows a line where the grain changes character.
+
+    ``stretch`` makes the features that many times longer along x than along y, which
+    is how a material with a *direction* is built, and it costs one multiplication: the
+    damping is a two-dimensional Gaussian whose widths are the feature's widths, so
+    widening it along one axis widens the features along that axis.  At 1 -- the
+    default -- it is the same noise it was before, bit for bit, because multiplying a
+    number by one is not a computation.
     """
     h, w = int(shape[0]), int(shape[1])
+    st = float(stretch)
+    if st <= 0.0:
+        raise ValueError("a stretch of zero has no features to speak of")
     rng = np.random.default_rng(int(seed))
     white = rng.standard_normal((h, w))
     fy = np.fft.fftfreq(h)[:, None]
     fx = np.fft.fftfreq(w)[None, :]
-    kernel = np.exp(-2.0 * np.pi ** 2 * float(scale) ** 2 * (fy ** 2 + fx ** 2))
+    kernel = np.exp(-2.0 * np.pi ** 2 * float(scale) ** 2 * (fy ** 2 + (st * fx) ** 2))
     field = np.fft.ifft2(np.fft.fft2(white) * kernel).real
     field -= float(field.min())
     return field / max(float(field.max()), 1e-12)
@@ -142,23 +152,37 @@ def luminance(rgba) -> np.ndarray:
 
 
 def seam_error(field) -> float:
-    """The step across the wrap, over the mean step inside the tile.
+    """The step across the wrap, over the sharpest boundary inside the tile.
 
-    For a field that wraps, the last row really is one pixel away from the first,
-    so the ratio is about 1.  For a field that does not, the wrap is a cliff and
-    the ratio is large -- and it is the *statistics* that matter, not the colours:
-    a seam is visible wherever the pattern changes character, which is why this is
-    measured on the field itself and not on a difference of averaged brightness.
+    For a field that wraps, the last row really is one pixel away from the first, so
+    the wrap is an ordinary edge of it and the ratio is about 1.  For a field that does
+    not, the wrap is a cliff and the ratio is in the tens.  It is the *statistics* that
+    matter, not the colours: a seam is visible wherever the pattern changes character,
+    which is why this is measured on the field itself and not on a difference of
+    averaged brightness.
+
+    The denominator is the worst boundary *inside* rather than the average one, and
+    that is not a detail: a floor is flat between its boards and has a dark groove where
+    two of them meet, so its mean step is a hundredth of a groove and dividing by it
+    reports a cliff, for a floor that plainly tiles.  A number that cannot tell a floor
+    from a mistake is measuring smoothness, not seams.
+
+    Against the sharpest boundary inside -- which for a floor is a groove too -- the
+    same seam reads 1.4, which says the right thing: the seam is a joint, and joints
+    are what the material is made of.
+
+    Measure **one copy**.  A field tiled twice over has each of its seams among the
+    interior boundaries, and the number then cannot exceed one however bad the field is
+    -- which is why the demo sheet hands this a tile and not the tiling of it.
     """
     f = np.asarray(field, dtype=np.float64)
     if f.ndim < 2:
         raise ValueError("a tile is at least two dimensional")
-    dy = np.abs(np.diff(f, axis=0)).mean()
-    dx = np.abs(np.diff(f, axis=1)).mean()
+    dy = np.abs(np.diff(f, axis=0)).mean(axis=1).max()
+    dx = np.abs(np.diff(f, axis=1)).mean(axis=0).max()
     wrap_y = np.abs(f[0] - f[-1]).mean()
     wrap_x = np.abs(f[:, 0] - f[:, -1]).mean()
-    inside = max(dy + dx, 1e-12)
-    return float((wrap_x + wrap_y) / inside)
+    return float(max(wrap_x, wrap_y) / max(dy, dx, 1e-12))
 
 
 def lit(srgb, height, ambient: float = 0.62, diffuse: float = 0.55,

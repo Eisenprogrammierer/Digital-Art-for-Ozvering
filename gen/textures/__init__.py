@@ -1,4 +1,4 @@
-"""Textures that tile: Truchet, Wang, and reaction-diffusion.
+"""Textures that tile: Truchet, Wang, reaction-diffusion and boards.
 
 ``tile``
     The algebra of a wrap: what "seamless" means as a number, how a painter finds
@@ -15,12 +15,16 @@
 ``reaction``
     Gray-Scott reaction-diffusion, run on a torus so that it wraps by construction,
     for organic patterns nothing hand-drawn gets close to.
+``boards``
+    A floor: the one material here with a *direction*, where the tile has to carry
+    the length of a board and the way its grain runs across the seam -- including for
+    the board that runs off one edge and comes back on the other.
 
 Typical use::
 
     from gen.textures import truchet
     truchet.texture(seed=3, size=256, grains=4).save("out/truchet.png")
 """
-from . import reaction, tile, truchet, wang
+from . import boards, reaction, tile, truchet, wang
 
-__all__ = ["reaction", "tile", "truchet", "wang"]
+__all__ = ["boards", "reaction", "tile", "truchet", "wang"]

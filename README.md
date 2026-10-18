@@ -73,7 +73,7 @@ python tests/test_heraldry.py                   # 65 tests
 python tests/test_portraits.py                  # 32 tests
 python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 73 tests
-python tests/test_textures.py                   # 30 tests
+python tests/test_textures.py                   # 36 tests
 python tests/test_icons.py                      # 19 tests
 ```
 
@@ -1231,7 +1231,8 @@ first one that is asked a question about its *edges*:
 The modules in this package exist because that question has four different answers,
 and each one is a different *kind* of guarantee -- one that is geometric, one that is
 searched for, one that is never chosen at all, and one that is never created in the
-first place.
+first place. Then there is a fifth module that asks a different question about the same
+edge: not *does the pattern line up*, but *does it know which way it is pointing*.
 
 | Module | What it provides |
 | --- | --- |
@@ -1239,14 +1240,28 @@ first place.
 | `truchet` | Truchet tiles: two arcs on a square, an arrangement with nothing to search, and the carved-stone material that comes out of it. |
 | `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus or read off a quantised height field, and the bilinear blend of those corners into ground. |
 | `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
+| `boards` | A plank floor: the one material here with a direction, where a board that runs off one edge and comes back on the other has to be the same board, and where the grain is long along it. |
 
 ### Seamless is a number, not a compliment
 
-`tile.seam_error` divides the step across the wrap by the mean step inside the tile.
-A field built to wrap comes out at about 1 -- the last row really is one pixel away
-from the first -- and a field that does not, at about 10. That turns the word into
-something a test can hold a generator to, and the demo sheet records it per tile, so
-a texture that stopped tiling would be visible in the sidecar as well as on the page.
+`tile.seam_error` divides the step across the wrap by the sharpest boundary inside the
+tile. A field built to wrap comes out at about 1 -- the last row really is one pixel
+away from the first, so the wrap is an ordinary edge of it -- and a field that does
+not, in the tens. That turns the word into something a test can hold a generator to,
+and the demo sheet records it per tile, so a texture that stopped tiling would be
+visible in the sidecar as well as on the page.
+
+The denominator is the sharpest boundary rather than the average one, and that is
+worth a paragraph because the obvious version of this number is a liar. A floor is
+flat between its boards and has a dark groove where two of them meet, so its *mean*
+step is a hundredth of a groove; divided by that, a floor that plainly tiles reports
+a cliff -- the number a broken field gets. A metric that cannot tell a floor from a
+mistake is measuring smoothness. Against the sharpest boundary inside, which for a
+floor is a groove too, the same seam reads 1.4: *the seam is a joint, and joints are
+what the material is made of.* The lesson is not about floors. It is that "how big is
+the step at the edge" is only a seam question if you have already said what the
+texture's own steps are worth -- and for a material with sparse, sharp features, the
+mean is not that.
 
 Getting to about 1 is where the interesting failures live. The first Truchet texture
 had a *pattern* that wrapped perfectly and visible lines all the same, because the
@@ -1385,6 +1400,61 @@ worth stating because the obvious statistic is a trap -- a sparse seed and a fin
 stripe network are both two-valued fields, and the deviation can even *fall* as the
 pattern eats the lumps it grew from.
 
+### A material with a direction
+
+Everything above is isotropic. Turn a Truchet tile, a Wang tiling or a reaction pattern
+a quarter turn and you have a different picture, but you have not drawn a different
+*kind* of thing. A floor is not like that. A floorboard is long and thin, its grain
+runs the length of it, and both of those are directions the tile has to carry across
+the seam -- which makes this the first texture here whose seamlessness is not only
+about lines matching up.
+
+Most of what it needs is arithmetic on a lattice. A board is a rectangle on a grid, so
+the grid has to divide the tile: a whole number of boards across and a whole number of
+bands down, or the last partial board would break the wrap. The stagger is a fraction
+of a board *per band* chosen so that `down` bands advance the joints by exactly the
+number of boards asked for -- which is what makes the joints come back to a position
+they have already been in by the time the stack reaches the top. Get that wrong and the
+floor does not tear; it *jogs*, one band's joints slipping sideways relative to the
+band below, and a jog is worse than a tear because it reads as a mistake rather than as
+a joint.
+
+The interesting part is the board that crosses the edge. The stagger puts a joint
+somewhere inside most bands, so the board it ends runs off the left side of the tile
+and comes back on the right -- and it is *one* board, so its grain and its tone have to
+carry across. The obvious implementation fails here in a way that looks like an art
+problem rather than a bug. A board's identity is naturally computed from the tile's own
+coordinates: which board am I in, counting from the left edge? That gives the two ends
+of one board two different names, so the tile is handed two different pieces of wood
+and the seam shows up not as a line but as a board that changes colour halfway along
+itself. The fix is to compute the identity **on the torus** -- take the coordinate
+modulo the number of boards, on a grid that closes -- and then the wrap is not a case
+at all, it is the same arithmetic. The test sweeps board counts, band counts, staggers
+and sizes, and checks both halves of that on every row: the board's own coordinate
+carries on across the edge by exactly one pixel, and where it instead runs off the
+end, the identity advances by exactly one board, because running off the end is what a
+joint *is*.
+
+The surface is a bevel and nothing else. A sanded board is flat, its grain is *in* the
+wood rather than on top of it, so the light has only one thing to find: the groove
+where two boards meet, which comes up over a couple of pixels and by a couple of
+pixels. Grain given its own relief -- even a little -- turns the floor into corrugated
+iron, which is a different and worse material, so the grain is a colour modulation and
+the bevel is the whole of the geometry. What makes it grain rather than noise is
+`stretch`: `periodic_noise` takes a factor by which features are longer along x than
+along y, which is one number in a Gaussian kernel and the difference between a floor
+and a top-down view of gravel. At `stretch = 1` it is the old noise to the last bit,
+which is the test, because the only thing the parameter does is multiply a width.
+
+Two smaller things follow from a board being a board. Every pixel of it has to agree
+about its wood, so the per-board values -- tone, hue turn, which slice of grain it was
+cut from, whether it has a knot -- come out of a table indexed by the board and not
+from a stream of draws, because a stream would give one board two answers as the
+painter walked across it. And the grain is rolled along per board out of one periodic
+field: a *roll* of a field that wraps is continuous, which is the same property that
+made the noise worth having in the first place, so no two boards are cut from the same
+piece while every board's grain still crosses the seam without a step in it.
+
 ### The bug that did not raise
 
 `smooth` had to blur a three-channel field, and the first version reshaped the field
@@ -1509,8 +1579,14 @@ Generators to sit on top of the core, in the order they become useful:
   one number read twice and no search exists to fail; the relief is the field rather
   than the band it was rounded to, because a staircase shades only its steps, and the
   demo draws the two ways side by side with the tiles each one used in the sidecar)*;
-  next, anisotropic tiles for a floor that is stretched along one axis; and a
-  texture atlas.
+  ~~anisotropic tiles for a floor that is stretched along one axis~~ *(done:
+  `gen/textures/boards.py` -- boards on a lattice that divides the tile, staggered so
+  the joints return to a grid they have been on, with a board's identity taken on the
+  *torus* so that the board running off the left edge and back on the right is one
+  board and its grain carries across; the surface is the bevel into the groove and
+  nothing more, because grain with relief of its own is corrugated iron, and
+  `periodic_noise` grew a `stretch` for the grain to be long along the board)*; next,
+  a texture atlas.
 - **export extras** -- SVG for vector UI, ~~atlas packing~~ *(done, as
   `export/atlas.py` and shared with the icons sheet)*, and an ~~`assets.yaml`
   registry carrying `source/license/attribution/seed` for every asset~~
