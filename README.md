@@ -70,7 +70,8 @@ python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --pro
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
-python tests/test_core.py                       # 53 tests, no pytest needed
+python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
+python tests/test_core.py                       # 60 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 36 tests
@@ -89,7 +90,7 @@ python tests/test_icons.py                      # 33 tests
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
-| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. |
+| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. `check` reads them back as a pre-ship gate. |
 | `export` | PNG writer, and `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with. |
 
 ### The three ideas worth remembering
@@ -1911,8 +1912,19 @@ Generators to sit on top of the core, in the order they become useful:
   YAML parser is a dependency this project does not take)*. The registry also
   generates the credits block ~~and the screen~~ *(done: `credits.screen`, a
   scroll drawn with the built-in font)*, which matters because the Kevin MacLeod
-  tracks are CC-BY and *require* attribution; next, use the same manifest to check
-  a build before it ships.
+  tracks are CC-BY and *require* attribution; ~~use the same manifest to check a
+  build before it ships~~ *(done: `credits.check`, and `cli.py credits --check`.
+  The manifest is read *back* rather than trusted, and the three ways a build can
+  owe somebody something it has not recorded are kept apart because they are fixed
+  in different places: a curated source missing a field (a property of the code,
+  reported with no directory at all), an asset nobody recorded (a picture with no
+  sidecar, or a sidecar naming a source that is neither ours nor curated), and an
+  attribution that is not in the credits *on disk* -- which is the failure mode of
+  forgetting, and happens to honest people.  The gate reports rather than repairs
+  and returns a nonzero exit code, and the credits screen is the one picture
+  exempt from the sidecar rule because it is the attribution itself)*.  Still
+  open here: SVG for vector UI, which is the one asset this project can express
+  exactly as curves and ships as pixels.
 
 ## Licensing notes
 
@@ -1953,3 +1965,40 @@ that returns rows rather than pixels, so a test can read the words back out.
 The manifest is worth trusting for the same kind of reason: a test asserts that
 every sheet the demos write has a sidecar. Not that the entries are right -- that
 none of them are missing.
+
+### The gate: a build is checked, not trusted
+
+A credits screen is a thing a game ships; a *check* is a thing a build runs, and
+`credits.check` is the same manifest read back:
+
+```bash
+python cli.py credits --manifest out --check
+```
+
+Three ways a build can owe somebody something it has not recorded, and they are
+worth keeping apart because they are fixed in different places:
+
+* **a source that cannot be credited as written.** A curated entry is missing the
+  author, the licence or the URL, so the credit line cannot be assembled whatever
+  the build contains. This is a property of the *code*, which is why `check()` with
+  no directory at all still reports it;
+* **an asset nobody recorded.** A picture with no sidecar is an asset whose
+  provenance is unknown — the leak the licensing notes warn about, and the ordinary
+  way one happens: nobody steals anything, an exporter forgets its envelope, and a
+  year later no one can say where the file came from. A sidecar with no source, no
+  licence, or a source that is neither `procedural:…` nor one of the curated ids
+  fails the same way; a JSON that is neither a sidecar nor a `format`-tagged data
+  file has no envelope at all;
+* **an attribution that is not in the credits the build ships.** The file is there
+  and the line is not in it. This is the failure mode this module exists for, and
+  it happens to honest people: add a second track, regenerate the assets, never
+  regenerate the block. The text that is checked is the text *on disk*, not the
+  text the code could make — and a build with a curated source and no credits text
+  at all is the same violation with nothing to read.
+
+The one exemption is the credits screen itself. It is not an asset we made, it is
+the attribution, so it is the one picture the gate does not ask for a sidecar from.
+And the gate **reports** rather than repairs, the way `style.validate` does, and
+returns a nonzero exit code — because a licence violation should not look like
+success to a shell script, and a gate that fixes what it finds is a gate nobody can
+trust to be looking.

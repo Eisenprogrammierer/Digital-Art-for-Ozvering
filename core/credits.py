@@ -16,6 +16,10 @@ sidecar.  :func:`credits` puts the two together into the block a credits screen
 is made of, :func:`write` drops it in the build as text, and :func:`screen` draws
 it -- because the artefact a game has to ship is a screen, and a credit line that
 was generated correctly but never drawn is the same violation as no credit at all.
+
+:func:`check` is the other end of the same idea: it reads the manifest back and
+says whether a build is *shippable*, so that "we remembered" is a command rather
+than a habit.
 """
 from __future__ import annotations
 
@@ -44,6 +48,20 @@ SOURCES = (
     },
 )
 
+#: What a credit line needs to be one.  A licence asks for a *correct* spelling of
+#: what it names, so this is a validation list rather than a comment: CC BY needs
+#: the author, the title and the licence, and a URL is what makes it checkable.
+REQUIRED = ("id", "title", "author", "license", "url", "attribution")
+
+#: The two files a build carries the attribution *in*.  The screen is not an asset
+#: we made -- it is the credit itself -- so it is the one picture the gate below
+#: does not ask for a sidecar from.
+TEXT_NAME = "credits.txt"
+SCREEN_NAME = "credits.png"
+
+#: Ours, and the prefix every generated sidecar's ``source`` begins with.
+OURS = "procedural:"
+
 
 def sources() -> list:
     """The curated sources, as a list of copies."""
@@ -51,14 +69,8 @@ def sources() -> list:
 
 
 def missing_fields() -> list:
-    """Sources whose licence cannot be honoured as written.
-
-    A credit line needs a correct spelling of what it names, which is why this is
-    a validation function rather than a comment: CC BY needs the author, the title
-    and the licence, and a URL is what makes it checkable.
-    """
-    required = ("id", "title", "author", "license", "url", "attribution")
-    return [dict(s) for s in SOURCES if any(not s.get(k) for k in required)]
+    """Sources whose licence cannot be honoured as written."""
+    return [dict(s) for s in SOURCES if any(not s.get(k) for k in REQUIRED)]
 
 
 def manifest(directory) -> list:
@@ -120,10 +132,115 @@ def credits(directory=None) -> str:
 def write(directory, path=None) -> Path:
     """Write the credits into a build directory.  Returns the file written."""
     directory = Path(directory)
-    path = Path(path) if path is not None else directory / "credits.txt"
+    path = Path(path) if path is not None else directory / TEXT_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(credits(directory), encoding="utf-8")
     return path
+
+
+# --------------------------------------------------------------------------
+# the gate
+# --------------------------------------------------------------------------
+def unrecorded(directory) -> list:
+    """Assets in a build whose rights nobody wrote down.
+
+    A picture is ours only if the sidecar beside it says so: a seed to rebuild it
+    and a ``source`` to rebuild it *from*.  A PNG with no sidecar is an asset whose
+    provenance is unknown, which the licensing notes call out as the usual way a
+    third party's rights leak into a build -- not by being stolen, but by nobody
+    being able to say any more what it is.  The other thing a build holds is *data*,
+    which is not a picture and says so with a ``format`` field instead of a
+    ``source``.
+    """
+    directory = Path(directory)
+    problems = []
+    known = {s["id"] for s in SOURCES}
+    sidecars = set()
+    for path in sorted(directory.glob("*.json")):
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{path.name}: not readable as JSON ({exc})")
+            continue
+        if not isinstance(meta, dict):
+            problems.append(f"{path.name}: a sidecar is an object, not a {type(meta).__name__}")
+            continue
+        if "source" not in meta:
+            if "format" not in meta:
+                problems.append(
+                    f"{path.name}: records neither a source (a sidecar) nor a "
+                    f"format (a data file), so nothing ties it to anything")
+            continue
+        source = str(meta.get("source") or "")
+        if not source.strip():
+            problems.append(f"{path.name}: records no source")
+        elif not source.startswith(OURS) and source not in known:
+            problems.append(
+                f"{path.name}: names the source {source!r}, which is not ours "
+                f"({OURS}...) and is not one of the curated ones {sorted(known)}")
+        if not str(meta.get("license") or "").strip():
+            problems.append(f"{path.name}: records no licence")
+        sidecars.add(path.with_suffix("").name)
+    for png in sorted(directory.glob("*.png")):
+        if png.name != SCREEN_NAME and png.with_suffix("").name not in sidecars:
+            problems.append(f"{png.name}: no sidecar -- no seed, no source, no licence")
+    return problems
+
+
+_UNSET = object()
+
+
+def check(directory=None, credits_text=_UNSET) -> list:
+    """What is wrong with a build, as sentences.  An empty list means: ship it.
+
+    A build can owe somebody something it has not recorded in three different ways,
+    and they are worth keeping apart because they are fixed in different places:
+
+    * **a source that cannot be credited as written** -- a curated entry is missing
+      a field, so the credit line its licence demands cannot be assembled whatever
+      the build contains.  This is a property of the code, not of the build;
+    * **an asset nobody recorded** (:func:`unrecorded`) -- a picture with no
+      sidecar, a sidecar with no source, or a source that is neither ours nor one of
+      the curated ids.  An asset whose provenance is unknown is the leak;
+    * **an attribution that is not in the credits the build ships** -- the file is
+      there and the credit line is not in it.  This is the failure mode of
+      *forgetting*, the one this module exists for, and it happens to honest people:
+      add a second track and never regenerate the shipped block.
+
+    ``credits_text`` is the block as *shipped*.  Left alone, it is read from
+    :data:`TEXT_NAME` in ``directory`` -- and a build with a curated source and no
+    credits text at all is a problem, because then the attribution is nowhere in
+    it.  Pass the text (including ``""``) when the caller draws the credits itself,
+    which is what a game with its own font does.
+
+    Nothing here repairs anything: the gate reports, the way
+    :func:`gen.ui.style.validate` reports.  A gate that fixes what it finds is a
+    gate nobody can trust to be looking.
+    """
+    problems = []
+    for s in missing_fields():
+        missing = [k for k in REQUIRED if not s.get(k)]
+        problems.append(f"source {s.get('id', '?')!r}: cannot be credited as written "
+                        f"-- no {' or '.join(missing)}")
+    if directory is not None:
+        problems.extend(unrecorded(directory))
+    if directory is not None or credits_text is not _UNSET:
+        text = credits_text
+        if text is _UNSET:
+            path = Path(directory) / TEXT_NAME
+            text = path.read_text(encoding="utf-8") if path.exists() else None
+        if text is None:
+            if SOURCES:
+                problems.append(
+                    f"{TEXT_NAME} is not in the build, so nothing shipped carries "
+                    f"the attribution")
+        else:
+            for s in SOURCES:
+                line = str(s.get("attribution") or "")
+                if line and line not in text:
+                    problems.append(f"{TEXT_NAME}: the credit for {s.get('id', '?')!r} "
+                                    f"is not in it verbatim")
+    return problems
 
 
 # --------------------------------------------------------------------------
@@ -235,7 +352,7 @@ def screen(directory=None, cols: int = 48, scale: int = 3):
 def write_screen(directory, path=None, **kw) -> Path:
     """Write the credits screen next to the text.  Returns the file written."""
     directory = Path(directory)
-    path = Path(path) if path is not None else directory / "credits.png"
+    path = Path(path) if path is not None else directory / SCREEN_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
     screen(directory, **kw).save(path, "PNG", optimize=True)
     return path

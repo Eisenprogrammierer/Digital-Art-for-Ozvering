@@ -202,6 +202,25 @@ def _report(path: Path) -> Path:
     return path
 
 
+def _credits_check(directory: Path) -> int:
+    """The pre-ship gate, as an exit code: 0 to ship, 1 to read the reasons.
+
+    A build that cannot be credited is a licence violation, and a licence violation
+    should not look like success to a shell script.  So the gate says what is wrong
+    and returns nonzero, and it repairs nothing -- a gate that fixes what it finds
+    is a gate nobody can trust to be looking.
+    """
+    problems = creditslib.check(directory)
+    if not problems:
+        print(f"  {directory}: clean -- {len(creditslib.sources())} curated source(s), "
+              f"{len(creditslib.manifest(directory))} generated asset(s)")
+        return 0
+    print(f"  {directory}: not shippable, {len(problems)} problem(s)")
+    for why in problems:
+        print(f"    - {why}")
+    return 1
+
+
 def _sidecar(out: Path, seed: int, source: str, **extra) -> Path:
     """The two lines that make an asset reproducible, and that credits reads.
 
@@ -1471,6 +1490,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="characters per line on the screen")
     cr.add_argument("--manifest", default="out", type=Path,
                     help="directory whose sidecars list the generated assets")
+    cr.add_argument("--check", action="store_true",
+                    help="check the build before it ships instead of printing the block")
 
     return p
 
@@ -1521,13 +1542,16 @@ def main(argv=None) -> int:
         demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim,
                    steps=args.steps, atlas=not args.no_atlas)
     elif args.cmd == "credits":
-        if args.out is None:
-            print(creditslib.credits(args.manifest), end="")
-        else:
+        if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))
         if args.png is not None:
             _report(creditslib.write_screen(args.manifest, args.png,
                                             scale=args.scale, cols=args.cols))
+        if args.check:
+            return _credits_check(args.manifest)
+        if args.out is None:
+            print(creditslib.credits(args.manifest), end="")
+        return 0
     return 0
 
 

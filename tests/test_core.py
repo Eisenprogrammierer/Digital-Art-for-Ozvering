@@ -599,6 +599,149 @@ def test_the_credits_screen_is_sized_by_its_text_and_is_deterministic():
         assert credits.screen(d, scale=2).size[1] > one.size[1]
 
 
+# --------------------------------------------------------- the pre-ship gate
+def _build(tmp) -> Path:
+    """A tiny but *real* build: sheets that write sidecars, and the credits."""
+    import cli
+
+    d = Path(tmp)
+    cli.demo_icons(d / "icons.png", seed=3, count=1, size=24, atlas=False)
+    cli.demo_shapes(d / "shapes.png", size=24)
+    credits.write(d)
+    return d
+
+
+def test_a_clean_build_passes_the_gate():
+    """The gate has to be silent on the thing it guards, or it is noise.
+
+    A gate with a false positive on its own project is a gate people learn to
+    ignore, which is worse than no gate: the licence check runs, prints something
+    and gets typed past.  So the first thing to check is that a build the demos
+    actually produced says nothing at all.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        assert credits.manifest(d), "the fixture build has no sidecars"
+        assert credits.check(d) == [], credits.check(d)
+        assert credits.check(str(d)) == [], "a str directory is not a Path"
+
+
+def test_the_gate_reports_an_asset_nobody_recorded():
+    """A picture with no sidecar is an asset whose provenance is unknown.
+
+    This is the leak the licensing notes warn about, and it is the ordinary way one
+    happens: nobody steals anything, an exporter simply forgets to write its
+    envelope and a year later no one can say where the file came from.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        (d / "mystery.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        problems = credits.check(d)
+        assert any("mystery.png" in p and "no sidecar" in p for p in problems), problems
+        # The credits screen is the attribution itself, and is the one picture the
+        # rule does not apply to.
+        assert not any(credits.SCREEN_NAME in p for p in problems), problems
+
+
+def test_the_gate_reports_a_sidecar_that_says_nothing():
+    """A sidecar is only worth having if it says what the asset is and whose it is."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        (d / "vague.json").write_text('{"seed": 1}', encoding="utf-8")
+        (d / "vague.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (d / "silent.json").write_text(
+            '{"seed": 1, "source": "", "license": "MIT"}', encoding="utf-8")
+        (d / "silent.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (d / "unowned.json").write_text(
+            '{"seed": 1, "source": "procedural:x"}', encoding="utf-8")
+        (d / "unowned.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        problems = credits.check(d)
+        assert any("vague.json" in p and "neither a source" in p for p in problems), problems
+        assert any("silent.json" in p and "no source" in p for p in problems), problems
+        assert any("unowned.json" in p and "no licence" in p for p in problems), problems
+        # A *data* file is not a picture with a missing envelope: it says so.
+        (d / "world.json").write_text('{"format": "ozart/campaign/1", "seed": 1}',
+                                      encoding="utf-8")
+        problems = credits.check(d)
+        assert not any("world.json" in p for p in problems), problems
+
+
+def test_the_gate_reports_a_source_nobody_curated():
+    """An asset that is not ours has to be one of the credited ones, or it is uncredited.
+
+    The distinction the whole module turns on: ours is regenerable from a seed and
+    ``procedural:``, and anything else needs a credit line that a human wrote.  A
+    sidecar naming a source the curated list has never heard of is a third party's
+    file in the build with nobody to thank.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        (d / "track.json").write_text(
+            '{"seed": 1, "source": "kevin-macleod", "license": "CC BY 4.0"}',
+            encoding="utf-8")
+        assert credits.check(d) == [], "a curated id was refused"
+        (d / "someone-else.json").write_text(
+            '{"seed": 1, "source": "stock-site:8827", "license": "royalty-free"}',
+            encoding="utf-8")
+        problems = credits.check(d)
+        assert any("someone-else.json" in p and "not one of the curated" in p for p in problems), \
+            problems
+
+
+def test_the_gate_reports_a_curated_source_that_cannot_be_credited():
+    """The half that can be *forgotten* is checked too, and it is checked on the code.
+
+    A source with a title and no author cannot be credited as written whatever the
+    build contains, so this is a property of the module rather than of the
+    directory -- which is why ``check()`` with no directory still reports it.
+    """
+    original = credits.SOURCES
+    try:
+        credits.SOURCES = original + ({"id": "a-second-track", "title": "Overture"},)
+        problems = credits.check()
+        assert any("a-second-track" in p and "cannot be credited" in p for p in problems), problems
+        assert credits.missing_fields(), "missing_fields missed it"
+    finally:
+        credits.SOURCES = original
+    assert credits.check() == []
+
+
+def test_the_gate_reports_a_credit_line_the_build_does_not_ship():
+    """The failure mode the module exists for: the file is there and the line is not.
+
+    Forgotten attribution is what breaks a CC licence, and it happens to honest
+    people -- add a track, regenerate the assets, never regenerate the block.  The
+    text that ships is the text that is checked, not the text the code could make.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        good = (d / credits.TEXT_NAME).read_text(encoding="utf-8")
+        for s in credits.sources():
+            assert s["attribution"] in good
+        # A stale block: written before the second source was added.
+        (d / credits.TEXT_NAME).write_text("ozart -- credits\n", encoding="utf-8")
+        problems = credits.check(d)
+        assert any("not in it verbatim" in p for p in problems), problems
+        # A build with no block at all is the same violation with nothing to read.
+        (d / credits.TEXT_NAME).unlink()
+        problems = credits.check(d)
+        assert any("is not in the build" in p for p in problems), problems
+        # ...unless the caller draws the credits itself, which is a decision and not
+        # an omission, so an explicit block is used instead of the file.
+        assert credits.check(d, good) == []
+
+
+def test_the_gate_is_an_exit_code():
+    """A licence violation must not look like success to a shell script."""
+    import cli
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        assert cli.main(["credits", "--manifest", str(d), "--check"]) == 0
+        (d / "mystery.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        assert cli.main(["credits", "--manifest", str(d), "--check"]) == 1
+
+
 if __name__ == "__main__":
     import traceback
 
