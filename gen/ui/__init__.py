@@ -27,6 +27,12 @@ nine-slice envelope -- and every module below is arranged around that fact:
     A button state is a colour change and, when pressed, the same bevel with its
     ramp inverted; the geometry never moves.
 
+``material``
+    Wood and stone: the body's surface, out of fBm and Worley noise evaluated in
+    design pixels.  A material is the one look in the package that gives up the
+    stretchable middle on purpose, which is why the body it fills is measured
+    rather than trusted.
+
 Typical use::
 
     from gen.ui import style, paint, slice
@@ -34,10 +40,10 @@ Typical use::
     box  = paint.panel(spec, (220, 132), scale=2)
     ins  = slice.insets(...)          # see frame.Panel
 """
-from . import frame, paint, slice, style
+from . import frame, material, paint, slice, style
 
 __all__ = [
-    "frame", "paint", "slice", "style",
+    "frame", "material", "paint", "slice", "style",
     "Panel", "draw", "panel", "frame_image", "button", "title_bar",
 ]
 

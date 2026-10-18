@@ -531,6 +531,17 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images
 
+        # The UI sidecar also carries the one fact an engine cannot work out from
+        # the insets: whether each kit's *middle* survives a resize.  The corners
+        # are stated by the source; the body was measured, at two sizes.
+        import json
+
+        ui = json.loads((d / "ui.json").read_text(encoding="utf-8"))
+        assert ui["kits"], "the ui sheet registered no kits"
+        for kit in ui["kits"]:
+            assert isinstance(kit["panel"]["stretchable"], bool), kit["style"]
+            assert kit["panel"]["stretch_error"] >= 0.0, kit["style"]
+
 
 # ------------------------------------------------------- the credits screen
 def test_the_wrapped_credits_screen_keeps_every_word_of_the_attribution():

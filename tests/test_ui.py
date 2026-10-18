@@ -6,6 +6,10 @@ be flat along whatever axis gets stretched.  Those two properties are tested
 against the generated pixels, not against a hand-written expectation, so a change
 to a style's proportions cannot quietly break the guarantee.
 
+A material body is the one look that gives the second property up, so it is not
+tested against a promise either: the panel is drawn twice at two sizes and the
+cost of the resize is measured, which is the number the sidecar carries.
+
 Run either way::
 
     python tests/test_ui.py     # no pytest required
@@ -24,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
 from gen.ui import frame as framelib  # noqa: E402
-from gen.ui import paint, slice as slicelib, style as stylelib  # noqa: E402
+from gen.ui import material, paint, slice as slicelib, style as stylelib  # noqa: E402
 
 
 # ------------------------------------------------------------------ slicing
@@ -127,7 +131,12 @@ def test_the_strips_of_a_panel_are_flat_along_the_stretched_axis():
         cases.append((name, spec))
         cases.append((f"{name} + title bar", stylelib.title_bar(spec, 24.0)))
     for name, spec in cases:
-        spec = stylelib.clamp({**spec, "gradient": 0.0, "alpha": 1.0})
+        # `material: none` on purpose: a material body is the one look in the
+        # package that gives this property up, deliberately and statedly.  It is
+        # not let off the hook -- `test_the_stretch_error_measures_what_the_knife_does`
+        # draws it twice and prices the stretch -- but the flat-strip rule is a
+        # statement about a stretchable middle, and a material has not got one.
+        spec = stylelib.clamp({**spec, "gradient": 0.0, "alpha": 1.0, "material": "none"})
         img = paint.panel(spec, (240, 150))
         l, t, r, b = slicelib.insets(framelib.Panel(spec, (240, 150), 1.0))
         u = img.to_uint8()
@@ -412,6 +421,135 @@ def test_a_titled_window_puts_its_corner_boxes_where_the_cuts_are():
             outside = (X < x0) | (X > x1) | (Y < y0) | (Y > y1)
             reach = p.boss(i, X, Y) + p.boss_outline(i)
             assert reach[outside].min() > -1e-9, f"seed {seed}, corner {i}"
+
+
+# ---------------------------------------------------------------- material
+def test_a_material_changes_the_body_and_nothing_else():
+    """A material is a body, so the frame's pixels stay the frame's.
+
+    The same rule a button state obeys, for the same reason: a window that moved
+    when it was made of stone would be a layout change wearing a material's name.
+    The band is opaque and painted after the body, so every fully opaque band pixel
+    comes back bit-identical -- which is also the safety of drawing the material
+    only where the band does not cover it.
+    """
+    plain = stylelib.get("slate")
+    grained = stylelib.clamp({**plain, "material": "wood", "material_scale": 24.0})
+    a = paint.panel(plain, (240, 150)).to_uint8()
+    b = paint.panel(grained, (240, 150)).to_uint8()
+    assert np.array_equal(a[..., 3], b[..., 3]), "the material moved the silhouette"
+    band = paint.frame(plain, (240, 150)).to_uint8()[..., 3] > 250
+    assert band.sum() > 1000, "there was no band to measure"
+    # Identical but for the last bit of the compositor's rounding: the band is
+    # opaque, so what is under it cannot show through except by a 1/255 tail.
+    diff = np.abs(a[band].astype(np.int32) - b[band].astype(np.int32))
+    assert diff.max() <= 1, (band.sum(), diff.max())
+    body = np.abs(a[~band].astype(np.int32) - b[~band].astype(np.int32))
+    assert body.max() > 8, "the body did not change at all"
+
+
+def test_material_none_is_exactly_no_material():
+    """``none`` is a real member of the set, and it means the old behaviour.
+
+    The stretchable panel is not a material with its strength turned down: it is
+    the panel this package drew before materials existed, so a kit that does not
+    ask for one cannot have changed by a single byte.
+    """
+    spec = stylelib.get("moss")
+    assert np.array_equal(paint.panel(spec, (160, 100)).to_uint8(),
+                          paint.panel({**spec, "material": "none"}, (160, 100)).to_uint8())
+    X, Y = np.meshgrid(np.arange(4.0), np.arange(4.0))
+    assert np.array_equal(material.height(X, Y, spec), np.zeros((4, 4)))
+    colour = np.full((4, 4, 3), 0.42)
+    assert np.array_equal(material.body(colour, spec, X, Y, 1.0, paint.LIGHT), colour)
+
+
+def test_wood_has_a_grain_direction_and_stone_has_not():
+    """The two recipes are told apart by their fields, not by their names.
+
+    Wood is a stack of rings, so the steps across the grain are several times the
+    steps along it.  Stone is cells, and a plate has no direction, so the same two
+    measurements agree.  Both would still *look* like a material from across the
+    room if this went wrong, which is exactly why it is worth a test.
+    """
+    n = 200
+    axis = np.linspace(0.0, n / 20.0, n)          # 20 design px per feature
+    X, Y = np.meshgrid(axis, axis)
+    ratios = {}
+    for kind, seed in (("wood", 11), ("stone", 23)):
+        spec = {"material": kind, "material_scale": 20.0, "material_seed": seed}
+        h = material.height(X, Y, spec)
+        assert h.min() >= 0.0 and h.max() <= 1.0, (kind, h.min(), h.max())
+        dy = float(np.abs(np.diff(h, axis=0)).mean())
+        dx = float(np.abs(np.diff(h, axis=1)).mean())
+        ratios[kind] = dy / max(dx, 1e-9)
+        assert not np.allclose(h, material.height(X, Y, {**spec, "material_seed": seed + 1})), \
+            f"{kind} ignores its seed"
+    assert ratios["wood"] > 2.0, ratios
+    assert 0.6 < ratios["stone"] < 1.6, ratios
+
+
+def test_a_material_is_the_same_material_at_any_scale():
+    """The grain lives in design pixels, so 2x resolves it and does not enlarge it.
+
+    A material's feature size is a number in the style, like the frame width, and
+    from outside the only way to see it is to draw the panel twice.  Done in
+    *device* pixels instead -- the mistake this test exists to catch -- the 2x
+    render comes out twice as coarse and the mean difference across the panel jumps
+    from an anti-aliasing fuzz to a different texture.
+    """
+    for name in ("timber", "granite"):
+        spec = stylelib.get(name)
+        one = paint.panel(spec, (200, 130), scale=1.0).to_uint8()
+        two = paint.panel(spec, (400, 260), scale=2.0).to_uint8()
+        folded = two.astype(np.float64).reshape(130, 2, 200, 2, 4).mean(axis=(1, 3))
+        d = np.abs(folded[..., :3] - one[..., :3])
+        assert d.mean() < 4.0, (name, d.mean())
+        assert np.percentile(d, 99) < 14.0, (name, np.percentile(d, 99))
+
+
+def test_the_stretch_error_measures_what_the_knife_does():
+    """A resize is drawn twice and the disagreement is the number.
+
+    This is the measurement the sidecar carries.  A panel whose middle is flat
+    resamples into something very close to a panel drawn at that size; a panel with
+    a material body does not, because the grain in the strips changes size while
+    the grain in the corners beside them does not.  Nothing is declared here -- the
+    two pictures are compared, and the flat panel is the control.
+    """
+    def cost(spec):
+        dw, dh = 240, 150
+        small = (144, 90)
+        full = paint.panel(spec, (dw, dh)).to_uint8()
+        was = paint.panel(spec, small)
+        ins = slicelib.insets(framelib.Panel(spec, small, 1.0))
+        return slicelib.stretch_error(
+            full, slicelib.stretch_pixels(was.to_uint8(), (dw, dh), ins))
+
+    plain = cost(stylelib.get("slate"))
+    assert plain < slicelib.STRETCHABLE, plain
+    for name in ("timber", "granite"):
+        grained = cost(stylelib.get(name))
+        assert grained > 3.0 * plain, (name, plain, grained)
+        assert grained > slicelib.STRETCHABLE, (name, grained)
+
+
+def test_an_unknown_material_is_reported_and_refused():
+    """A bad *name* is not a number out of range, so it is refused rather than clamped.
+
+    ``clamp`` repairs numbers; it does not invent an identifier.  So a spec that
+    asks for a material nobody wrote has to stay wrong when it comes back out, and
+    the field has to refuse to draw it rather than quietly fall back to a gradient.
+    """
+    spec = {**stylelib.get("slate"), "material": "marble"}
+    assert stylelib.validate(spec), "validate accepted an unknown material"
+    assert stylelib.validate(stylelib.clamp(spec)), "clamp invented a material"
+    X, Y = np.meshgrid(np.arange(3.0), np.arange(3.0))
+    try:
+        material.height(X, Y, spec)
+    except ValueError:
+        return
+    raise AssertionError("an unknown material was drawn")
 
 
 if __name__ == "__main__":

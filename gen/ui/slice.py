@@ -14,6 +14,10 @@ Two consequences worth stating, because both are easy to get wrong:
 * A nine-slice can always grow, but it cannot shrink below ``l + r`` by
   ``t + b``: below that the corners would have to overlap.  :func:`minimum` says
   how small the asset can be displayed, and :func:`stretch` refuses to guess.
+* The insets describe the corners, and nothing describes the middle.  Whether a
+  panel's middle survives a stretch is a fact about the art, so it is *measured*
+  -- :func:`stretch_error` draws the asset at two sizes and reports the
+  difference -- rather than promised by a flag.
 """
 from __future__ import annotations
 
@@ -30,6 +34,8 @@ __all__ = [
     "stretch_pixels",
     "stretch",
     "from_rgba",
+    "STRETCHABLE",
+    "stretch_error",
 ]
 
 
@@ -125,3 +131,36 @@ def from_rgba(rgba, scale: float, center=(0.0, 0.0)) -> Canvas:
     c.rgb = palette.srgb_to_linear(rgba[..., :3] / 255.0)
     c.a = rgba[..., 3] / 255.0
     return c
+
+
+#: Below this, a panel is called stretchable.  It is a number and not a rule
+#: because stretchability is *measured* here, not promised: see
+#: :func:`stretch_error`.
+STRETCHABLE = 0.02
+
+
+def stretch_error(direct, stretched) -> float:
+    """What a nine-slice resize costs this design, as a fraction of its own range.
+
+    Both arguments are the *same* picture at the *same* size: one drawn at that
+    size, one obtained by nine-slicing the asset from the size it was authored at.
+    If the design's middle is constant along the axis it gets stretched on, the
+    two are the same image and this is near zero -- the resampling fuzz of a
+    gradient and nothing more.  If it is not, the strips come out with a different
+    feature size from the corners beside them and the number is the size of that
+    disagreement.
+
+    This is deliberately an *output* rather than a property of the spec.  A
+    material body is not stretchable and a gradient body is; which of the two a
+    panel is has a correct answer that can be computed, so it is computed, and the
+    sidecar says what was measured rather than what was asked for.
+    """
+    a = np.asarray(direct, dtype=np.float64)
+    b = np.asarray(stretched, dtype=np.float64)
+    if a.shape != b.shape:
+        raise ValueError(f"cannot compare {a.shape} with {b.shape}")
+    rgb = a[..., :3]
+    span = float(rgb.max() - rgb.min())
+    if span < 1e-9:
+        return 0.0
+    return float(np.abs(a[..., :3] - b[..., :3]).mean() / span)

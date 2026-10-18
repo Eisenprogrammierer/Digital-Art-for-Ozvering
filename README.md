@@ -63,7 +63,7 @@ python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python tests/test_core.py                       # 53 tests, no pytest needed
 python tests/test_heraldry.py                   # 47 tests
 python tests/test_portraits.py                  # 25 tests
-python tests/test_ui.py                         # 26 tests
+python tests/test_ui.py                         # 32 tests
 python tests/test_maps.py                       # 46 tests
 python tests/test_textures.py                   # 23 tests
 ```
@@ -405,10 +405,11 @@ Everything in the package is arranged around that sentence.
 
 | Module | What it provides |
 | --- | --- |
-| `style` | The numbers: a palette plus proportions in **design pixels**, one per side where a title bar needs it, the named kits (`parchment`, `slate`, `brass`, `moss`, `glass`), `title_bar`, a seeded `random_style`, and the geometric invariant the rest of the package leans on. |
+| `style` | The numbers: a palette plus proportions in **design pixels**, one per side where a title bar needs it, the named kits (`parchment`, `slate`, `brass`, `moss`, `glass`, `timber`, `granite`), `title_bar`, a seeded `random_style`, and the geometric invariant the rest of the package leans on. |
 | `frame` | The geometry as distance fields: concentric rounded rectangles, the band between them, the inner rule, and a corner ornament whose radius is a Fourier series. |
-| `slice` | The contract itself — the insets, the nine rectangles, and the resample a game engine will perform, implemented here so that it can be tested here. |
+| `slice` | The contract itself — the insets, the nine rectangles, the resample a game engine will perform, and the measurement of what that resample costs. |
 | `paint` | Five passes over one fixed light: shadow, body, band, rule, ornament. |
+| `material` | Wood and stone, out of fBm and Worley noise in design pixels — the body's surface, and the one look here that gives up a stretchable middle on purpose. |
 
 ### The one hard geometric rule
 
@@ -435,6 +436,11 @@ left strip has to be identical down the panel and every row of the top strip
 identical across it. That one assertion catches an ornament that has grown out of
 its corner, a rule that curves too far, and a drop shadow that is not separable,
 all at once.
+
+A **material body** is the one deliberate exception, and it is not let off: the
+resize it costs is drawn twice and measured, and the machine-readable answer goes
+in the sidecar (`stretchable`). See *Nine-slice and procedural texture are two
+answers to the same problem*, below.
 
 ### The corner box is a rectangle, not a square
 
@@ -489,6 +495,47 @@ Because a style is written in design pixels, `--scale` doubles the pixels and
 changes no number: the same spec renders a 48 px icon-button and a 512 px hero
 panel, with the same corner geometry in both — which is what makes the insets
 mean something.
+
+### Nine-slice and procedural texture are two answers to the same problem
+
+A texture generator's job is to make a surface that never repeats visibly; a
+nine-slice's job is to make one image survive every size. They are in tension,
+and it is worth being explicit about where the line is: a nine-slice can only
+stretch a middle that is **constant along the stretch axis**, so a body that
+varies in both directions — which is what a real material does — cannot be
+stretched, only drawn at the size it is shown.
+
+`material` takes the second road and pays for it honestly. Wood is a stack of
+rings whose phase is domain-warped (without the warp, rings on a rectangle are
+stripes, and a stripe is not wood); stone is Worley plates with `worley_edges`
+carved into the mortar between them. Both are evaluated in design pixels, so
+`scale=2` resolves the grain rather than enlarging it, and both are lit by the
+same one light, centred on the material's own mean — a material redistributes
+the light across a surface rather than dimming the panel, exactly as the cloth
+module does for a flag.
+
+The cost is then **measured rather than declared**, which is the part worth
+keeping:
+
+> `slice.stretch_error` draws the asset twice — once at the size it is shown,
+> once small and then stretched to that size by the nine-slice rule — and
+> reports the difference as a fraction of the panel's own range.
+
+A gradient body scores 0.002–0.005 (the resampling fuzz of a ramp and nothing
+else); `timber` scores 0.049 and `granite` 0.037, because the grain in the strips
+changes size while the grain in the corners beside them does not. `paint` only
+evaluates a material on the inner rectangle, since the band over it is opaque and
+a material never touches a frame pixel (asserted), and the sidecar carries both
+numbers per kit:
+
+```json
+"panel": {"design_size": [240, 150], "stretch_error": 0.049, "stretchable": false}
+```
+
+So an engine can ask what it needs to know — *may I resize this?* — and get an
+answer that was computed from the pixels rather than a flag the style set about
+itself. A subtle material can genuinely come out stretchable; a bold one cannot.
+Both are correct, and both are the same code path.
 
 ## Maps (`gen/maps/`)
 
@@ -807,14 +854,17 @@ Generators to sit on top of the core, in the order they become useful:
   in depth (a proper 3-D skull projected to 2-D, not a 2-D face that fakes a turn),
   and expressions that move the whole face rather than three features.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
-  of a radius function~~ and ~~asymmetric insets for title bars~~ *(done: `gen/ui/`,
-  with the series moved into the corner box, which is the only part of a nine-slice
-  asset that is never resampled, and the insets and bands taking one number per side
-  so that a title bar is a wider border rather than a second kind of window)*; next,
-  wood/stone textures for the body via fBm + domain warping, which is where the
-  nine-slice starts to cost something -- a procedural body is not constant along
-  the stretched axis, so a panel may have a stretchable middle or a material, and
-  the honest thing is to measure which one it has and say so in the sidecar.
+  of a radius function~~, ~~asymmetric insets for title bars~~ and ~~wood/stone
+  material bodies via fBm + domain warping~~ *(done: `gen/ui/`, with the series
+  moved into the corner box, which is the only part of a nine-slice asset that is
+  never resampled; the insets and bands taking one number per side so that a title
+  bar is a wider border rather than a second kind of window; and the one look that
+  gives up a stretchable middle, priced by `slice.stretch_error` and carried in the
+  sidecar as a measured `stretchable` rather than a promise)*; next, a material
+  that is cheap enough to draw live -- the recipes are two noise fields per panel
+  at the moment, which is fine for a shipped sheet and too slow for a UI that
+  redraws on hover, and the obvious fix is a small cache keyed by
+  `(kind, scale, seed)` that the paint pass asks first.
 - **maps** -- ~~hex/axial grids, Voronoi provinces with Lloyd relaxation, adjacency
   from Delaunay, rivers by Dijkstra + Catmull-Rom, coastlines by marching
   squares~~ *(done: `gen/maps/` -- the lattice, the terrain and its coastline drawn

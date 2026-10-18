@@ -3,7 +3,7 @@
 The layer order is the drawing, and it is short enough to hold in the head:
 
     shadow   the silhouette's own coverage, blurred and dropped
-    body     the gradient fill, *under* everything else
+    body     the gradient fill -- or the material, where a style asks for one
     band     the frame, shaded as a rounded moulding (or knocked in, pressed)
     rule     the inner line, a translucent ink stroke
     boss     the corner ornament, a small dome with a hairline outline
@@ -11,8 +11,10 @@ The layer order is the drawing, and it is short enough to hold in the head:
 Two rules are deliberately absolute.  First, **a state is a colour, never a
 layout**: ``idle``, ``hover`` and ``pressed`` share one geometry, so a button
 cannot jitter as the pointer moves over it, and the silhouette alpha of the three
-states is bit-identical.  Second, every pass is scaled in *design* pixels, so the
-whole thing re-renders at 2x or 3x with identical proportions.
+states is bit-identical.  A material is bound by the same rule for the same
+reason -- it belongs to the body, so the pixels of the frame are the frame's.
+Second, every pass is scaled in *design* pixels, so the whole thing re-renders at
+2x or 3x with identical proportions.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ import numpy as np
 from core import palette, render
 from core.canvas import Canvas
 
+from . import material
 from .frame import Panel
 
 #: One light for the whole project -- the same direction as the heraldry and
@@ -113,14 +116,27 @@ def draw(spec: dict, size, kind: str = "panel", state: str = "idle", scale: floa
                             opacity=0.40 * (0.35 + 0.65 * s["alpha"]))
     c.over_srgb(SHADOW, sh)
 
-    # 2. body.  A vertical gradient only: anything varying across the panel would
-    #    smear when the middle is stretched sideways.  `ramp_map` interpolates in
-    #    OKLab, so a dark-to-light body does not sag through grey in the middle.
+    # 2. body.  A vertical gradient by default: anything varying across the panel
+    #    would smear when the middle is stretched sideways.  `ramp_map`
+    #    interpolates in OKLab, so a dark-to-light body does not sag through grey
+    #    in the middle.  A material body is the deliberate exception -- it varies
+    #    across the panel because that is what a material *is* -- and the price is
+    #    measured rather than hidden: see `slice.stretch_error`.
     if kind == "panel":
         lo = palette.mix(body, body_low, s["gradient"])
         t = (p.hh - Y) / (2.0 * p.hh)  # 0 at the top edge, 1 at the bottom
-        c.over(palette.srgb_to_linear(palette.ramp_map([body, lo], t)),
-               a_outer * s["alpha"])
+        field = palette.ramp_map([body, lo], t)
+        if s["material"] != "none":
+            # Only where it can be seen: the band over the body is opaque, so the
+            # material is evaluated on the inner rectangle, the same "evaluate
+            # where it can be drawn" rule the ornament follows.
+            cx, cy, hw, hh = p.inner_box()
+            x0, y0, x1, y1 = _window(c, (cx - hw, cy - hh, cx + hw, cy + hh), margin=4.0)
+            if x1 > x0 and y1 > y0:
+                field[y0:y1, x0:x1] = material.body(
+                    field[y0:y1, x0:x1], s, X[y0:y1, x0:x1], Y[y0:y1, x0:x1], dx,
+                    LIGHT, stain_colour=body_low, y_up=c.y_up)
+        c.over(palette.srgb_to_linear(field), a_outer * s["alpha"])
 
     # 3. the frame band, as a rounded moulding with a ridge down its middle.
     c.over(render.shade(edge, d_band, dx, bevel=s["bevel"], light=LIGHT,

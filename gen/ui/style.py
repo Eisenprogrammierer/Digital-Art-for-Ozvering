@@ -29,10 +29,13 @@ import numpy as np
 
 from core import palette
 
+from . import material
+
 __all__ = [
     "GEOMETRY",
     "COLOURS",
     "SIDED",
+    "MATERIAL",
     "DEFAULTS",
     "STYLES",
     "BOSS_R0",
@@ -80,6 +83,16 @@ GEOMETRY = (
 #: still exactly what it was.
 SIDED = ("inset", "border")
 
+#: The keys a material body is described by: one name and four numbers, defined in
+#: :mod:`gen.ui.material` because that module is what knows what they mean.
+#:
+#: They are kept out of :data:`GEOMETRY` deliberately.  A material never moves a
+#: pixel of the frame -- it is a body, not a layout -- which is exactly why the
+#: tests can assert that turning one on changes the body and nothing else, and why
+#: it costs the nine-slice nothing it was not already paying.
+MATERIAL = ("material", "material_scale", "material_seed", "material_relief",
+            "material_tone")
+
 #: Colour keys, all sRGB triples.
 COLOURS = ("body", "body_low", "edge", "ink", "accent")
 
@@ -102,6 +115,7 @@ DEFAULTS = {
     "edge": _c(0.56, 0.055, 0.095),
     "ink": _c(0.15, 0.030, 0.090),
     "accent": _c(0.74, 0.110, 0.110),
+    **material.DEFAULTS,   # the body's material, if it has one (see :mod:`gen.ui.material`)
 }
 
 
@@ -144,6 +158,25 @@ STYLES = {
         radius=9.0, border=3.0, bevel=1.6, gradient=0.80, alpha=0.42,
         boss=0.0,
     ),
+    # The two material kits.  A material is a body, so both keep a low `gradient`:
+    # the ramp is still there underneath, but the light on the grain is what you
+    # are meant to see, and two gradients fighting over one panel read as neither.
+    "timber": _preset(
+        body=_c(0.46, 0.055, 0.075), body_low=_c(0.30, 0.060, 0.070),
+        edge=_c(0.64, 0.075, 0.080), ink=_c(0.20, 0.045, 0.075),
+        accent=_c(0.72, 0.110, 0.115),
+        radius=6.0, border=6.0, bevel=3.0, gradient=0.30,
+        material="wood", material_scale=26.0, material_seed=11,
+        material_relief=0.55, material_tone=0.30,
+    ),
+    "granite": _preset(
+        body=_c(0.32, 0.012, 0.250), body_low=_c(0.21, 0.014, 0.255),
+        edge=_c(0.60, 0.018, 0.255), ink=_c(0.15, 0.020, 0.250),
+        accent=_c(0.70, 0.055, 0.230),
+        radius=5.0, border=6.0, bevel=3.0, gradient=0.25,
+        material="stone", material_scale=20.0, material_seed=23,
+        material_relief=0.60, material_tone=0.22, boss=1.2,
+    ),
 }
 
 
@@ -175,6 +208,8 @@ def _clean(spec: dict) -> dict:
     s = {**DEFAULTS, **dict(spec)}
     for k in GEOMETRY:
         s[k] = _four(s[k]) if k in SIDED else float(s[k])
+    for k in MATERIAL:
+        s[k] = str(s[k]) if k == "material" else float(s[k])
     for k in COLOURS:
         s[k] = np.asarray(s[k], dtype=np.float64)[:3].copy()
     return s
@@ -249,6 +284,15 @@ def clamp(spec: dict, size=None) -> dict:
     s["boss"] = boss
     s["boss_harmonics"] = int(np.clip(round(s["boss_harmonics"]), 3, 12))
     s["boss_amp"] = amp
+    # A material is a body, so none of it is geometric: the numbers are clipped
+    # into the range the recipes can draw and the *name* is left exactly as it
+    # came, because a name that is wrong is a mistake to report rather than a
+    # number to repair.  `validate` reports it; `material.kind` raises on it.
+    s["material"] = str(s["material"])
+    s["material_scale"] = float(np.clip(s["material_scale"], 1.0, 512.0))
+    s["material_seed"] = int(np.clip(round(s["material_seed"]), 0, 2 ** 31 - 1))
+    s["material_relief"] = float(np.clip(s["material_relief"], 0.0, 2.0))
+    s["material_tone"] = float(np.clip(s["material_tone"], 0.0, 1.0))
     return s
 
 
@@ -341,6 +385,15 @@ def validate(spec: dict, size=None) -> list:
             bad.append("inset: the corner boxes would meet in the middle")
         if 2.0 * (min(bor) + s["rule_gap"] + s["rule"]) >= min(w, h):
             bad.append("rule: no body left inside the frame at this size")
+    if s["material"] not in material.KINDS:
+        bad.append(f"material: {s['material']!r} is not one of {material.KINDS}")
+    elif s["material"] != "none":
+        if s["material_scale"] < 1.0:
+            bad.append("material_scale: a feature smaller than a design pixel cannot be drawn")
+        if not (0.0 <= s["material_relief"] <= 2.0):
+            bad.append("material_relief: outside the range the shading is bounded on")
+        if not (0.0 <= s["material_tone"] <= 1.0):
+            bad.append("material_tone: a stain is a mix, so it cannot exceed 1")
     return bad
 
 
@@ -422,6 +475,17 @@ def random_style(seed: int, name: str | None = None) -> dict:
         boss_amp=float(rng.uniform(0.06, 0.20)),
         boss_harmonics=int(rng.integers(5, 10)),
     )
+    # Three kits in ten are given a material body -- the one look in this package
+    # that trades stretchability for surface -- and a named material kit keeps the
+    # material it was authored with.  The draw happens either way so that a base
+    # style does not shift the seed's later decisions.
+    wants_material = rng.random() < 0.3
+    if s["material"] == "none" and wants_material:
+        s["material"] = ("wood", "stone")[int(rng.integers(0, 2))]
+        s["material_scale"] = float(rng.uniform(16.0, 30.0))
+        s["material_seed"] = int(rng.integers(0, 2 ** 30))
+        s["material_relief"] = float(rng.uniform(0.35, 0.75))
+        s["material_tone"] = float(rng.uniform(0.15, 0.40))
     s = clamp(s)
     # One kit in five is a *window*, with a title bar: the asymmetry a UI actually
     # needs, drawn from the same seed and legally, rather than a second code path.

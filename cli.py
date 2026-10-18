@@ -756,6 +756,26 @@ def _ui_kit(spec: dict, scale: int = 2) -> tuple:
     return win, info
 
 
+def _stretch_check(spec: dict, scale: int = 2, design=(240, 150), shrink: float = 0.6,
+                   kind: str = "panel"):
+    """Measure what a nine-slice resize would cost this style's body.
+
+    The same asset is drawn twice: once at the size it is meant to be shown, and
+    once at a smaller design size and then stretched to the first by the nine-slice
+    rule.  For a design whose middle is constant along the stretch axis the two are
+    the same picture; for one with a material body they are not, and the size of the
+    disagreement is the number.  This is why the sidecar can say whether a panel is
+    stretchable without anybody promising it: it was drawn twice and compared.
+    """
+    dw, dh = int(design[0]), int(design[1])
+    small = (max(int(dw * shrink), 8), max(int(dh * shrink), 8))
+    full = _ui_part(spec, (dw, dh), scale, kind=kind).to_uint8()
+    was = _ui_part(spec, small, scale, kind=kind)
+    ins = ui_slice.insets(ui_frame.Panel(spec, (small[0] * scale, small[1] * scale), scale))
+    stretched = ui_slice.stretch_pixels(was.to_uint8(), (dw * scale, dh * scale), ins)
+    return ui_slice.stretch_error(full, stretched)
+
+
 def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str | None = None) -> Path:
     """The UI kit sheet: every named style, plus seeded ones, as mock windows.
 
@@ -782,6 +802,9 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     img = png.to_image(sheet)
     draw = ImageDraw.Draw(img)
 
+    # Measured once per kit, before anything is drawn with the number.
+    errors = [_stretch_check(spec, scale) for _, spec, _ in kits]
+
     cw = max(c.w for c in [k[2][0] for k in kits])
     ch = max(c.h for c in [k[2][0] for k in kits])
     for i, (name, spec, (tile, info)) in enumerate(kits):
@@ -802,14 +825,22 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
         ins = info["insets"]
         shown = f"{ins[0]}" if len(set(ins)) == 1 else "/".join(str(v) for v in ins)
         lo = ui_slice.minimum(ins)
+        note = "" if errors[i] < ui_slice.STRETCHABLE else f"   stretch {errors[i]:.2f}"
         _label(img, (tx + 4, ty + tile.h + 4),
-               f"{name}   inset {shown} px @ {scale}x   min {lo[0]}x{lo[1]} px")
+               f"{name}   inset {shown} px @ {scale}x   min {lo[0]}x{lo[1]} px{note}")
     img.save(out, "PNG", optimize=True)
 
+    # The sidecar carries both numbers an engine needs and both facts it cannot
+    # guess: the corners, which only the source can state, and whether the middle
+    # survives a resize, which is measured here because it is a property of the
+    # pixels rather than of the spec.
     _sidecar(out, seed, "procedural:gen.ui.style", kits=[
         {"style": name, "insets": info["insets"],
-         "design_size": info["design"], "spec": _json_style(spec)}
-        for name, spec, (_, info) in kits
+         "design_size": info["design"], "spec": _json_style(spec),
+         "panel": {"design_size": [240, 150],
+                   "stretch_error": round(errors[i], 4),
+                   "stretchable": errors[i] < ui_slice.STRETCHABLE}}
+        for i, (name, spec, (_, info)) in enumerate(kits)
     ])
     return _report(out)
 
@@ -900,6 +931,8 @@ def _json_style(spec: dict) -> dict:
             out[k] = palette.srgb_to_hex(v)
         elif k in ui_style.SIDED:
             out[k] = [round(float(x), 4) for x in v]
+        elif isinstance(v, str):
+            out[k] = v          # the material's name is an identifier, not a number
         elif isinstance(v, (int, np.integer)):
             out[k] = int(v)
         else:
