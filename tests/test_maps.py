@@ -17,7 +17,11 @@ loudly:
   than against the shape of the priority queue that produced it;
 * a province is connected.  That is the claim the whole of ``region`` exists for,
   so it is checked by flooding each province on its own, and also against the
-  nearest-capital property the breadth-first assignment is supposed to give.
+  nearest-capital property the breadth-first assignment is supposed to give;
+* the coast as tiles is the coast as a stroke.  A border is now six bits per hex
+  and a tileset, which is a rewrite of the picture rather than a feature beside
+  it, so the test that it is the *same* picture inside the map -- and that the one
+  place it differs is off the edge of the map -- is the reason to trust the rest.
 
 Run either way::
 
@@ -38,8 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
-from gen.maps import (campaign, coast, grid as gridlib, paint, politics,  # noqa: E402
-                      region, rivers, roads, terrain)
+from gen.maps import (autotile, campaign, coast, grid as gridlib, paint,  # noqa: E402
+                      politics, region, rivers, roads, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -332,6 +336,168 @@ def test_a_mask_of_the_wrong_shape_is_refused():
     except ValueError:
         return
     raise AssertionError("boundary_loops accepted a mis-shaped mask")
+
+
+# --------------------------------------------------------------- edge tiles
+def _alpha_at(canvas, wx, wy) -> float:
+    """The canvas's alpha at a world point -- the inverse of :meth:`Canvas.grid`."""
+    x = int(round((wx - canvas.center[0]) * canvas.scale + canvas.w / 2.0 - 0.5))
+    y = int(round((canvas.center[1] - wy) * canvas.scale + canvas.h / 2.0 - 0.5))
+    return float(canvas.a[y, x])
+
+
+def _inked(key, g, width: float = 0.24, alpha: float = 0.80):
+    """A canvas holding only the border layer for ``key``, and its raster lookup."""
+    canvas = Canvas(int(np.ceil(g.extent[0])) + 4, int(np.ceil(g.extent[1])) + 4,
+                    scale=1.0)
+    cell = g.cell(*canvas.grid())
+    autotile.border_layer(canvas, g, key, cell, paint.INK, width=width, alpha=alpha)
+    return canvas, cell
+
+
+def test_a_border_is_a_difference_and_the_two_sides_of_it_agree():
+    # The one fact the module rests on.  "Different from my neighbour" is local, so
+    # there is no walk and no set of components anywhere -- and it is symmetric, so
+    # the two hexes across an edge always agree that the border is there.  Off the
+    # map there is no neighbour, so every rim edge is a border unless the caller
+    # says what lies beyond it.
+    g = gridlib.HexGrid(9, 7, size=10.0)
+    labels = (np.arange(g.rows)[:, None] + np.arange(g.cols)[None, :]) % 3
+    key = autotile.borders(labels, g)
+    for row, col in g.flat():
+        for d in range(autotile.EDGES):
+            nr, nc = (int(v) for v in g.nbr[row, col, d])
+            mine = int(key[row, col]) >> d & 1
+            if nr < 0:
+                assert mine == 1
+                continue
+            theirs = int(key[nr, nc]) >> ((d + 3) % autotile.EDGES) & 1
+            assert mine == theirs
+            assert mine == (1 if labels[nr, nc] != labels[row, col] else 0)
+
+
+def test_the_rim_is_a_class_you_name_and_not_a_class_by_accident():
+    # A one-hex map with nothing in it: whether the edge of the map is a border is
+    # a question about what is beyond the edge, and the answer has to be the
+    # caller's.  "Sea" gives no border at all; saying nothing gives all six.
+    g = gridlib.HexGrid(1, 1, size=10.0)
+    sea = np.zeros((1, 1), dtype=np.int64)
+    assert int(autotile.borders(sea, g, outside=0)[0, 0]) == 0
+    assert int(autotile.borders(sea, g)[0, 0]) == autotile.MASKS - 1
+
+
+def test_a_labels_grid_of_the_wrong_shape_is_refused():
+    g = gridlib.HexGrid(5, 5, size=10.0)
+    try:
+        autotile.borders(np.zeros((5, 4), dtype=np.int64), g)
+    except ValueError:
+        return
+    raise AssertionError("borders accepted a mis-shaped label grid")
+
+
+def test_the_ink_is_on_the_edges_the_key_marks_and_nowhere_else():
+    # The claim the whole module is: a hex wears six bits and they *are* the
+    # picture.  Sampled just inside each of the six edge midpoints of every hex of
+    # an island in the sea, which is both classes of answer on one map.
+    g = gridlib.HexGrid(10, 8, size=12.0)
+    labels = np.zeros((g.rows, g.cols), dtype=np.int64)
+    labels[3:6, 3:7] = 1
+    key = autotile.borders(labels, g, outside=0)
+    canvas, _cell = _inked(key, g)
+    hw = 0.5 * 0.24 * g.size
+    apothem = 0.5 * np.sqrt(3.0) * g.size
+    for row, col in g.flat():
+        cx, cy = g.centre_of((row, col))
+        for d in range(autotile.EDGES):
+            marked = bool(int(key[row, col]) >> d & 1)
+            ang = np.radians(60.0 * d)
+            wx = cx + (apothem - 0.5 * hw) * np.cos(ang)
+            wy = cy + (apothem - 0.5 * hw) * np.sin(ang)
+            assert (_alpha_at(canvas, wx, wy) > 0.4) == marked, (row, col, d)
+
+
+def test_the_tiles_of_a_map_are_the_keys_it_wears_in_the_order_it_meets_them():
+    g = gridlib.HexGrid(24, 16, size=6.0)
+    f = terrain.fields(g, seed=8)
+    key = autotile.borders((~f["water"]).astype(np.int64), g, outside=0)
+    index, keys = autotile.tiles(key)
+    assert sorted(keys) == sorted({int(v) for v in key.ravel()})
+    assert keys[0] == int(key[0, 0])          # first seen, row by row
+    for row, col in g.flat():
+        assert keys[int(index[row, col])] == int(key[row, col])
+    # A coastline is a small idea: the sixty-four are the set, not the usage.
+    assert 2 <= len(keys) <= 40
+    assert len(autotile.tiles(autotile.borders(np.zeros((g.rows, g.cols), np.int64),
+                                               g, outside=0))[1]) == 1
+
+
+def test_the_ink_of_a_tile_stays_inside_its_own_hexagon():
+    # A tile that painted on its neighbour's ground could not be tiled at all --
+    # this is the decision the module is built on, so it is checked tile by tile.
+    one = gridlib.HexGrid(1, 1, 11.0)
+    for m in range(autotile.MASKS):
+        tile = autotile.tile_image(m, 11.0, paint.INK)
+        inside = one.cell(*tile.grid()).ok
+        assert not np.any(tile.a[~inside] > 0.0), m
+        assert tile.a[0, 0] == 0.0 and tile.a[-1, -1] == 0.0
+
+
+def test_a_tile_with_more_edges_marked_never_has_less_ink():
+    sums = [float(autotile.tile_image(m, 11.0, paint.INK).a.sum())
+            for m in range(autotile.MASKS)]
+    assert sums[0] == 0.0                      # nothing marked, nothing drawn
+    assert sums[autotile.MASKS - 1] > 0.0      # all six marked, a whole rim
+    for m in range(autotile.MASKS):
+        for d in range(autotile.EDGES):
+            if not m >> d & 1:
+                assert sums[m | (1 << d)] >= sums[m] - 1e-9
+
+
+def test_a_tile_key_that_is_not_a_six_bit_number_is_refused():
+    try:
+        autotile.tile_image(autotile.MASKS, 10.0, paint.INK)
+    except ValueError:
+        return
+    raise AssertionError("tile_image accepted a key that is not a tile")
+
+
+def test_the_sheet_is_a_container_and_a_cell_is_the_tile_that_goes_in_it():
+    size, gap = 12.0, 5
+    sheet = autotile.sheet(paint.INK, size, gap=gap)
+    tw, th = autotile.tile_size(size)
+    n = autotile.SHEET_COLS
+    assert (sheet.w, sheet.h) == (n * tw + (n + 1) * gap, n * th + (n + 1) * gap)
+    for m in range(autotile.MASKS):
+        row, col = divmod(m, autotile.SHEET_COLS)
+        x, y = gap + col * (tw + gap), gap + row * (th + gap)
+        tile = autotile.tile_image(m, size, paint.INK)
+        assert np.array_equal(sheet.a[y:y + th, x:x + tw], tile.a), m
+        assert np.array_equal(sheet.rgb[y:y + th, x:x + tw], tile.rgb), m
+
+
+def test_the_tiled_coast_is_the_stroked_coast_inside_the_map():
+    # The refactor, held to: the picture the boundary walk drew is the picture the
+    # tiles draw, pixel for pixel, wherever the map has pixels -- and the one place
+    # it is not is the place the tiles earn their keep, off the edge of the map,
+    # where a centred stroke leaves ink on the paper and a tile does not.
+    g = gridlib.HexGrid(12, 9, size=11.0)
+    labels = np.zeros((g.rows, g.cols), dtype=np.int64)
+    labels[0:5, 0:7] = 1                        # an island running off the rim
+    labels[6, 8:10] = 2                         # and a speck, for a second key
+    w, h = g.extent
+    a = Canvas(int(np.ceil(w + 12)), int(np.ceil(h + 12)), scale=1.0)
+    b = a.clone()
+    cell = g.cell(*a.grid())
+    for loop in coast.boundary_loops(g, labels.astype(bool)):
+        paint.stroke_polyline(a, loop, 0.24 * g.size, paint.INK, alpha=0.80,
+                              closed=True)
+    key = autotile.borders(labels, g, outside=0)
+    autotile.border_layer(b, g, key, cell, paint.INK, width=0.24, alpha=0.80)
+    # Compared at the export: the two band sums differ in the last bit or two of a
+    # float, which is not a picture, and the picture is what a map is.
+    assert np.array_equal(a.to_uint8()[cell.ok], b.to_uint8()[cell.ok])
+    assert np.any(a.a[~cell.ok] > 0.0)          # the stroke did spill
+    assert not np.any(b.a[~cell.ok] > 0.0)      # the tiles cannot
 
 
 # ------------------------------------------------------------------- picture

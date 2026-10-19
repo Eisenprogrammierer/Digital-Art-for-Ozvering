@@ -21,6 +21,7 @@ Usage
     python cli.py ui         --seed 7 --count 3 --scale 2
     python cli.py text       --size 20 --out out/text.png
     python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
+    python cli.py coast      --out out/coast-tiles.png --size 20
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -51,6 +52,7 @@ from gen.icons import badge as icon_badge  # noqa: E402
 from gen.icons import livery as icon_livery  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
+from gen.maps import autotile as map_autotile  # noqa: E402
 from gen.maps import campaign as map_campaign  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
@@ -1307,6 +1309,72 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     return _report(out)
 
 
+def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
+               hex_size: float = 13.0, sea: float = 0.42, size: float = 20.0,
+               gap: int = 8) -> Path:
+    """The coastline as a tileset: all sixty-four edge tiles, and what a map wears.
+
+    A coast used to be a polyline walked round the land and stroked, which is a
+    picture and not an asset.  It is an *edge* -- which of a hex's six sides has
+    something else on the other side -- so it is six bits, and the tileset that
+    draws it is sixty-four sprites.  This is that sheet: tile ``m`` in the
+    ``(m // 8, m % 8)`` cell, the ink inside its own hexagon, and nothing on the
+    image outside the grid but a caption.  A game lifts a tile out and blits it
+    where the key says, which is what :func:`gen.maps.paint.map_image` now does
+    with them as well.
+
+    The sheet is the one file in this demo that no seed can change, because it is
+    every tile there could be and not the tiles one map happened to need.  What
+    the seed is used for is the other column of numbers: how few of the sixty-four
+    each of the demo's maps actually wears, which is the measured answer to "do
+    sixty-four tiles matter".
+
+    The caption is drawn below the grid rather than on it, so the grid stays a
+    container: the tile rects are recorded in the sidecar and a game crops them
+    from the file, exactly as it would from any other sheet.
+    """
+    sheet = map_autotile.sheet(map_paint.INK, size, gap=gap)
+    tw, th = map_autotile.tile_size(size)
+    worn = []
+    for i in range(count):
+        s = seed + i
+        g = map_grid.HexGrid(cols, rows, hex_size)
+        f = map_terrain.fields(g, seed=s, sea_fraction=sea)
+        edge = map_autotile.borders((~f["water"]).astype(np.int64), g, outside=0)
+        _index, keys = map_autotile.tiles(edge)
+        worn.append((s, len(keys)))
+    caption = (f"coast tiles   {map_autotile.MASKS} edge keys, "
+               f"{map_autotile.EDGES} edges each   hex {size:g} px   "
+               + "   ".join(f"seed {s}: {n} worn" for s, n in worn))
+    font = _font(12)
+    need = int(ImageDraw.Draw(png.to_image(sheet)).textlength(caption, font=font)) + 14
+    strip = 26
+    page = Canvas(max(sheet.w, need), sheet.h + strip, scale=1.0)
+    page.over(sheet.rgb, sheet.a)
+    band = np.zeros((page.h, page.w), dtype=np.float64)
+    band[sheet.h:] = 1.0
+    page.over_srgb((1.0, 1.0, 1.0), band)
+    preview = png.to_image(page)
+    _label(preview, (6, sheet.h + 5), caption, font=font, plate=None)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    preview.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.maps.autotile", coast_tiles={
+        "edges": map_autotile.EDGES,
+        "keys": map_autotile.MASKS,
+        "columns": map_autotile.SHEET_COLS,
+        "gap": gap,
+        "tile": [tw, th],
+        "grid": [gap, gap],
+        "hex_size": size,
+        "pitch": [round(np.sqrt(3.0) * size, 4), round(1.5 * size, 4)],
+        "ink": {"colour": palette.srgb_to_hex(map_paint.INK),
+                "width": 0.24, "alpha": 0.80},
+        "worn": [{"seed": s, "keys": n} for s, n in worn],
+    })
+    return _report(out)
+
+
 def _json_style(spec: dict) -> dict:
     """A spec with the colours as hex, so the sidecar is readable and stable."""
     out = {}
@@ -1547,6 +1615,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     demo_vectors(out, seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
+    demo_coast(out / "coast-tiles.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
     demo_text(out / "text.png")
     demo_factions(out / "factions.png", seed=seed)
@@ -1694,6 +1763,17 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--seas", type=int, default=8, help="sea provinces, 0 for none")
     m.add_argument("--factions", type=int, default=4, help="realms holding the provinces, 0 for none")
 
+    co = sub.add_parser("coast", help="the coastline as a tileset: 64 edge tiles in a sheet")
+    co.add_argument("--out", default="out/coast-tiles.png", type=Path)
+    co.add_argument("--seed", type=int, default=7, help="only counts what the maps wear")
+    co.add_argument("--count", type=int, default=2, help="how many seeded maps to count")
+    co.add_argument("--size", type=float, default=20.0, help="hex circumradius in the sheet")
+    co.add_argument("--hex", type=float, default=13.0, dest="hex_size",
+                    help="hex circumradius the counted maps are drawn at")
+    co.add_argument("--cols", type=int, default=26, help="hexes across, for the counting")
+    co.add_argument("--rows", type=int, default=17, help="hexes down, for the counting")
+    co.add_argument("--sea", type=float, default=0.42, help="water fraction of the counted maps")
+
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
                     help="write credits.txt here (default: print it)")
@@ -1753,6 +1833,10 @@ def main(argv=None) -> int:
                   provinces=args.provinces, rivers=args.river,
                   factions=args.factions, road=args.road,
                   sea_provinces=args.seas)
+    elif args.cmd == "coast":
+        demo_coast(args.out, seed=args.seed, count=args.count, cols=args.cols,
+                   rows=args.rows, hex_size=args.hex_size, sea=args.sea,
+                   size=args.size)
     elif args.cmd == "text":
         # a face has no seed: the alphabet and the pen are the whole of it, and the
         # sidecar says so with a seed of zero rather than inventing one

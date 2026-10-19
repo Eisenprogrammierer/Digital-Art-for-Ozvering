@@ -27,7 +27,7 @@ import numpy as np
 from core import noise, palette, render, sdf
 from core.canvas import Canvas
 
-from . import coast, politics, region, rivers, roads, terrain
+from . import autotile, coast, politics, region, rivers, roads, terrain
 from .grid import HexGrid
 
 __all__ = [
@@ -525,9 +525,11 @@ def map_image(
                                      np.clip(cell.rc[..., 1], 0, cols - 1)], 0.08, 0.20)
         canvas.over_srgb(INK, a * weight * cell.ok)
 
-    land = ~f["water"]
-    for loop in coast.boundary_loops(grid, land):
-        stroke_polyline(canvas, loop, 0.24 * size, INK, alpha=0.80, closed=True)
+    # The coast: every hex inks the edges its own key marks, so the picture is a
+    # function of the terrain and not a line walked round it -- and the tiles the
+    # sheet ships are the same function, which is why the two cannot disagree.
+    edge = autotile.borders((~f["water"]).astype(np.int64), grid, outside=0)
+    autotile.border_layer(canvas, grid, edge, cell, INK, width=0.24, alpha=0.80)
     for loop in coast.boundary_loops(grid, block):
         stroke_polyline(canvas, loop, 0.14 * size, INK, alpha=0.95, closed=True)
     return canvas

@@ -31,14 +31,15 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
+`out/coast-tiles.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for the typeface every character's advance and ink box per face, for
 every map its biome census, its rivers, its roads, its realms, its
-provinces and the sea provinces with the realms that hold them, for every tiling
+provinces and the sea provinces with the realms that hold them, for the coast tiles
+the grid they sit in and how many of the sixty-four each map wears, for every tiling
 texture its seam error and how many tiles its tiling used, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
@@ -82,7 +83,7 @@ python tests/test_core.py                       # 64 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 73 tests
+python tests/test_maps.py                       # 83 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 21 tests
@@ -1435,12 +1436,13 @@ kept strictly apart:
 | `grid` | The lattice in axial coordinates: centres, neighbours, hex distance, the corner normal form, and the per-pixel lookup that resolves a world point to a cell and a position inside it. |
 | `terrain` | The geography: a domain-warped elevation field, a moisture field, and the biome table that gives every class of ground a name, a colour and a movement cost. |
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
+| `autotile` | The border as a tileset: which of a hex's six edges is a border, the sixty-four tiles those six bits address, and the sheet a game draws a coastline from instead of walking it. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names -- and, by the same code, the *sea* provinces a fleet moves between. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. Then who holds the *water*: each sea province goes to the realm with the longest coast on it, and a zone no realm's coast touches stays the high seas. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
-| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads, the coast and the frame. |
+| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layer -- the coast, drawn from the tileset rather than walked. |
 
 ### Why axial coordinates, and what they buy
 
@@ -1495,6 +1497,57 @@ normal form, so a loop closes exactly on its first corner -- and the walk is bui
 to keep the land on its left, which makes an island's loop counter-clockwise and a
 lake's clockwise. The tests use that: punch a hole in a block of hexes and the
 boundary becomes two loops, wound opposite ways.
+
+### A coast is a tileset, and the ink stays inside its own hexagon
+
+A walked coastline produces a picture, and a game cannot load a picture. What a
+game can load is a tileset: a small number of sprites and the rule that says which
+hex wears which. So the coast is reduced to its decision, and the decision is
+local:
+
+> a hex wears the six-bit number of which of its six edges is a border.
+
+Both hexes across an edge set the bit -- "different from my neighbour" is
+symmetric -- so no walk round anything is needed, and a border belongs to the
+*edge* rather than to either hex that meets there. A tile is then one of the
+sixty-four six-bit numbers, and `gen/maps/autotile.py` draws all sixty-four into
+an eight-by-eight sheet, because a tileset is an *asset*: it has to be complete to
+be usable on somebody else's map, not only on the map that happened to produce it.
+That sheet is the one file in the demo that no seed can change, and what the seed
+is for is the other number in its sidecar -- how few of the sixty-four a map
+actually wears (26 and 27 for the demo's two maps, which is the measured answer to
+"do sixty-four tiles matter").
+
+The rule everything else follows from is that **a tile's ink lies inside its own
+ground**. A stroke centred on the shared edge would belong half to each neighbour,
+and then the picture could not be cut into tiles at all. Ink inside the hexagon
+keeps the tiles disjoint -- hexagons already tile the plane, so tiles that stay
+inside their hexagon compose with no rule and no seam -- and it is also what the
+picture wants: a border is the rim of each of the two things, not a line hanging
+in the space between them. The two sides of a border meet exactly *at* the edge,
+so a coast is still a single continuous line; the ink reaching the edge at full
+opacity from both sides is what makes that true without either side knowing what
+the other is.
+
+One thing is deliberately not in the tileset: the ground. Relief comes from the
+height of a hex *and of its neighbours*, so two hexes wearing the same edge key can
+be a plain and a mountain, and a sheet of ground tiles would be a sheet of lies. The
+border is the part that is genuinely local, so the border is the part that becomes
+tiles -- and the map is drawn through the same function, the ink of the edges the
+key marks, measured inside the pixel's own hexagon, so the sheet and the map cannot
+disagree about what a tile looks like.
+
+That is also the test the refactor is held to. The tiled coast is compared, pixel
+by pixel, against the boundary walk it replaced, and inside the map the two are the
+same picture to the exported byte. The one place they differ is off the edge of the
+map, where a centred stroke leaves ink on the paper and a tile does not -- which is
+the place the tiles earn their keep, and the reason a coastline stops hanging over
+the edge of the sheet.
+
+The labels are any labelling and not water against land: `borders` asks whether the
+neighbour differs, so the biome table is a labelling too and an inland border is the
+same sixty-four tiles with a different ink. What is special about the coast is only
+that it is the border the map is actually drawn with.
 
 ### Rivers need the pits filled first
 
@@ -2199,7 +2252,15 @@ Generators to sit on top of the core, in the order they become useful:
   high seas; the count is in coast *edges* so a longer coast takes a bigger water,
   ties fall to the lower realm so the answer is a function of the map, and the land's
   own division is not touched, which is measured on the pixels -- the water is owned
-  and not one pixel of land moves)*.
+  and not one pixel of land moves)*; ~~the coastline as a tileset rather than a
+  stroke~~ *(done: `gen/maps/autotile.py` -- a border is six bits per hex, which of
+  its six edges has something else across it, and the sixty-four tiles those bits
+  address are an asset a game draws a coast from instead of a picture; the ink lies
+  inside its own hexagon so the tiles compose with no rule and no seam, and the map
+  is drawn through the same function the sheet is, so the two cannot disagree -- the
+  tiled coast is the walked one to the exported byte inside the map, and differs only
+  off the edge of the map, where a stroke leaves ink on the paper and a tile does
+  not)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

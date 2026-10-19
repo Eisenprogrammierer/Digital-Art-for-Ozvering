@@ -10,6 +10,10 @@
 ``coast``
     The boundary of a set of hexes as closed loops of corners -- the coastline,
     the lakes, and the edge of the map, all from the same walk.
+``autotile``
+    The border as a tileset: which of a hex's six edges is a border, the
+    sixty-four tiles those six bits address, and the sheet a game draws a
+    coastline from instead of walking it.
 ``rivers``
     Where the water goes: pits filled to their spill points, flow accumulated in
     order of height, and the courses that carry enough of it drawn as splines.
@@ -31,9 +35,10 @@ Typical use::
     image = map_image(seed=7, cols=26, rows=17, size=14.0, provinces=8)
     image.save("out/map.png")
 """
-from . import coast, grid, paint, region, rivers, terrain
+from . import autotile, coast, grid, paint, region, rivers, terrain
 
-__all__ = ["coast", "grid", "paint", "region", "rivers", "terrain", "HexGrid", "map_image"]
+__all__ = ["autotile", "coast", "grid", "paint", "region", "rivers", "terrain",
+           "HexGrid", "map_image"]
 
 HexGrid = grid.HexGrid
 map_image = paint.map_image
