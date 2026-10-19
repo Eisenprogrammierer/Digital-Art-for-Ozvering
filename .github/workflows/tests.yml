@@ -3,7 +3,7 @@ name: tests
 # What this checks is the two promises the README makes and the one it cannot
 # keep by itself:
 #
-#   * the eight suites pass -- on the Python the README claims is enough, and on
+#   * the nine suites pass -- on the Python the README claims is enough, and on
 #     a recent one, because a floor nobody runs is a floor nobody knows;
 #   * two runs of the demo agree *with each other*, byte for byte.  Not with a
 #     golden hash: a hash would also fail the day numpy or Pillow changes a
@@ -41,9 +41,9 @@ jobs:
       - name: lint
         run: pyflakes cli.py core gen export tests
 
-      - name: the eight suites
+      - name: the nine suites
         run: |
-          for suite in core heraldry portraits ui maps textures icons text; do
+          for suite in core heraldry portraits ui maps textures icons text figures; do
             echo "== $suite"
             python "tests/test_$suite.py"
           done

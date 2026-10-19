@@ -30,7 +30,7 @@ python cli.py demo --out out --seed 7
 
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
-`out/anim.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
+`out/anim.png`, `out/figures.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
 `out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
@@ -47,7 +47,8 @@ rectangle each sprite or tile occupies and how densely the sheet packed -- per l
 for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, for an
 animation the rectangle of every frame with the phase it was drawn at and the rate it
-plays at, and for the
+plays at, for a figure's sheet the cycle, the table and the figure itself -- its
+proportions, its gait and the five colours it wears -- and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
@@ -70,6 +71,7 @@ python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--hang bar]  # & staffs
 python cli.py anim    --out out/anim.png  --seed 7 --count 12 --fps 12   # one flag waving: frames + timeline
+python cli.py figures --out out/figures.png --seed 7 --cycle walk --count 8  # one figure walking: frames + timeline
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -93,9 +95,10 @@ python tests/test_maps.py                       # 97 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 28 tests
+python tests/test_figures.py                    # 26 tests
 ```
 
-Every one of those runs on every push as well -- the eight suites, the demo built
+Every one of those runs on every push as well -- the nine suites, the demo built
 twice and compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13,
 in `.github/workflows/tests.yml`.
 
@@ -1011,6 +1014,150 @@ is narrower than the front view while the near one is wider. A turned head neith
 collapses nor explodes -- its width stays within fifteen per cent of its front-on
 one -- and nothing anywhere in the model is infinite, including at heights where the
 profile has no width left.
+
+## Figures (`gen/figures/`)
+
+A figure is a body, a gait and a brush, and those are three modules because they
+answer three different questions in that order. `rig` says where the joints are for a
+given *pose*; `cycle` says what the pose is for a given *phase*; `body` says what the
+body is made of; and `figure` is the only place the seed is opened, because "the same
+figure" has to be defined exactly once.
+
+| Module | What it provides |
+| --- | --- |
+| `rig` | Seventeen joints in a tree, a rest pose that holds the proportions, forward kinematics as one pass down a tuple, and a seeded jitter that makes one figure leggy and another stocky. |
+| `cycle` | `idle`, `walk`, `run` and `attack` as periodic functions of phase, each a dict of *deltas* from the rest pose, plus the pelvis's rise -- and every one of them closes exactly at `2*pi`. |
+| `body` | The drawing: limbs as tapered locks, a tunic, a belt, hose, boots and hair, from the portrait package's own brush, ink and cel pass, with the far side drawn first and shaded. |
+| `figure` | `render(seed, cycle, phase, size)`, `frames(...)` for a whole cycle and `describe(seed)` for the table a sidecar carries. |
+
+### A bone is named after what it is
+
+The first version of `rig.py` named every bone after the joint it *reached* -- the
+bone up from the pelvis was called `chest`, and the bone down to the knee was called
+`knee`. That is a tidy convention, and it produced a walk cycle that said
+`hip_near` where it meant the thigh. There are two hip bones in that scheme: the
+two-hundredths-of-a-figure bone from the pelvis to the hip socket, and the thigh.
+`hip_near` named the first one, so a stride of thirty-eight hundredths of a radian
+was applied to a bone 0.02 long, and the figure walked by rotating its own hip
+sockets by a quarter of a degree. Nothing crashed. The picture was a person standing
+still with a slight lean.
+
+A bone is now named for what it *is* -- `thigh_near`, `shin_far`, `upper_arm_near` --
+and the convention is the sentence: a gait is written about thighs and shins, so a
+skeleton that has them cannot make that mistake. The joints are still named after
+themselves, and the two dicts never meet: `pose()` speaks bone names, `points()`
+answers joint names.
+
+The rest pose is where the proportions live. A figure is **one unit tall**, every
+bone is a fraction of that, and `STAND` is written down as a number of its own so a
+test can check that the three bones below the hip add up to it -- a hip is where its
+legs say it is, and not where a drawing happened to put it. The angles are
+**absolute**: a pose says where a bone points in the world, and the kinematics
+accumulates positions down the tree rather than rotations. A cycle then speaks in
+**deltas** from the rest pose, which is the unit a gait is actually written in --
+"the thigh swings twenty degrees about straight down" is a sentence about walking,
+while "the thigh's world angle is 0.35 rad" is a sentence about trigonometry.
+
+### A gait is a periodic function of phase
+
+The flag had to fight for its loop. Its cloth carries a second harmonic that is not
+commensurate with the first, so the fold pattern returns after ten turns rather than
+one, and a one-turn loop of that cloth has a seam (`cloth.period` is `20π`). A gait
+has no such trouble, and that is a decision rather than luck: every term in
+`cycle.py` is a sine, a cosine, or a **window of one**, so every term is exactly
+`2*pi`-periodic and the loop closes by construction. The test does not measure
+whether it closes; it draws phase `0` and phase `2*pi` independently and compares
+the bytes.
+
+The window is the piece that makes a periodic cycle able to *do* something once per
+turn -- bend a knee, lift a foot, land a sword -- without leaving the periodic world:
+
+```
+bump(p, centre, width) = 1/2 * (1 + cos(pi * clamp((p - centre) / width, -1, 1)))
+```
+
+A raised cosine and not a Gaussian, because it reaches zero **exactly** at the edge
+of its window. A term that only approached zero would leave a step where the window
+ended, which is a visible tick once per loop. A walk is then four lines of it: each
+thigh is one sine and its negation, each shin bends most halfway through its swing,
+each arm swings with the leg on the far side of the body, and the pelvis bobs twice
+per cycle because the legs carry it. That contralateral relation is the whole of why
+a walk does not read as a shuffle, so it is asserted as a relation between two angles
+and not as a picture someone approved.
+
+The four cycles differ in *shape* and not in degree. `run` is not `walk` with bigger
+numbers: it has a lean, bent elbows carried high, a flight phase, and a bigger bob.
+`attack` is not periodic in its nature -- a blow is a one-shot -- so it is written as
+a wind-up, a strike and a recovery **inside one turn**, which is how a game plays it
+once and then falls back into the idle. The windows overlap on purpose: a swing that
+teleports to its end is a swing nobody believes.
+
+### A figure is drawn in side view, so it has a near side and a far side
+
+There is no left and right in a profile, and calling the two limbs `l` and `r` would
+be a lie now and a bug later, when a front view -- which does have a left -- arrives
+and looks like a rename rather than a second view. So the bones are `near` and
+`far`. Depth in a flat drawing is two things and neither of them is a shadow map: the
+far limb is drawn *first*, so the near one crosses it, and it wears a shadow of its
+own material rather than its material. The draw order is the depth order and it is
+fixed: a far limb is never in front of a near one *whatever the pose*, because that
+is what "far" means.
+
+Nothing else about the drawing is new, and that is the point. A limb is a
+`shape.lock` -- the same tapered spine a portrait draws a hair clump with; the outline
+is `ink.stroke`, so a figure's contour is heavy where the limb is thick and thins
+towards the hand exactly as it does down a jaw; the shadow is `cel.shade_shape`, so a
+figure and a portrait wear the same quantised Lambert band under the **one** light,
+`core.render.LIGHT`. Consistency here is not a shared palette; it is one stroke and
+one light with a second caller.
+
+What a figure does not get is a face. At 96 px an eye is two pixels and a mouth is
+one, and drawing them honestly is how a sprite becomes a smudge -- the argument
+`gen/icons` already makes about a sword at 32 px. So the whole of a figure is
+**silhouette, costume and colour**: a skull, a hairstyle, a tunic, a belt, hose,
+boots, and five colours. The tunic takes its colour from outside when a faction hands
+one over -- `crest.field_tincture`, the same place the map's wash and the icon's plate
+read -- so a figure stands in the colour of the realm it belongs to, and a figure that
+belongs to nobody wears what its seed drew.
+
+### The line belongs to the raster, the body belongs to the figure
+
+Everything about the *body* is a fraction of the figure's height: the widths, the
+head, the skirt, the margin. Those are properties of the drawing and they scale with
+it, which is why a 192 px figure is the same figure as a 48 px one and not a resample
+of it.
+
+The **line and the shading bevel are in pixels**. A line belongs to the raster: at
+32 px an outline that scaled with the body would be a hairline, and at 256 px the same
+rule would give a slab. Keeping `LINE_PX = 1.7` is what makes the small sprite a small
+soldier rather than a smudge with a border, and the test says so as a range rather
+than as a pixel count, because 1.7 px is drawn by the anti-aliasing and not by the
+edge.
+
+The cell is sized by the gait and not by the rest pose. A figure occupies 82% of its
+cell, which leaves nine percent above and below -- and that margin is not taste: an
+attack *dips*, and a dip that was not budgeted for is a boot in the next cell of the
+sheet. The test walks all four cycles at twelve phases and checks that the sides and
+the top are clear and that the floor is clear of ink, with one written-down exception:
+the contact shadow may graze the bottom row as a faint pixel, because a shadow is a
+decal on the ground and not part of the figure.
+
+A frame is a **cell and not a trim**: every frame is the same size and the figure is
+centred in it, so the frame that the figure barely enters has the same rectangle as
+the frame it fills. `export/sheet.py` is the second caller it was written for -- it
+had one, the waving flag -- and it gets the same contract: equal cells, clear padding,
+a table taken from the same `render.cells` the picture is drawn on, the frame rate, and
+a loop flag that is true because the cycle closes.
+
+### What is not here
+
+One view, facing `+x`. No weapons or props (a sword is a second skeleton's worth of
+decisions about where a hand is), no cloth or ragdoll physics, and no blending between
+cycles: the cycles are separate functions, so a game cuts from `walk` to `attack`
+rather than cross-fading, and the wind-up inside `attack` is what makes the cut read.
+A front view, a back view and a left-facing mirror are the next thing this package
+would grow -- the mirror is free, the other two are not, because the near and far
+limbs stop being a depth cue and become an anatomy.
 
 ## UI chrome (`gen/ui/`)
 
@@ -2404,6 +2551,24 @@ Generators to sit on top of the core, in the order they become useful:
   horizontal is deliberately not warped, since the distance between the eyes is
   anatomy, so a wide grin is the mouth getting wider rather than the face spreading
   out)*.
+- **figures** -- ~~a body that walks, a gait that closes, and a sprite sheet out of the
+  two~~ *(done: `gen/figures/`, and the first thing it did was rename every bone.  A
+  bone named after the joint it *reaches* gave a thigh the length of a hip socket, so
+  a stride of thirty-eight hundredths of a radian moved the figure by a quarter of a
+  degree and the walk stood still -- nothing crashed and the picture was plausible.
+  The angles are now absolute, a cycle speaks in deltas from a rest pose, and every
+  bone is named for what it is.  Every term of a gait is a sine or a raised-cosine
+  window, so a loop closes at `2*pi` by construction and the test compares the bytes
+  of phase `0` and phase `2*pi` rather than trusting the algebra; the flag's
+  incommensurate harmonic is the contrast that makes that worth stating.  A walk is
+  contralateral, a run has a lean and a flight phase, and an attack is a one-shot
+  inside one turn, which is how a game plays it.  The drawing is the portrait
+  package's brush, ink and cel pass under the **one** light, so a figure and a face
+  are one art set -- while the line and the shading bevel are in **pixels**, because
+  a line belongs to the raster; and a figure is silhouette, costume and five colours
+  rather than a face, for the reason the icon gives about a sword at 32 px)*;
+  ~~the other views~~ *(open: a mirror is free, a front and a back view are not -- the
+  near and far limbs stop being a depth cue and become an anatomy)*.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function~~, ~~asymmetric insets for title bars~~ and ~~wood/stone
   material bodies via fBm + domain warping~~ *(done: `gen/ui/`, with the series

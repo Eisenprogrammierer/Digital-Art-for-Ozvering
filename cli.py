@@ -15,6 +15,7 @@ Usage
     python cli.py arms    --out out/arms.png --seed 7 --count 12
     python cli.py flags   --out out/flags.png --seed 7 --count 12 [--hang bar]  # & poles, staffs
     python cli.py anim    --out out/anim.png  --seed 7 --count 12  # one flag, waving: frames + timeline
+    python cli.py figures --out out/figures.png --seed 7 --cycle walk --count 8  # one figure, one gait
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
@@ -45,6 +46,7 @@ from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import atlas as atlaslib  # noqa: E402
 from export import png, sheet as sheetlib  # noqa: E402
+from gen.figures import figure as figurelib  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
@@ -791,6 +793,33 @@ def demo_anim(out: Path, seed: int = 7, count: int = 12, size: int = 200,
                                  loop=True, params=phases, background=None)
     sheet.save(out)
     _sidecar(out, seed, "procedural:gen.heraldry.flags.waving", spec=spec, **info)
+    return _report(out)
+
+
+def demo_figures(out: Path, seed: int = 7, count: int = 8, size: int = 96,
+                 cols: int = 8, fps: float = 12.0, cycle: str = "walk") -> Path:
+    """Sprite sheet of one figure's gait: the frames, the table and the timeline.
+
+    A figure is not a set of drawings of a person.  It is *one* body -- proportions,
+    palette, a gait -- at a sequence of phases, and the phases are all that differ
+    between the frames.  So the artwork is ``figure.frames`` and this function decides
+    only how the frames are delivered, exactly as ``anim`` does for the flag: a sheet
+    without captions, the rectangles in the sidecar, and a timeline an engine plays.
+
+    The cycle is asked for by name and the loop closes by construction -- every term
+    of a gait is a sine or a window of one, so ``2*pi`` is a period and not a measured
+    guess -- which is why the sheet can say ``loop: true`` and mean it.  The frame is a
+    cell and not a trim: every cell is the same size and the figure is centred in it, so
+    a frame the figure barely enters still has the same rectangle as one it fills.
+    """
+    if cycle not in figurelib.cycles():
+        raise SystemExit(f"no such cycle: {cycle!r} (have {', '.join(figurelib.cycles())})")
+    frames, phases = figurelib.frames(seed=seed, cycle=cycle, count=count, size=size)
+    sheet, info = sheetlib.build(frames, cols=cols, padding=2, fps=fps, loop=True,
+                                 params=phases, background=None)
+    sheet.save(out)
+    _sidecar(out, seed, "procedural:gen.figures.figure.frames", cycle=cycle,
+             tiles=int(count), figure=figurelib.describe(seed), **info)
     return _report(out)
 
 
@@ -1699,6 +1728,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_arms(out / "arms.png", seed=seed, count=12)
     demo_flags(out / "flags.png", seed=seed, count=12, hang="mixed")
     demo_anim(out / "anim.png", seed=seed)
+    demo_figures(out / "figures.png", seed=seed)
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
@@ -1723,6 +1753,15 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="render all core demos into a directory")
     d.add_argument("--out", default="out", type=Path)
     d.add_argument("--seed", type=int, default=7)
+
+    f = sub.add_parser("figures", help="sprite sheet of one figure's cycle")
+    f.add_argument("--out", default="out/figures.png", type=Path)
+    f.add_argument("--seed", type=int, default=7)
+    f.add_argument("--cycle", default="walk", choices=figurelib.cycles())
+    f.add_argument("--count", type=int, default=8)
+    f.add_argument("--size", type=int, default=96)
+    f.add_argument("--cols", type=int, default=8)
+    f.add_argument("--fps", type=float, default=12.0)
 
     i = sub.add_parser("icons", help="icon set, seeds, size sweep and a packed atlas")
     i.add_argument("--out", default="out/icons.png", type=Path)
@@ -1917,6 +1956,9 @@ def main(argv=None) -> int:
     elif args.cmd == "anim":
         demo_anim(args.out, seed=args.seed, count=args.count, size=args.size,
                   cols=args.cols, fps=args.fps, padding=args.padding)
+    elif args.cmd == "figures":
+        demo_figures(args.out, seed=args.seed, cycle=args.cycle, count=args.count,
+                     size=args.size, cols=args.cols, fps=args.fps)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":
