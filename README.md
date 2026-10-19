@@ -80,7 +80,7 @@ python cli.py text       --size 20 --out out/text.png  # the typeface: a specime
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
-python tests/test_core.py                       # 64 tests, no pytest needed
+python tests/test_core.py                       # 67 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
@@ -104,7 +104,7 @@ in `.github/workflows/tests.yml`.
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export, and one export rule: a pixel whose alpha rounds to zero carries no colour. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
-| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. `check` reads them back as a pre-ship gate. |
+| `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen, drawn from both in `gen/text`'s own face. `check` reads them back as a pre-ship gate. |
 | `export` | PNG writer, and `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with. |
 
 ### The three ideas worth remembering
@@ -2411,7 +2411,7 @@ Generators to sit on top of the core, in the order they become useful:
   *(done, as `core/credits.py` + the sidecars: JSON rather than YAML, because a
   YAML parser is a dependency this project does not take)*. The registry also
   generates the credits block ~~and the screen~~ *(done: `credits.screen`, a
-  scroll drawn with the built-in font)*, which matters because the Kevin MacLeod
+  scroll set in this project's own face)*, which matters because the Kevin MacLeod
   tracks are CC-BY and *require* attribution; ~~use the same manifest to check a
   build before it ships~~ *(done: `credits.check`, and `cli.py credits --check`.
   The manifest is read *back* rather than trusted, and the three ways a build can
@@ -2434,9 +2434,9 @@ Generators to sit on top of the core, in the order they become useful:
   **fonts** (closed here: `gen/text/` draws its own -- 214 characters from an alphabet
   of skeletons and a pen, with the Cyrillic as aliases and marks on the same letters
   rather than a second font, so the shipped face is code and a seed like everything
-  else. Pillow's built-in bitmap font survives only in the credits screen and the dev
-  preview captions, which is the right place for it and the reason this package
-  exists at all), **external textures/brushes** (don't), and **CC-BY music**
+  else. Pillow's built-in bitmap font survives only in the dev preview captions,
+  which is the right place for it and the reason this package exists at all),
+  **external textures/brushes** (don't), and **CC-BY music**
   (attribution is mandatory).
 
 ### Attribution
@@ -2454,19 +2454,34 @@ python cli.py credits --manifest out --out out  # ...or write out/credits.txt
 python cli.py credits --manifest out --png out/credits.png   # ...or draw the screen
 ```
 
-A text file is not what a game ships. `screen` draws the same block with Pillow's
-built-in bitmap font and scales it up with nearest-neighbour -- a dev tool doing a
-dev job, and at least the right kind of ugly. (It is no longer the *only* font this
-project has: `gen/text/` draws a real face. The screen has not moved onto it, and
-that is deliberate -- the credits are the one picture here whose job is to be read at
-any size by anybody, and a face whose advances are a release old is the wrong thing
-to introduce into the one file a licence depends on.) The size follows the text in
-both directions, because a credits list is a *scroll*: page it and the one line the
-licence actually demands ends up on page four. What is fixed instead is the line
-*length*, in characters rather than pixels, so the wrap cannot move when the output
-size does. A credit line that fits at 960 and is clipped at 480 is a credit line that
-is not there, and the wrapping is therefore a function that returns rows rather than
-pixels, so a test can read the words back out.
+A text file is not what a game ships. `screen` draws the same block in this project's
+own face -- the last place Pillow's bitmap font was doing a real job, and the one that
+mattered, because a credit is a thing a licence depends on being legible. Each row is
+*drawn* at the size it is asked for (`--size`, the body em in pixels) in the face its
+kind calls for: display for the title, the book face for the credit line, the sans for
+the asset list and the italic for the notes. Nothing is enlarged after the fact, so a
+bigger screen is a bigger drawing and not a blurrier one -- and that is testable rather
+than aspirational, which is why a test asserts that the 48-pixel sheet is *not* the
+12-pixel one scaled up.
+
+The size follows the text in both directions, because a credits list is a *scroll*:
+page it and the one line the licence actually demands ends up on page four. What is
+fixed instead is the line *length*, in characters rather than pixels, so the wrap
+cannot move when the output size does. A credit line that fits at 960 and is clipped
+at 480 is a credit line that is not there, and the wrapping is therefore a function
+that returns rows rather than pixels, so a test can read the words back out. The width
+is then the widest *measured* row plus the margin, which is what "sized by its text"
+means for a proportional face -- and a test draws the sheet and checks that no ink
+reaches the edge of it, which is the same claim looked at on the pixels.
+
+Setting the licence in our own font is a real decision and worth arguing rather than
+asserting. The worry is that the one file whose job is to be read ends up set in a face
+that can change under it, and that is exactly why the artefact the *gate* reads is
+still `credits.txt`: `check` compares the attribution against the text on disk,
+character for character, so nothing about the licence depends on the renderer. The
+screen is drawn from the same rows, and a test holds every character of those rows
+against the alphabet -- a face one character short would raise rather than quietly draw
+a box where the credit line should be.
 
 The manifest is worth trusting for the same kind of reason: a test asserts that
 every sheet the demos write has a sidecar. Not that the entries are right -- that

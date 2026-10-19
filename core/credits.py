@@ -28,6 +28,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .canvas import Canvas
+
 #: Everything in the tree that is not generated from a seed.
 #:
 #: A source is a dict with ``id``, ``title``, ``author``, ``license``, ``url`` and
@@ -318,8 +320,53 @@ _SCREEN_INK = {
     "note": (0.52, 0.56, 0.63),
 }
 
+#: How a row kind is set: the face, an optional weight of its own, the row's em as a
+#: multiple of the body em, and the air above it.  Every row is drawn at its own size,
+#: so there is no scale anywhere in this file -- a title is a bigger drawing, not a
+#: bigger picture of a small one.
+_SCREEN_SET = {
+    "title": ("display", None, 2.05, 0.00),
+    "head": ("text", 0.112, 1.06, 0.62),
+    "credit": ("text", None, 1.00, 0.00),
+    "body": ("sans", 0.086, 0.96, 0.00),
+    "note": ("italic", None, 0.93, 0.00),
+}
 
-def screen(directory=None, cols: int = 48, scale: int = 3):
+#: How much of a row's em its line box claims above and below the baseline.  A line
+#: box, not a measurement: a row with no descender in it still holds the row below it
+#: down, which is what keeps baselines on a rhythm instead of on a slope.
+_SCREEN_ASCENT = 0.80
+_SCREEN_DESCENT = 0.34
+
+#: The paper around the text and the air of a blank row, in body ems.
+_SCREEN_MARGIN = 1.15
+_SCREEN_AIR = 0.62
+
+#: The rule under the title: its ink in sRGB, how far below the title's baseline it
+#: sits (in ems of the title's own em) and how thick it is (in body ems).
+_SCREEN_RULE = (0.34, 0.38, 0.45)
+_RULE_DROP = 0.30
+_RULE_WIDTH = 0.07
+
+#: The padding a row is drawn with, in ems of its own em: the gap the pen leaves
+#: between a line's ink and the edge of the little canvas the line is set on.  It is a
+#: rounding guard for the blit that follows, not a design number -- the margin is the
+#: design number.
+_SCREEN_PAD = 0.02
+
+
+def _screen_spec(kind: str) -> dict:
+    """The pen spec a row of ``kind`` is set in."""
+    from gen.text import pen
+
+    face, weight, _em, _air = _SCREEN_SET[kind]
+    spec = dict(pen.get(face))
+    if weight is not None:
+        spec["weight"] = weight
+    return spec
+
+
+def screen(directory=None, cols: int = 48, size: float = 24.0):
     """The credits as an image whose size is whatever the words need.
 
     A credits list is a *scroll*, not a page.  Paging it means the one line the
@@ -327,48 +374,83 @@ def screen(directory=None, cols: int = 48, scale: int = 3):
     draw is one texture it can move; so the size follows the text, and the caller
     crops or scrolls.
 
-    The line *length* is what has to be fixed instead, and it is a constant number
-    of characters rather than a number of pixels: this is drawn at ``1/scale`` with
-    Pillow's built-in bitmap font and scaled up with nearest-neighbour, and a
-    bitmap font has one size per integer scale.  Ask for a pixel width instead and
-    the scale stops being a whole number, the wrap moves with the output size, and
-    a credit line that fitted at one resolution is clipped at another.
+    The drawing is this project's own face, at ``size`` pixels to the em: every row
+    is set by the same pen the specimen uses, in the face its kind calls for --
+    display for the title, the book face for the credit line, the sans for the asset
+    list and the italic for the notes -- and each row is *drawn* at its own size
+    rather than one drawing being enlarged.  A bigger screen is a bigger drawing, not
+    a blurrier one, which is the same promise the rest of the toolkit makes.
 
-    A game with its own font should draw :func:`screen_lines` itself, which is why
-    the rows come out of a function that does not touch pixels.
+    The line *length* is still a number of characters rather than pixels, and the
+    wrapping lives in :func:`screen_lines`, so the wrap cannot move when ``size``
+    does.  The width is then the widest **measured** row plus the margin, which is
+    what "sized by its text" has to mean for a proportional face -- a character
+    count times a cell would be either a lie or a clipping.
+
+    A game that would rather lay the credits out itself should draw
+    :func:`screen_lines`, which is why the rows come out of a function that does not
+    touch pixels.
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image
 
-    font = ImageFont.load_default()
-    cw = max(float(font.getlength("M")), 1.0)
-    lh = float(font.getbbox("Ag")[3]) + 6.0
-    margin = 8.0
+    from gen.text import typeset
+    from . import palette
+
     rows = screen_lines(directory, cols=cols)
+    em = float(size)
+    specs = [_screen_spec(kind) for kind, _text in rows]
 
-    w = int(2.0 * margin + float(cols) * cw)
-    h = int(2.0 * margin + lh * len(rows))
-    # A soft vertical gradient, so it is a screen and not a stark block: the top
-    # is a little lighter, which is what makes a flat panel read as lit.
-    ramp = np.linspace(0.100, 0.055, h)[:, None]
-    bg = ramp * np.array([0.92, 0.98, 1.25])[None, :]      # (h, 3)
-    bg = np.repeat(bg[:, None, :], w, axis=1)              # (h, w, 3)
-    img = Image.fromarray((np.clip(bg, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), "RGB")
-    draw = ImageDraw.Draw(img)
-    y = margin
+    # the lines, measured: the sheet is as wide as its widest row and no wider
+    widest = max((typeset.measure(text, spec) * _SCREEN_SET[kind][2]
+                  for (kind, text), spec in zip(rows, specs)), default=0.0)
+    width_em = 2.0 * _SCREEN_MARGIN + widest
+
+    # the baselines, from the top of the sheet, in body ems: a line box each, with
+    # the air its kind asks for above it
+    baselines, room = [], _SCREEN_MARGIN
     for kind, text in rows:
-        if kind == "head":
-            y += lh * 0.40  # a heading needs air above it or it is just a line
-        draw.text((margin, y), text,
-                  fill=tuple(int(round(255.0 * v)) for v in _SCREEN_INK[kind]),
-                  font=font)
-        y += lh
+        _face, _weight, k, air = _SCREEN_SET[kind]
+        room += air
+        baseline = room + _SCREEN_ASCENT * k
+        baselines.append(baseline)
+        room = baseline + (_SCREEN_DESCENT * k if text else _SCREEN_AIR)
+    height_em = room + _SCREEN_MARGIN
+    title_k = _SCREEN_SET["title"][2]
+
+    w = max(1, int(round(width_em * em)))
+    h = max(1, int(round(height_em * em)))
+    sheet = Canvas(w, h, scale=em, center=(0.0, 0.0))
+
+    for (kind, text), spec, top in zip(rows, specs, baselines):
+        if not text:
+            continue
+        k = _SCREEN_SET[kind][2]
+        line = typeset.draw(text, spec, em=em * k, pad=_SCREEN_PAD,
+                            colour=_SCREEN_INK[kind])
+        # where the line's own canvas put its ink and its baseline, in its own pixels
+        ink_top = typeset.ink_bounds(text, spec)[3]
+        x = _SCREEN_MARGIN * em - _SCREEN_PAD * em * k
+        y = top * em - (_SCREEN_PAD + ink_top) * em * k
+        sheet.blit(line.rgb, line.a, int(round(x)), int(round(y)))
         if kind == "title":
-            y += lh * 0.15
-            draw.line([(margin, y), (w - margin, y)], fill=(70, 78, 92))
-            y += lh * 0.85
-        elif kind == "head":
-            y += lh * 0.25
-    return img.resize((w * scale, h * scale), Image.NEAREST)
+            # the rule is part of the layout, so it is drawn where the layout put it
+            row = int(round((top + _RULE_DROP * title_k) * em))
+            row = max(0, min(h - 1, row))
+            thick = max(1, min(int(round(_RULE_WIDTH * em)), h - row))
+            x0 = int(round(_SCREEN_MARGIN * em))
+            a = np.zeros((thick, w), dtype=np.float64)
+            a[:, x0:w - x0] = 1.0
+            sheet.over(palette.srgb_to_linear(_SCREEN_RULE), a, 0, row)
+
+    # A soft vertical gradient, so it is a screen and not a stark block: the top is
+    # a little lighter, which is what makes a flat panel read as lit.  It is built in
+    # linear light like everything else and composited under the ink in one pass.
+    ramp = np.linspace(0.108, 0.052, h)[:, None]
+    bg = palette.srgb_to_linear(np.clip(ramp * np.array([0.92, 0.98, 1.25])[None, :],
+                                        0.0, 1.0))
+    out = sheet.rgb * sheet.a[..., None] + bg[:, None, :] * (1.0 - sheet.a[..., None])
+    srgb = palette.linear_to_srgb(out)
+    return Image.fromarray(np.clip(np.round(srgb * 255.0), 0, 255).astype(np.uint8), "RGB")
 
 
 def write_screen(directory, path=None, **kw) -> Path:

@@ -1843,8 +1843,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write credits.txt here (default: print it)")
     cr.add_argument("--png", default=None, type=Path,
                     help="also draw the credits screen to this PNG")
-    cr.add_argument("--scale", type=int, default=3,
-                    help="screen pixel size relative to the built-in font")
+    cr.add_argument("--size", type=float, default=24.0,
+                    help="the screen's em, in pixels (drawn, not scaled)")
     cr.add_argument("--cols", type=int, default=48,
                     help="characters per line on the screen")
     cr.add_argument("--manifest", default="out", type=Path,
@@ -1916,7 +1916,7 @@ def main(argv=None) -> int:
             _report(creditslib.write(args.manifest, args.out))
         if args.png is not None:
             _report(creditslib.write_screen(args.manifest, args.png,
-                                            scale=args.scale, cols=args.cols))
+                                            size=args.size, cols=args.cols))
         if args.check:
             return _credits_check(args.manifest)
         if args.out is None:

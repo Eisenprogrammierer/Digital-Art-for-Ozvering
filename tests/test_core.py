@@ -649,21 +649,81 @@ def test_the_credits_screen_is_sized_by_its_text_and_is_deterministic():
         (d / "a.json").write_text(
             '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
             encoding="utf-8")
-        one = credits.screen(d, scale=2)
-        two = credits.screen(d, scale=2)
+        one = credits.screen(d, size=12)
+        two = credits.screen(d, size=12)
         assert one.size == two.size
         assert one.tobytes() == two.tobytes(), "the same credits must draw the same screen"
         assert len(set(one.tobytes())) > 1, "the screen is not blank"
-
-        # The geometry is the text's: every scale is the same drawing, bigger.
-        small, large = credits.screen(d, scale=1), credits.screen(d, scale=4)
-        assert large.size == (small.size[0] * 4, small.size[1] * 4)
 
         # The height follows the words: one more asset, one more line.
         (d / "b.json").write_text(
             '{"seed": 6, "source": "procedural:y", "license": "MIT", "things": [1]}',
             encoding="utf-8")
-        assert credits.screen(d, scale=2).size[1] > one.size[1]
+        assert credits.screen(d, size=12).size[1] > one.size[1]
+
+
+def test_the_credits_screen_is_drawn_at_the_size_it_is_asked_for():
+    """Two sizes are two drawings, not one drawing enlarged.
+
+    That is the whole difference between a font and a picture of one: the 48-pixel
+    screen is set at 48 pixels, so its edges carry their own anti-aliasing instead of
+    four pixels of the 12-pixel one repeated.  The *layout* is the same, because every
+    distance on the sheet is a number of ems -- four times the em is four times the
+    sheet, give or take the pixel rounding puts on each edge.
+    """
+    from PIL import Image
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.json").write_text(
+            '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        small, large = credits.screen(d, size=12), credits.screen(d, size=48)
+        for want, got in zip(small.size, large.size):
+            assert abs(4 * want - got) <= 4, (small.size, large.size)
+        blown = small.resize(large.size, Image.NEAREST)
+        assert np.asarray(large).tobytes() != np.asarray(blown).tobytes(), \
+            "the large screen is the small one scaled up"
+
+
+def test_the_credits_screen_can_be_set_in_the_project_s_own_face():
+    """The screen is drawn by ``gen/text``, so every character in it must exist.
+
+    The credits are the one file a licence depends on, and its text is a mixture of
+    names, URLs and punctuation that nobody typed with a font in mind.  A character
+    outside the face would not draw a box here -- it would raise -- so the check is
+    made against the data, where a hole is a line of code away from being fixed.
+    """
+    from gen.text import skeleton
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.json").write_text(
+            '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        for cols in (24, 48, 96):
+            for _kind, text in credits.screen_lines(d, cols=cols):
+                for ch in text:
+                    assert skeleton.has(ch), f"{ch!r} in the credits is not in the face"
+
+
+def test_no_line_on_the_credits_screen_touches_the_edge():
+    """A line that is clipped is a line that is not there.
+
+    The sheet is as wide as its widest *measured* row plus the margin, so this is the
+    claim that the measurement and the drawing agree.  The gradient varies only with
+    the row, so the background is constant across a row and the two edge columns are
+    the same column; ink in either would break both.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "a.json").write_text(
+            '{"seed": 5, "source": "procedural:x", "license": "MIT", "things": [1]}',
+            encoding="utf-8")
+        a = np.asarray(credits.screen(d, size=24))
+        assert (a[:, 0] == a[:, -1]).all(), "ink reaches the left or right edge"
+        assert a[0].std(axis=0).max() == 0, "ink reaches the top edge"
+        assert a[-1].std(axis=0).max() == 0, "ink reaches the bottom edge"
 
 
 # --------------------------------------------------------- the pre-ship gate
