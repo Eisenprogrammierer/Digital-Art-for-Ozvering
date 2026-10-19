@@ -58,6 +58,8 @@ sidecar, and :mod:`gen.heraldry.blazon` still knows nothing about any of it.
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 import numpy as np
 
 from core import render
@@ -69,7 +71,7 @@ from . import paint as _paint
 LIGHT = _paint.LIGHT
 
 __all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "freedom", "surface", "drift",
-           "hang", "drape"]
+           "period", "hang", "drape"]
 
 #: What a flag gets when it is asked to hang and nothing more is said.
 #:
@@ -172,6 +174,27 @@ def _shape(spec: dict, t):
     harm = float(spec.get("harmonic", DEFAULTS["harmonic"]))
     wave = np.sin(k * t + ph) + harm * np.sin(_HARMONIC_RATIO * (k * t + ph))
     return wave / (1.0 + harm)
+
+
+def period(spec: dict) -> float:
+    """The phase span over which the fold pattern returns, in radians.
+
+    The fundamental returns after one turn.  The second harmonic returns after
+    ``1 / _HARMONIC_RATIO`` of one, and that ratio is deliberately not a whole number --
+    the pattern must not repeat along the flag -- so the *cloth* returns after the
+    smallest whole number of turns in which both terms do.  With the ratio this module
+    uses, that is ten: a loop of a folded flag is ten flaps, and a caller who wants one
+    flap to be a loop has to ask for a cloth with one harmonic, whose period is a turn.
+
+    This is a property of the cloth and not of the animation, which is why it is here
+    and not in the thing that draws the frames: sampling a field does not change what
+    the field is, and an animator who does not know this will cut the loop at a seam
+    that is not one.
+    """
+    if float(spec.get("harmonic", DEFAULTS["harmonic"])) == 0.0:
+        return 2.0 * np.pi
+    ratio = Fraction(_HARMONIC_RATIO).limit_denominator(1000)
+    return 2.0 * np.pi * ratio.denominator
 
 
 def surface(spec: dict, t, extent: float = 1.0, envelope=None):

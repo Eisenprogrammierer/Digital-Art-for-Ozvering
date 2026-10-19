@@ -14,6 +14,7 @@ Usage
     python cli.py shapes  --out out/shapes.png
     python cli.py arms    --out out/arms.png --seed 7 --count 12
     python cli.py flags   --out out/flags.png --seed 7 --count 12 [--hang bar]  # & poles, staffs
+    python cli.py anim    --out out/anim.png  --seed 7 --count 12  # one flag, waving: frames + timeline
     python cli.py blazon  --seed 5 [--spec spec.json] [--out out/arms_one.png]
     python cli.py portrait   --seed 5 --size 384 --out out/portrait.png
     python cli.py portraits  --seed 7 --count 8 --size 256
@@ -43,7 +44,7 @@ from core import credits as creditslib  # noqa: E402
 from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import atlas as atlaslib  # noqa: E402
-from export import png  # noqa: E402
+from export import png, sheet as sheetlib  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
 from gen.heraldry import crest as crestlib  # noqa: E402
 from gen.heraldry import flags as flaglib  # noqa: E402
@@ -757,6 +758,38 @@ def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols:
         encoding="utf-8",
     )
     _report(meta)
+    return _report(out)
+
+
+def demo_anim(out: Path, seed: int = 7, count: int = 12, size: int = 200,
+              cols: int = 4, fps: float = 12.0, padding: int = 2) -> Path:
+    """Sprite sheet of one flag, waving: the frames, the table and the timeline.
+
+    An animation is not a set of pictures of a flag.  It is *one* flag at a sequence
+    of phases, and the phases are all that differ between the frames -- which is why
+    the artwork is `flags.waving` and the only thing this function decides is how the
+    frames are delivered.  That is a sheet without captions and with a timeline: an
+    engine cuts it up with the table and plays it at `fps`.
+
+    The cloth is asked for *one* harmonic, and that is a decision this command makes
+    rather than a default it inherits: the default second harmonic is not commensurate
+    with the first, so a folded flag returns after ten turns rather than one
+    (`cloth.period`), and a loop cut at one turn would stutter once per loop.  One
+    harmonic makes the loop close exactly -- the last frame is followed by the first
+    because the field is a sinusoid -- and ten flaps per loop is not what a flag does.
+
+    The frames are drawn one at a time at their own phase, exactly as every other
+    asset here is drawn at its own size, so nothing about the sheet is a resample of
+    anything.  The background is transparent rather than a paper colour, and the
+    padding between frames is clear: a sheet is cut up along its table, and a pixel
+    the file says is not there is a pixel no filter can pull into a frame.
+    """
+    spec = flaglib.random_flag(seed=seed, wave={"harmonic": 0.0}, pole=True)
+    frames, phases = flaglib.waving(spec, count=count, size=size)
+    sheet, info = sheetlib.build(frames, cols=cols, padding=padding, fps=fps,
+                                 loop=True, params=phases, background=None)
+    sheet.save(out)
+    _sidecar(out, seed, "procedural:gen.heraldry.flags.waving", spec=spec, **info)
     return _report(out)
 
 
@@ -1672,6 +1705,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_palette(out / "palette.png", seed=seed, count=6)
     demo_arms(out / "arms.png", seed=seed, count=12)
     demo_flags(out / "flags.png", seed=seed, count=12, hang="mixed")
+    demo_anim(out / "anim.png", seed=seed)
     demo_portraits(out / "portraits.png", seed=seed, count=8, size=256)
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
@@ -1747,6 +1781,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "a staff with a crossbar on it, the three in turn, or nothing")
     f.add_argument("--flat", action="store_true",
                    help="draw the flags in a plane, holding nothing, instead of hanging them")
+
+    a = sub.add_parser("anim", help="sprite sheet of one flag, waving: frames and a timeline")
+    a.add_argument("--out", default="out/anim.png", type=Path)
+    a.add_argument("--seed", type=int, default=7)
+    a.add_argument("--count", type=int, default=12, help="frames through one cycle")
+    a.add_argument("--size", type=int, default=200, help="pixels per frame")
+    a.add_argument("--cols", type=int, default=4)
+    a.add_argument("--fps", type=float, default=12.0)
+    a.add_argument("--padding", type=int, default=2, help="clear pixels between frames")
 
     b = sub.add_parser("blazon", help="print the blazon of a coat (and render it)")
     b.add_argument("--seed", type=int, default=5)
@@ -1876,6 +1919,9 @@ def main(argv=None) -> int:
         demo_flags(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
                    ratio=_ratio(args.ratio), shape=args.shape, wave=not args.flat,
                    hang="none" if args.flat else args.hang)
+    elif args.cmd == "anim":
+        demo_anim(args.out, seed=args.seed, count=args.count, size=args.size,
+                  cols=args.cols, fps=args.fps, padding=args.padding)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":

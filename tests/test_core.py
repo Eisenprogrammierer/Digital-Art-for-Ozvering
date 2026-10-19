@@ -329,6 +329,39 @@ def test_sheet_layout_and_background():
     assert np.allclose(s.rgb[0, 0], palette.srgb_to_linear((1.0, 1.0, 1.0)))
 
 
+def test_the_sheet_table_is_the_layout_the_sheet_draws():
+    """One arithmetic, two readers: the pixels and the table of rectangles.
+
+    ``export.sheet`` writes the rectangles an engine cuts a sprite sheet up with, and
+    it takes them from :func:`render.cells` -- the same function :func:`render.sheet`
+    draws on.  A table that agrees with the picture only because two formulas were kept
+    in step is wrong on the day someone edits one of them, so the test reads the pixels
+    back: four flat frames, and every cell holds its own colour and nothing else.
+    """
+    colours = ((0.9, 0.1, 0.1), (0.1, 0.8, 0.2), (0.1, 0.2, 0.9), (0.9, 0.9, 0.1))
+    frames = []
+    for rgb in colours:
+        c = Canvas(6, 4, scale=1.0)
+        c.fill(rgb, 1.0)
+        frames.append(c)
+    sheet = render.sheet(frames, cols=3, gap=1, background=None)
+    assert (sheet.w, sheet.h) == (3 * 6 + 4, 2 * 4 + 3)
+    cells = render.cells(4, 3, 6, 4, 1)
+    assert cells == [(1, 1), (8, 1), (15, 1), (1, 6)]
+    a = sheet.to_uint8()
+    for (x, y), frame in zip(cells, frames):
+        assert np.array_equal(a[y:y + 4, x:x + 6], frame.to_uint8())
+    ink = sum(int((f.to_uint8()[..., 3] > 0).sum()) for f in frames)
+    assert int((a[..., 3] > 0).sum()) == ink, "the padding is not empty"
+    for wrong in (lambda: render.cells(1, 0, 4, 4), lambda: render.cells(1, 1, 0, 4)):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a grid with no columns or no pixels should be refused")
+
+
 # ------------------------------------------------------------------ canvas
 def test_canvas_grid_is_centred_and_y_up():
     c = Canvas(8, 4, scale=4.0)

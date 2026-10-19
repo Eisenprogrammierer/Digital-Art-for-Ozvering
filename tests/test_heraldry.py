@@ -25,6 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
+from export import sheet as sheetlib  # noqa: E402
 from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, paint, pole, shields, tinctures  # noqa: E402
 
 
@@ -407,6 +408,31 @@ def test_a_wave_is_a_spec_with_a_phase_from_its_seed():
             raise AssertionError("a wave that cannot be drawn should be refused")
 
 
+def test_the_period_of_the_folds_is_a_whole_number_of_turns():
+    """What a loop of a folded flag costs, in turns, and why it is not one.
+
+    The second harmonic exists so that the pattern does *not* repeat along the flag,
+    and the price of that is paid by an animator: the cloth returns only after a whole
+    number of turns in which both terms do, which for this ratio is ten.  The claim is
+    checked against the field rather than against the arithmetic that produced it --
+    the fold at a phase and the fold a period later are the same fold -- and a cloth
+    with one harmonic, which is the one an animation asks for, returns after one turn.
+    """
+    spec = cloth.wave(3)
+    span = cloth.period(spec)
+    assert np.isclose(span, 10.0 * 2.0 * np.pi)
+    t = np.linspace(0.0, 1.0, 17)
+    here = cloth.surface(spec, t)
+    assert np.allclose(here, cloth.surface({**spec, "phase": spec["phase"] + span}, t),
+                       atol=1e-12)
+    assert not np.allclose(here, cloth.surface({**spec, "phase": spec["phase"] + 2.0 * np.pi}, t))
+    plain = {**spec, "harmonic": 0.0}
+    assert np.isclose(cloth.period(plain), 2.0 * np.pi)
+    assert np.allclose(cloth.surface(plain, t),
+                       cloth.surface({**plain, "phase": plain["phase"] + 2.0 * np.pi}, t),
+                       atol=1e-12)
+
+
 def test_a_wave_of_zero_amplitude_is_the_identity():
     """The one case where the wave must be exact rather than merely close.
 
@@ -528,6 +554,152 @@ def test_a_crest_banner_flies_flat():
     cannot acquire folds by accident, and its banner stays comparable to its shield.
     """
     assert "wave" not in crest.faction("Kingdom of Alder")["flag"]
+
+
+# ------------------------------------------------------------- the animation
+def test_a_waving_flag_is_one_flag_at_a_sequence_of_phases():
+    """An animation is the spec sampled, not a set of pictures of the flag.
+
+    Every frame is the call :func:`render` already makes, so a frame is a function of
+    its phase and of nothing else: the same phase is the same bytes and the next phase
+    is not.  The frames also have to come back the *same size*, because a sprite sheet
+    is a grid of equal cells -- if the cloth's reach moved with the phase, the margin
+    would move with it and no table could cut the sheet up.
+    """
+    spec = flags.random_flag(seed=7, wave=True)
+    frames, phases = flags.waving(spec, count=6, size=96)
+    assert len(frames) == len(phases) == 6
+    assert {(f.w, f.h) for f in frames} == {(96, 96)}
+    start = spec["wave"]["phase"]
+    assert np.allclose(phases, [start + i * 2.0 * np.pi / 6 for i in range(6)])
+    same = flags.render({**spec, "wave": {**spec["wave"], "phase": phases[0]}}, size=96)
+    assert frames[0].to_uint8().tobytes() == same.to_uint8().tobytes()
+    for i in range(5):
+        assert frames[i].to_uint8().tobytes() != frames[i + 1].to_uint8().tobytes()
+
+
+def test_the_loop_closes_because_the_wave_is_periodic():
+    """The claim a game cares about: the frame after the last is the first.
+
+    Not because a list was built to wrap -- there is no list -- but because the field
+    being sampled is a sinusoid, and a sinusoid one turn later is itself.  So the test
+    is an equality of bytes between two independently drawn sequences: the animation
+    that starts at phase ``p`` and the one that starts at ``p + 2*pi`` are the same
+    animation, which is what a seamless loop *is*.
+
+    The cloth is asked for one harmonic here, because that is the cloth whose period is
+    one turn: the default second harmonic is deliberately not commensurate with the
+    first (see :func:`gen.heraldry.cloth.period`), and a loop cut at one turn of *that*
+    cloth is a loop with a seam.  Which is exactly the sort of thing an animator has to
+    know, so it is a function and a test rather than a comment.
+    """
+    spec = flags.random_flag(seed=7, wave={"harmonic": 0.0})
+    frames, phases = flags.waving(spec, count=4, size=96)
+    turn = {**spec, "wave": {**spec["wave"], "phase": spec["wave"]["phase"] + 2.0 * np.pi}}
+    later, later_phases = flags.waving(turn, count=4, size=96)
+    for a, b in zip(frames, later):
+        assert a.to_uint8().tobytes() == b.to_uint8().tobytes()
+    assert np.allclose(later_phases, np.asarray(phases) + 2.0 * np.pi)
+    # and the axis is uniform rather than a list of chosen moments: sampling every
+    # other phase of a slow cycle is the same drawing as sampling every phase of a
+    # fast one, because there is only one function here.
+    coarse, _ = flags.waving(spec, count=2, size=96)
+    for i, frame in enumerate(coarse):
+        assert frame.to_uint8().tobytes() == frames[2 * i].to_uint8().tobytes()
+
+
+def test_a_finer_sampling_is_the_same_motion_sampled_finer():
+    """Why more frames is smoother rather than different.
+
+    The frames are samples of a continuous field, so a quarter of the step between
+    phases is a quarter of the change between pictures: an animation of twelve frames
+    and one of forty-eight are the same flap, and the second is not a better drawing of
+    a different one.  A test that counted frames would pass on a set of interpolated
+    stills; this one measures the motion, which is the thing the player sees.
+    """
+    spec = flags.random_flag(seed=7, wave=True)
+
+    def step(count):
+        frames, _ = flags.waving(spec, count=count, size=64)
+        a = [f.to_uint8().astype(np.int32) for f in frames]
+        return float(np.mean([np.abs(a[i] - a[i + 1]).mean() for i in range(count - 1)]))
+
+    coarse, fine = step(4), step(16)
+    assert 0.0 < fine < coarse * 0.75, (coarse, fine)
+
+
+def test_a_flag_that_does_not_wave_has_no_frames():
+    """One frame is not an animation, and a flag at rest is not a frame of a wave.
+
+    The contact sheet is where a flag that is not flying belongs.  Asking it for
+    phases would mean inventing motion it does not have, and every frame here is drawn
+    rather than interpolated -- so a spec with no wave is refused, not given a still.
+    """
+    spec = flags.random_flag(seed=7)
+    assert "wave" not in spec
+    flying = flags.random_flag(seed=7, wave=True)
+    for wrong in (lambda: flags.waving(spec),
+                  lambda: flags.waving(flying, count=0),
+                  lambda: flags.waving(flying, turns=0.0)):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a spec with no wave has no phases to be drawn at")
+
+
+def test_a_sprite_sheet_is_a_grid_a_table_and_a_timeline():
+    """The three things an engine needs, and the one thing it must not have to do.
+
+    A sprite sheet is not a contact sheet: no captions, a clear background so that a
+    filter cannot pull a neighbour into a frame, and a table of rectangles that says
+    where each frame is -- with the value of the axis it was drawn at, so the sheet can
+    be regenerated from its numbers rather than merely looked at.  The rectangles are
+    checked against the pixels rather than against the formula that produced them,
+    because a table that is wrong is the failure a player would see.
+    """
+    spec = flags.random_flag(seed=7, wave=True, pole=True)
+    frames, phases = flags.waving(spec, count=5, size=48)
+    canvas, info = sheetlib.build(frames, cols=3, padding=2, fps=8.0, params=phases,
+                                  background=None)
+    assert info["cols"] == 3 and info["rows"] == 2
+    assert info["cell"] == [48, 48] and info["size"] == [canvas.w, canvas.h]
+    assert info["fps"] == 8.0 and info["loop"] is True
+    assert [f["index"] for f in info["frames"]] == [0, 1, 2, 3, 4]
+    assert np.allclose([f["param"] for f in info["frames"]], phases)
+    a = canvas.to_uint8()
+    drawn = 0
+    for frame, entry in zip(frames, info["frames"]):
+        x, y, w, h = entry["rect"]
+        assert np.array_equal(a[y:y + h, x:x + w], frame.to_uint8())
+        drawn += int((frame.to_uint8()[..., 3] > 0).sum())
+    assert int((a[..., 3] > 0).sum()) == drawn, "the padding is not empty"
+
+
+def test_a_sheet_refuses_frames_that_are_not_the_same_size():
+    """An atlas trims its members; a sheet cannot trim its frames.
+
+    Frames of one animation are one size by construction, and an engine that has to
+    re-centre every frame is an engine with a character that rolls -- so unequal frames
+    are refused with the name of the thing that packs them.  The rest of the list is
+    the other way a sheet fails quietly: a frame rate of zero, a padding that overlays
+    the frames, a timeline that does not line up with the pictures, and no frames.
+    """
+    spec = flags.random_flag(seed=7, wave=True)
+    small = flags.render(spec, size=32)
+    big = flags.render(spec, size=64)
+    for wrong in (lambda: sheetlib.build([small, big]),
+                  lambda: sheetlib.build([small], fps=0.0),
+                  lambda: sheetlib.build([small], padding=-1),
+                  lambda: sheetlib.build([small, small], params=[1.0]),
+                  lambda: sheetlib.build([])):
+        try:
+            wrong()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a sheet that cannot be played should be refused")
 
 
 # ---------------------------------------------------------- the pole

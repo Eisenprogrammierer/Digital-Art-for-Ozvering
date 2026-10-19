@@ -30,7 +30,7 @@ python cli.py demo --out out --seed 7
 
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
-`out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
+`out/anim.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
 `out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
@@ -44,7 +44,9 @@ wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
-icons the tiers and counts it badged and the factions it dressed a set in, and for the
+icons the tiers and counts it badged and the factions it dressed a set in, for an
+animation the rectangle of every frame with the phase it was drawn at and the rate it
+plays at, and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
@@ -66,6 +68,7 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--hang bar]  # & staffs
+python cli.py anim    --out out/anim.png  --seed 7 --count 12 --fps 12   # one flag waving: frames + timeline
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -80,8 +83,8 @@ python cli.py text       --size 20 --out out/text.png  # the typeface: a specime
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
-python tests/test_core.py                       # 67 tests, no pytest needed
-python tests/test_heraldry.py                   # 73 tests
+python tests/test_core.py                       # 68 tests, no pytest needed
+python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 89 tests
@@ -105,7 +108,7 @@ in `.github/workflows/tests.yml`.
 | `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export, and one export rule: a pixel whose alpha rounds to zero carries no colour. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
 | `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen, drawn from both in `gen/text`'s own face. `check` reads them back as a pre-ship gate. |
-| `export` | PNG writer, and `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with. |
+| `export` | PNG writer, `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with; and `export.sheet`: the frames of *one* sprite laid out over time, with the timeline they play on. |
 
 ### The three ideas worth remembering
 
@@ -367,8 +370,8 @@ is a small compiler, not a drawing routine.
 | `charges` | 29 charges built from SDF primitives in a normalised unit box — a lion is a set of capsules and discs, so it reads as a *generated* beast rather than a traced one. |
 | `paint` | Flat and embossed tincture painting, rim light, drop shadow, all in linear light. |
 | `blazon` | Composition, `validate`, EN/RU blazon text, `random_arms`, and `render(spec, size, shade=...)` — one extra argument, and the classical palette is what you get without it. |
-| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. A `pole` in the spec flies it and a `bar` hangs it. |
-| `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected -- and the two ways to hold it, at the side of its folds (`hang`) or across the top of them (`drape`). |
+| `flags` | Flag patterns (bicolour, tricolour, cross, Nordic cross, saltire, canton, hoist triangle, bordered), `describe`, `random_flag`, and the same `shade` argument as arms. A `pole` in the spec flies it and a `bar` hangs it. `waving` returns the frames and the phases of one flag over a cycle. |
+| `cloth` | Why a flag hangs instead of sitting: one height field, lit and projected -- and the two ways to hold it, at the side of its folds (`hang`) or across the top of them (`drape`). `period` is the phase span in which the fold pattern returns, which is what an animation has to cut its loop on. |
 | `pole` | The shaft, its finial and the material it is made of; the room the flag's frame has to make for it, the anchor it puts on the cloth's hoist, and the droop that follows. A crossbar (`bar`) is the same rod turned a quarter turn. |
 | `crest` | A faction's whole identity from its *name*: the coat, the banner it flies, the livery it wears, the words for both, and `render`, which cannot be handed a coat without its colours. |
 
@@ -698,6 +701,54 @@ putting them beside each other is the only way to see that the hanging is all th
 differs. The **description** does not change with the mounting -- "Azure, a cross
 Or" is what the cloth says, and whether it is on a pole or a bar is not something a
 blazon has a word for -- which is the same reason `crest.faction` carries neither.
+
+### An animation is a flag sampled along the axis it already had
+
+The last increment is the one that needed no new physics, and that is the point of it.
+Everything else here is a function of a seed; a waving flag is a function of a seed
+**and a phase**, because cloth that moves had to be a field in `t` before it could be a
+picture at all. So an animation is not a set of drawings of a flag -- it is *one* call
+sampled: `flags.waving(spec, count=12)` returns twelve frames and the twelve phases they
+were drawn at, and frame *i* is `flags.render` with one number different. Nothing is
+interpolated, nothing is tweened, and no frame is a resample of another: an engine that
+plays the sheet plays twelve real drawings, and a reviewer who doubts the fourth one can
+regenerate that exact frame from the sidecar.
+
+That changes what the delivery has to be. A `flags.png` sheet is for a person and has
+captions; `export.sheet.build` writes the other thing -- a grid of equal cells with no
+captions, clear padding between frames, and a table saying where each frame is with the
+phase it was drawn at, plus the frame rate and whether it loops. Two decisions are
+behind the format rather than inside it. **A frame is a cell, not a trim**: an atlas
+trims each member to its own pixels because sprites are different shapes, and the frames
+of one animation are one size by construction -- so unequal frames are *refused*, with
+the refusal naming the atlas that can pack them, because an engine that has to re-centre
+every frame is an engine with a character that rolls. And **the rectangle is the
+layout**: the table comes from `render.cells`, the same function `render.sheet` draws
+on, so the picture and the table cannot disagree about a pixel -- and the test reads the
+pixels back rather than re-deriving the formula. The convention is `export.atlas`'s, top
+left with y down, so one cutter reads both kinds of sheet.
+
+The loop is where the cloth had something to say, and it said it in a number. A flag's
+fold is a fundamental plus a second harmonic, and `_HARMONIC_RATIO` is deliberately not
+a whole number -- the pattern must not repeat along the flag -- so the two terms return
+together only after **ten turns**, which is what `cloth.period` reports: 20π radians.
+Animating one turn of *that* cloth gives a loop with a seam, because the harmonic comes
+back 0.7 of a cycle out. So the demo asks for a cloth with one harmonic, whose period is
+one turn, and the loop then closes *exactly*: the test renders the animation at phase
+`p` and again at `p + 2π`, in two independent calls, and requires the bytes to match.
+What is true of both cloths is that the sampling is uniform -- one turn divided by the
+frame count, at every step including the wrap -- which is why a seam is a step like any
+other step and never a special frame. And because the frames are samples of a continuous
+field, a finer sampling is *smaller steps* rather than a different motion: the test
+measures the mean change per step at four frames and at sixteen, and the finer one is
+about a quarter of the coarse one -- four times the frames, a quarter of the step.
+
+The cost is the cheapest thing in the repository: a dozen frames of a 200-pixel flag, no
+simulation and no cached state. `python cli.py anim --count 12 --fps 12` writes
+`out/anim.png` and its sidecar, and the `demo` does too -- `out/anim.png`, 12 frames in
+a 4×3 grid, transparent between cells, with the pole identical in every frame and only
+the cloth moving. The sidecar is what `credits` reads, so a sheet an engine plays is a
+sheet the licence gate can account for.
 
 ## Portraits (`gen/portraits/`)
 
@@ -2251,6 +2302,21 @@ Generators to sit on top of the core, in the order they become useful:
   cylinder and a sphere shaded by the one light rather than a bevel; and a bar is
   the same rod turned a quarter turn and the same cloth held the other way, so the
   folds deepen downwards from it and what gravity does to the cloth is stretch it).*
+- **animation** -- ~~sprite sheets, one frame a cell, the table an engine cuts the sheet
+  up with, and the timeline it plays on~~ *(done: there was no physics to add, because
+  a waving flag was already a field in `t`. `flags.waving` returns the frames and the
+  phases they were drawn at, so frame *i* is the same call the contact sheet makes with
+  one number different, and nothing is interpolated. `export/sheet.py` is the delivery
+  -- equal cells, clear padding, a table taken from the same `render.cells` the picture
+  is drawn on, and the frame rate and loop flag beside it -- and unequal frames are
+  refused with the atlas named, because a sheet's cells are what an engine aligns and
+  an atlas is what trims. The loop is the part the cloth had an answer to: the second
+  harmonic is not commensurate with the first, so a folded cloth returns after ten
+  turns (`cloth.period`, 20π) and a one-turn loop of *that* cloth has a seam -- which
+  is why the demo asks for a cloth with one harmonic, whose loop closes byte for byte
+  at `p + 2π`. What holds either way is that the sampling is uniform, so the seam is a
+  step like any other step, and that a finer sampling is smaller steps rather than a
+  different motion; both are measured in the tests rather than asserted)*.
 - **portraits** -- ~~SDF head, ink contours, cel shading, traceable genome,
   heredity~~ *(done: `gen/portraits/`)*; ~~outfits built from the same shoulder
   line~~ *(done: a collar stroke, three kinds, one per seed)*; ~~turn the head in

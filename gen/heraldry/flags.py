@@ -53,6 +53,7 @@ __all__ = [
     "random_flag",
     "describe",
     "render",
+    "waving",
 ]
 
 #: Flags sit in their frame and are lit like everything else, but they carry no
@@ -331,6 +332,45 @@ def render(spec: dict, size=512, background=None, shade=None):
     if bar:
         _pole.bar_paint(canvas, bar, cloth_hw, 1.0)
     return canvas
+
+
+def waving(spec: dict, count: int = 8, turns: float = 1.0, size=512):
+    """The same flag at ``count`` phases through ``turns`` of its cycle.
+
+    A flag does not have frames.  A *wave* has a phase, and the flag at a phase is a
+    flag -- so an animation of one is the spec sampled along an axis that was already
+    in it.  Nothing here interpolates anything and nothing is redrawn by hand: frame
+    ``i`` is the call :func:`render` already makes, with one number different, which is
+    why this is a function and not a file format.
+
+    One turn is one cycle of the *fundamental*, and a cloth whose fold has only that
+    term is periodic with it: the frame after the last is the first, because ``sin``
+    says so and not because the last frame was adjusted to match.  A second harmonic is
+    deliberately not commensurate with the first -- the pattern must not repeat along
+    the flag -- so a folded cloth returns after :func:`gen.heraldry.cloth.period`
+    radians instead, which is a whole number of turns.  Either way the sampling is
+    uniform, so the seam of a loop is a step like every other step and not a special
+    frame; what a loop *closes* on is the caller's choice of ``turns``.
+
+    Returns ``(frames, phases)``.  The phases come back with the frames because they
+    are what a sidecar has to say: a sheet of frames is regenerable from its numbers,
+    and a list of pictures is not.
+    """
+    wave = spec.get("wave")
+    if not isinstance(wave, dict):
+        raise ValueError("only a flag that waves has phases to be drawn at, and this "
+                         "spec has no wave -- the flat one is the contact sheet's job")
+    count = int(count)
+    if count < 1:
+        raise ValueError(f"{count} frames is not an animation")
+    if float(turns) <= 0.0:
+        raise ValueError("a wave that does not advance is a still picture")
+    start = float(wave.get("phase", 0.0))
+    step = 2.0 * np.pi * float(turns) / count
+    phases = [start + i * step for i in range(count)]
+    frames = [render({**spec, "wave": {**wave, "phase": phase}}, size=size)
+              for phase in phases]
+    return frames, phases
 
 
 #: Flag pattern factories, keyed by name, for the generator and the CLIs.

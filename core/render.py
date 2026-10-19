@@ -21,6 +21,7 @@ __all__ = [
     "gaussian_blur",
     "translate_array",
     "drop_shadow",
+    "cells",
     "sheet",
     "LIGHT",
 ]
@@ -197,11 +198,35 @@ def drop_shadow(alpha, scale: float = 1.0, offset=(0.0, -0.06), sigma: float = 0
 # --------------------------------------------------------------------------
 # contact sheets / atlases
 # --------------------------------------------------------------------------
+def cells(count: int, cols: int, cw: int, ch: int, gap: int = 0) -> list:
+    """Where the ``count`` cells of a ``cols``-wide grid begin, in pixels.
+
+    Top-left corners, y down -- the convention the exported file has and the one
+    ``export.atlas`` already writes its rectangles in, because a rectangle an engine
+    reads is a rectangle in the image it reads it from.  :func:`sheet` draws on these
+    and :func:`export.sheet.build` writes them into its sidecar, so the picture and the
+    table of where each frame is cannot disagree about a single pixel.  That is the
+    whole difference between a sprite sheet and a picture of one.
+    """
+    if cols < 1:
+        raise ValueError("a grid is at least one column wide")
+    if cw < 1 or ch < 1:
+        raise ValueError("a cell has pixels in it")
+    return [(gap + (i % cols) * (cw + gap), gap + (i // cols) * (ch + gap))
+            for i in range(int(count))]
+
+
 def sheet(canvases, cols: int = 4, gap: int = 8, background=(0.94, 0.94, 0.96), scale: float | None = None) -> Canvas:
     """Lay canvases out on a grid, centred, on a flat background.
 
     Doubles as the first step towards a texture atlas: the same tiling logic
-    with pixel-exact packing is all a sprite sheet needs.
+    with pixel-exact packing is all a sprite sheet needs.  :func:`cells` is that
+    tiling, in one place, and a sheet of *frames* rather than of samples is
+    :func:`export.sheet.build` -- a grid, a table and a timeline.
+
+    ``background=None`` gives clear margins instead of a paper colour, which is what a
+    caller cutting the sheet up wants: a padding pixel the file says is not there is a
+    pixel no bilinear filter can pull into a frame.
     """
     canvases = list(canvases)
     if not canvases:
@@ -212,9 +237,6 @@ def sheet(canvases, cols: int = 4, gap: int = 8, background=(0.94, 0.94, 0.96), 
     W = cols * cw + (cols + 1) * gap
     H = rows * ch + (rows + 1) * gap
     out = Canvas(W, H, scale=scale or canvases[0].scale, background=background)
-    for i, c in enumerate(canvases):
-        r, col = divmod(i, cols)
-        x = gap + col * (cw + gap) + (cw - c.w) // 2
-        y = gap + r * (ch + gap) + (ch - c.h) // 2
-        out.blit(c.rgb, c.a, x, y)
+    for c, (x, y) in zip(canvases, cells(len(canvases), cols, cw, ch, gap)):
+        out.blit(c.rgb, c.a, x + (cw - c.w) // 2, y + (ch - c.h) // 2)
     return out
