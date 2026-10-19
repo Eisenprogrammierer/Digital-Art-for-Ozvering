@@ -29,6 +29,7 @@ from core.canvas import Canvas
 from core.render import LIGHT
 
 from . import autotile, coast, politics, region, rivers, roads, terrain
+from . import labels as _labels
 from .grid import HexGrid
 
 __all__ = [
@@ -434,6 +435,7 @@ def map_image(
     frontier: float = 1.0,
     seas: int = 0,
     capitals: bool = True,
+    names: bool = False,
     shadow: float = 0.34,
     **kw,
 ) -> Canvas:
@@ -462,6 +464,12 @@ def map_image(
     biomes here and between land and sea there, and everything downstream of that
     is the caller's ink.  A tile on water is off the land by construction, so the
     two borders never overlap and neither can be mistaken for the other.
+
+    ``names`` sets the provinces' names into the map, in the project's own face and
+    at the size each province can hold; :mod:`gen.maps.labels` argues the placement
+    and is where a caller who wants the layout rather than the picture should look.
+    The label belongs to the *geography*, like the rivers: it is placed by the same
+    seed and at the same cell whatever the map is drawn at, and it is not a caption.
     """
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
@@ -523,6 +531,12 @@ def map_image(
     # which has a mark of its own sitting on top of it.
     if road > 0.0 and res is not None:
         road_layer(canvas, grid, roads.network(grid, f, res), alpha=road)
+
+    # Names go on after the roads and before the capitals, for the same reason the
+    # roads do: a road is drawn *to* a capital, and a name is the province's, so the
+    # boss sits on top of whatever it lands on and a road is never cut by type.
+    if res is not None and names:
+        _labels.draw(canvas, grid, _labels.layout(grid, res))
 
     if res is not None and capitals:
         marks = province_tints if province_owners is not None else None

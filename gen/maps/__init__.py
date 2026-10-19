@@ -20,6 +20,10 @@
 ``region``
     The political map: provinces grown by breadth-first search so that they are
     connected, capitals at their one-medians, and names.
+``labels``
+    Those names set into the picture: the pole of inaccessibility of each
+    province, the largest size that fits inside it, and a pale halo under the
+    ink so a name reads over painted ground.
 ``paint``
     One per-pixel raster pass for the ground and its relief, a wash and a frontier
     line for the provinces, strokes for the rivers, the coast and the frame.
@@ -35,10 +39,10 @@ Typical use::
     image = map_image(seed=7, cols=26, rows=17, size=14.0, provinces=8)
     image.save("out/map.png")
 """
-from . import autotile, coast, grid, paint, region, rivers, terrain
+from . import autotile, coast, grid, labels, paint, region, rivers, terrain
 
-__all__ = ["autotile", "coast", "grid", "paint", "region", "rivers", "terrain",
-           "HexGrid", "map_image"]
+__all__ = ["autotile", "coast", "grid", "labels", "paint", "region", "rivers",
+           "terrain", "HexGrid", "map_image"]
 
 HexGrid = grid.HexGrid
 map_image = paint.map_image

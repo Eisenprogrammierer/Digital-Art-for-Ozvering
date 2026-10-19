@@ -56,6 +56,7 @@ from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import autotile as map_autotile  # noqa: E402
 from gen.maps import campaign as map_campaign  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
+from gen.maps import labels as map_labels  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
@@ -1218,11 +1219,13 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     """Contact sheet of maps: the geography is the seed, and nothing else.
 
     Each tile is labelled with the seed that makes it, the grid it is played on, the
-    water fraction and the commonest ground -- and then with its *provinces*, whose
-    names are drawn at their capitals.  Those names are drawn here and not in the
-    asset: this project ships exactly one font, Pillow's, and a game has its own,
-    so text belongs to the preview while the sidecar carries the data a game would
-    label with.
+    water fraction and the commonest ground.  Its *provinces* are named in the
+    picture itself, in the project's own face: the paragraph that used to stand here
+    said the names belonged to the preview because the only font in this project was
+    Pillow's, and `gen/text/` is the end of that sentence.  A name is set as large as
+    its province can hold, so a small island may be left without one -- the sidecar
+    lists every name that was drawn and every one that was skipped, with its reason,
+    because a label that is missing silently is the one thing a map cannot do.
 
     ``factions`` puts realms on the provinces, which is a second sheet of meaning
     over the same geography: the provinces are grown as they always were, the realms
@@ -1267,7 +1270,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         routes = map_roads.network(g, f, res) if (res is not None and road > 0.0) else []
         img = map_paint.map_image(seed=s, cols=cols, rows=rows, size=size, sea_fraction=sea,
                                   provinces=provinces, river=rivers, road=road,
-                                  seas=sea_provinces, **political)
+                                  seas=sea_provinces, names=names, **political)
         tiles.append(_MapTile(s, img, st, courses, res, g, realms, routes, f, seas, waters))
 
     gap = 24
@@ -1278,7 +1281,6 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
     cw = max(t.image.w for t in tiles)
     ch = max(t.image.h for t in tiles)
     per_row = min(2, len(tiles))
-    font = _font(11)
     for i, t in enumerate(tiles):
         s, tile, st, courses, res, g, realms, routes = (t.seed, t.image, t.stats, t.courses,
                                                         t.res, t.grid, t.realms, t.roads)
@@ -1301,17 +1303,6 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
             counts.append(f"{len(routes)} roads")
         _label(img, (tx + 3, ty + tile.h + 4),
                f"seed {s}   {cols}x{rows} hexes at {size:g} px   " + "   ".join(counts))
-        if names and res is not None:
-            # The tile is a canvas in world coordinates centred on its own origin,
-            # y up: the same mapping the rasteriser inverts.
-            for p in res["provinces"]:
-                if p["area"] < 3:
-                    continue  # a one-hex island cannot hold a word
-                x, y = g.centre_of(p["capital"])
-                px = tx + int(round(x + tile.w / 2.0 - 0.5))
-                py = ty + int(round(tile.h / 2.0 - 0.5 - y))
-                _centre_label(img, (px - 60, py - 8, px + 60, py + 8), p["name"],
-                              dark=(20, 20, 26, 255), font=font)
     img.save(out, "PNG", optimize=True)
 
     _sidecar(out, seed, "procedural:gen.maps", maps=[
@@ -1324,6 +1315,8 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
                        "cells": int(r["cells"]), "cost": round(float(r["cost"]), 1)}
                       for r in t.roads],
             "factions": (t.realms["record"] if t.realms else []),
+            "labels": (map_labels.census(map_labels.layout(t.grid, t.res))
+                       if (names and t.res is not None) else None),
             "seas": ([{"name": p["name"], "area": int(p["area"]), "ground": p["ground"],
                        "capital": [int(p["capital"][0]), int(p["capital"][1])],
                        "owner": int(t.waters[i])}
@@ -1867,6 +1860,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--road", type=float, default=0.85, help="road opacity, 0 for none")
     m.add_argument("--seas", type=int, default=8, help="sea provinces, 0 for none")
     m.add_argument("--factions", type=int, default=4, help="realms holding the provinces, 0 for none")
+    m.add_argument("--no-names", action="store_true",
+                   help="leave the province names out of the map")
 
     co = sub.add_parser("coast", help="the coastline as a tileset: 64 edge tiles in a sheet")
     co.add_argument("--out", default="out/coast-tiles.png", type=Path)
@@ -1942,7 +1937,7 @@ def main(argv=None) -> int:
                   rows=args.rows, size=args.size, sea=args.sea,
                   provinces=args.provinces, rivers=args.river,
                   factions=args.factions, road=args.road,
-                  sea_provinces=args.seas)
+                  names=not args.no_names, sea_provinces=args.seas)
     elif args.cmd == "coast":
         demo_coast(args.out, seed=args.seed, count=args.count, cols=args.cols,
                    rows=args.rows, hex_size=args.hex_size, sea=args.sea,

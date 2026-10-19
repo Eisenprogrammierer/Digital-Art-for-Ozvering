@@ -38,7 +38,8 @@ sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for the typeface every character's advance and ink box per face, for
 every map its biome census, its rivers, its roads, its realms, its
-provinces and the sea provinces with the realms that hold them, for the coast and
+provinces and the sea provinces with the realms that hold them plus the province
+names it set into the picture and the size of each, for the coast and
 biome-border tiles the grid they sit in and how many of the sixty-four each map
 wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for the atlases the
@@ -77,6 +78,7 @@ python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit as SVG
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
+python cli.py maps       --seed 7 --no-names              # ...without the province names
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
@@ -87,7 +89,7 @@ python tests/test_core.py                       # 68 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 89 tests
+python tests/test_maps.py                       # 97 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 28 tests
@@ -1540,6 +1542,7 @@ kept strictly apart:
 | `autotile` | The border as a tileset: which of a hex's six edges is a border, the sixty-four tiles those six bits address, the sheet a game draws a coastline from instead of walking it -- and, because a border is only where two hexes disagree, the same sixty-four tiles for a biome border, asked *within* the land so the shore stays the coast's. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names -- and, by the same code, the *sea* provinces a fleet moves between. |
+| `labels` | The names set into the picture: each province's pole of inaccessibility by a breadth-first search from its own edge, the largest size whose box fits inside the province, a pale halo blitted under the ink, and a census of what was drawn, what was skipped and why. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. Then who holds the *water*: each sea province goes to the realm with the longest coast on it, and a zone no realm's coast touches stays the high seas. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
@@ -1892,6 +1895,74 @@ to the lower realm index. So adding territorial waters cannot move a capital or 
 border on land by one hex, and both the campaign file and the sidecar carry the
 answer -- the sea provinces go in with an owner, and the owner is a realm in the same
 file, or ``-1`` for the water that is nobody's.
+
+### A name goes where the province is widest
+
+Provinces have carried names in the data since they existed, and for most of that
+time the *picture* did not carry them. The reason was written down, which is the
+only way a reason can expire:
+
+> Those names are drawn here and not in the asset: this project ships exactly one
+> font, Pillow's, and a game has its own, so text belongs to the preview while the
+> sidecar carries the data a game would label with.
+
+`gen/text/` is the end of that sentence. There is a font now, it is ours, it is a
+function of a seed like every other asset -- and so a label is an **asset** and not
+a caption: it is drawn at the size its province can hold, it is regenerated with the
+map, and it is the same label at every scale the map is drawn at. The contact sheet
+stopped drawing names at the capitals in Pillow's bitmap font in the same commit
+that the map started drawing them itself.
+
+Three things then make a placement a decision rather than a wish.
+
+**Where.** A province's centre of mass is not where a name goes. The place a name
+goes is where the province is widest, which is the cell farthest from its own edge
+-- the pole of inaccessibility, one breadth-first search per province, seeded from
+the cells that touch the frontier. A name set over a narrow isthmus of its own
+province crosses the border and reads as the neighbour's, which is the one failure a
+map label cannot have, so the anchor is not a taste: a test checks it against
+brute-force hex distance.
+
+**How big.** A name is set as large as its province can hold and no larger, and the
+test is geometric. The box has to fit inside the province's inscribed circle, which
+is a condition on the box's *diagonal* -- a wide box centred in a circle pokes out
+of it at the corners -- so a long name comes out smaller than a short one, which is
+what a map does. The circle is only an estimate, though, because hexagons are not
+discs: the answer is read off the **data**, the province index of every cell under a
+nine-by-three lattice of points across the box, and the name shrinks by 15% and
+tries again, up to eight times. Below four tenths of a hex of em it is not type any
+more, and the name is **skipped and reported** rather than squeezed:
+
+```json
+"labels": {"drawn": 7, "em": [11.978, 19.139], "skipped": [
+  {"index": 3, "name": "Widerthanitsownprovince", "why": "no room"}]}
+```
+
+The two reasons are `no room` and `crowded`, and they are different facts about the
+map: one says the province is too small for its own name, the other that a neighbour
+got there first. Placement goes largest province first and the entries come back in
+province order, which is the rule the atlas's packer already followed: the order a
+caller reads is not the order the work was done in.
+
+**What it sits on.** The ground is a painting, not a flat colour, so the ink cannot
+assume a background. Every label is a dark ink over a pale halo, and the halo is the
+*same glyphs drawn once and blitted at eight offsets around the centre*: a halo
+drawn as a stroke would be a second font, and one drawn as a plate would be a
+rectangle lying on a painted map. Two labels keep a third of a hex of air between
+them, because the failure mode of a crowded map is not overlap but **merger** --
+"Yrwick Tormoor" flank to flank reads as one word.
+
+Everything in the placement is a length in hexes, so the label belongs to the
+geography and only its pixels belong to the picture: the same seed at 10 px and at
+20 px puts a name on the same cell, draws or skips it for the same reason, and sets
+it at exactly twice the size. The test says so in that form -- `b["em"] ==
+2.0 * a["em"]`.
+
+Names go on after the roads and before the capitals, for the reason the roads
+follow: a road is drawn *to* a capital, so a name must never cut one and the boss
+must never be buried under type. The sea's names are in the data and are not drawn:
+a maritime label wants a different ink and a different rule, and inventing one here
+would be a second label system rather than this one.
 
 ### A map is data, and the picture is one of its outputs
 
@@ -2405,7 +2476,19 @@ Generators to sit on top of the core, in the order they become useful:
   `out/borders.png` is one map twice, coast only and both, with the lattice off so
   that the only hex-shaped thing in the picture is the border being shown, and the
   map draws it only when asked -- `paint.map_image(..., inland=...)` -- because two
-  sets of hex-shaped lines on one map is one too many)*.
+  sets of hex-shaped lines on one map is one too many)*; ~~a province's name set into
+  the map rather than into its sidecar~~ *(done: `gen/maps/labels.py`, and it is the
+  paragraph above the code that matters -- the reason names were preview-only was
+  written down next to them, "this project ships exactly one font, Pillow's", and
+  `gen/text/` expired it.  A label is an asset now: the anchor is the pole of
+  inaccessibility rather than the centre of mass, the size is the largest whose box
+  keeps every lattice-sampled point inside the province, a name that cannot be set is
+  skipped and *reported* with its reason, two names keep air between them because the
+  failure of a crowded map is merger rather than overlap, and the halo is the same
+  glyphs blitted at eight offsets so the ink never assumes a background.  Every
+  quantity in the placement is a length in hexes, so the same seed puts the same name
+  on the same hex at twice the size when the map is drawn twice as large -- which is
+  the claim the test makes, `b["em"] == 2.0 * a["em"]`)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

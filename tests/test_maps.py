@@ -22,6 +22,10 @@ loudly:
   and a tileset, which is a rewrite of the picture rather than a feature beside
   it, so the test that it is the *same* picture inside the map -- and that the one
   place it differs is off the edge of the map -- is the reason to trust the rest.
+* a province's name is set inside its own province.  A label is the one thing on a
+  map that fails by being *nearly* right -- a name that reaches over a frontier
+  reads as the neighbour's -- so the anchor is checked against brute-force hex
+  distance and the box against a lattice finer than the ink it stands for.
 
 Run either way::
 
@@ -43,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from gen.maps import (autotile, campaign, coast, grid as gridlib, paint,  # noqa: E402
-                      politics, region, rivers, roads, terrain)
+                      labels as label_lib, politics, region, rivers, roads, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -940,6 +944,149 @@ def test_a_map_with_provinces_and_rivers_paints_the_same_bytes_twice():
            hashlib.sha256(b.to_uint8().tobytes()).hexdigest()
     c = paint.map_image(seed=5, cols=20, rows=14, size=10.0, provinces=0, river=0.0)
     assert not np.array_equal(a.to_uint8(), c.to_uint8())
+
+
+# --------------------------------------------------------------------- names
+def _named(seed=11, cols=20, rows=14, size=13.0, provinces=6):
+    """A map and the names it sets on itself."""
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    res = region.provinces(g, f, count=provinces, seed=seed)
+    return g, res, label_lib.layout(g, res)
+
+
+def _farthest(g, res, i) -> int:
+    """Brute force: how far the deepest cell of a province is from any other.
+
+    The same number the breadth-first search in ``labels`` computes, arrived at by
+    asking every cell how far it is from every cell that is not its own.  Slow on
+    purpose: it is the independent answer a search that walks the wrong way cannot
+    fake.
+    """
+    lab = np.asarray(res["labels"])
+    mine = [(int(j) // g.cols, int(j) % g.cols)
+            for j in np.asarray(res["provinces"][i]["cells"])]
+    theirs = [(r, c) for r in range(g.rows) for c in range(g.cols)
+              if int(lab[r, c]) != i]
+    return max(min(gridlib.distance(tuple(g.axes[r, c]), tuple(g.axes[rr, cc]))
+                   for rr, cc in theirs)
+               for r, c in mine)
+
+
+def test_a_name_is_set_where_its_province_is_widest():
+    """The anchor is the pole of inaccessibility and not the centre of mass.
+
+    A name is set where its province is widest, because a name that reaches over a
+    frontier reads as the neighbour's -- the one failure a map label cannot have.
+    The anchor is therefore a cell of the province whose distance to the nearest
+    cell that is *not* of the province is the province's maximum.
+    """
+    g, res, lay = _named()
+    lab = np.asarray(res["labels"])
+    for e in lay:
+        r, c = e["cell"]
+        assert int(lab[r, c]) == e["index"], e["name"]
+        mine = min(gridlib.distance(tuple(g.axes[r, c]), tuple(g.axes[rr, cc]))
+                   for rr in range(g.rows) for cc in range(g.cols)
+                   if int(lab[rr, cc]) != e["index"])
+        assert mine == _farthest(g, res, e["index"]), e["name"]
+
+
+def test_a_name_never_reaches_past_its_own_frontier():
+    """The box of a label lies in the province, sampled far finer than the ink.
+
+    ``labels`` decides this on a nine-by-three lattice, and the test asks the same
+    question on a forty-one-by-nine one: what a label must never do is cross a
+    frontier, so the failure has to be impossible between the samples and not only
+    at them.
+    """
+    g, res, lay = _named()
+    lab = np.asarray(res["labels"])
+    drawn = [e for e in lay if e["drawn"]]
+    assert len(drawn) >= 4, [e["name"] for e in lay]
+    for e in drawn:
+        x0, y0, x1, y1 = e["box"]
+        X, Y = np.meshgrid(np.linspace(x0, x1, 41), np.linspace(y0, y1, 9))
+        cell = g.cell(X, Y)
+        assert np.all(lab[cell.rc[..., 0], cell.rc[..., 1]] == e["index"]), e["name"]
+
+
+def test_two_names_never_merge():
+    """Two labels flank to flank read as one word, so they keep air between them."""
+    _g, _res, lay = _named()
+    boxes = [e["box"] for e in lay if e["drawn"]]
+    for i, a in enumerate(boxes):
+        for b in boxes[:i]:
+            assert (a[2] <= b[0] or b[2] <= a[0]
+                    or a[3] <= b[1] or b[3] <= a[1]), (a, b)
+
+
+def test_a_name_that_cannot_be_set_is_skipped_and_says_why():
+    """A label is never squeezed into a province that cannot hold it.
+
+    The name here is longer than any province on the map is wide, so there is no
+    size at which it fits and the layout says so.  What it must not do is set it
+    anyway at three pixels, or drop it in silence: the sidecar's job is to carry
+    the names a game would label with, and it can only do that if the ones this
+    map left off are written down.
+    """
+    g, res, _lay = _named()
+    fake = dict(res)
+    fake["provinces"] = [dict(p) for p in res["provinces"]]
+    long_name = "Widerthanitsownprovince"
+    i = min(range(len(fake["provinces"])), key=lambda k: fake["provinces"][k]["area"])
+    fake["provinces"][i]["name"] = long_name
+    lay = label_lib.layout(g, fake)
+    e = lay[i]
+    assert e["name"] == long_name
+    assert not e["drawn"]
+    assert e["why"] in ("no room", "crowded")
+    skipped = label_lib.census(lay)["skipped"]
+    assert {"index": i, "name": long_name, "why": e["why"]} in skipped
+
+
+def test_a_name_is_dark_ink_over_a_pale_halo():
+    """What the label sits on is a painting, so it carries its own background.
+
+    The two colours are the whole reason a name is legible over a forest and over
+    a desert without either of them being redrawn: the dark ink is separated from
+    the ground by a pale ring, so the map underneath can be anything.
+    """
+    assert float(np.mean(label_lib.INK)) < 0.30
+    assert float(np.mean(label_lib.HALO)) > 0.85
+
+
+def test_names_change_no_land():
+    """A name is ink on its province and not a change to the map under it."""
+    kw = dict(seed=11, cols=20, rows=14, size=13.0, provinces=6)
+    plain = paint.map_image(names=False, **kw)
+    named = paint.map_image(names=True, **kw)
+    assert np.array_equal(plain.a, named.a)
+    assert not np.array_equal(plain.to_uint8(), named.to_uint8())
+
+
+def test_a_name_is_the_same_name_at_any_scale():
+    """The label belongs to the geography, and only its pixels belong to the map.
+
+    A name sits on the same hex at 10 px and at 20 px, is set at twice the size,
+    and is drawn or skipped for the same reason, because every quantity in the
+    placement is a length in hexes.
+    """
+    _g1, _res1, small = _named(size=10.0)
+    _g2, _res2, large = _named(size=20.0)
+    assert [e["name"] for e in small] == [e["name"] for e in large]
+    for a, b in zip(small, large):
+        assert a["cell"] == b["cell"]
+        assert a["drawn"] == b["drawn"]
+        if a["drawn"]:
+            assert b["em"] == 2.0 * a["em"]
+
+
+def test_the_names_are_the_same_names_twice():
+    _g1, _res1, a = _named()
+    _g2, _res2, b = _named()
+    assert json.dumps(label_lib.census(a)) == json.dumps(label_lib.census(b))
+    assert [e.get("box") for e in a] == [e.get("box") for e in b]
 
 
 # ----------------------------------------------------------------- politics
