@@ -45,6 +45,7 @@ from core import credits as creditslib  # noqa: E402
 from core import noise, palette, render, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from export import atlas as atlaslib  # noqa: E402
+from export import gallery as gallerylib  # noqa: E402
 from export import png, sheet as sheetlib  # noqa: E402
 from gen.figures import figure as figurelib  # noqa: E402
 from gen.heraldry import blazon as heraldry  # noqa: E402
@@ -1740,6 +1741,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
+    _report(gallerylib.write(out))
     print("done.")
 
 
@@ -1753,6 +1755,13 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="render all core demos into a directory")
     d.add_argument("--out", default="out", type=Path)
     d.add_argument("--seed", type=int, default=7)
+
+    w = sub.add_parser("gallery", help="the build as one page: every sheet, its numbers, its command")
+    w.add_argument("--manifest", default=Path("out"), type=Path)
+    w.add_argument("--out", default=None, type=Path, help="default: <manifest>/index.html")
+    w.add_argument("--embed", action="store_true",
+                   help="inline the pictures, so the page travels as one file")
+    w.add_argument("--title", default="ozart build")
 
     f = sub.add_parser("figures", help="sprite sheet of one figure's cycle")
     f.add_argument("--out", default="out/figures.png", type=Path)
@@ -1956,6 +1965,9 @@ def main(argv=None) -> int:
     elif args.cmd == "anim":
         demo_anim(args.out, seed=args.seed, count=args.count, size=args.size,
                   cols=args.cols, fps=args.fps, padding=args.padding)
+    elif args.cmd == "gallery":
+        out = args.out if args.out is not None else args.manifest / gallerylib.PAGE_NAME
+        _report(gallerylib.write(args.manifest, out, title=args.title, embed=args.embed))
     elif args.cmd == "figures":
         demo_figures(args.out, seed=args.seed, cycle=args.cycle, count=args.count,
                      size=args.size, cols=args.cols, fps=args.fps)

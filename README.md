@@ -55,7 +55,9 @@ A map is written out twice, and deliberately: the sheet with its sidecar is the 
 as a *picture*, and `out/maps.campaign.<seed>.json` is the map as **data** -- the
 ground, the owners, the roads, the rivers and the sea as hexes, with the biome table
 in the file, which is what a game without this generator loads. Then
-`out/credits.txt` and `out/credits.png`, which are built from those sidecars. The
+`out/credits.txt` and `out/credits.png`, which are built from those sidecars, and
+last `out/index.html`, the build as one page: every sheet with its sidecar's numbers,
+its digest and the command that rebuilds it. The
 credits are not a seeded asset and carry no sidecar of their own: they are what
 the sidecars are *for*.
 
@@ -87,6 +89,7 @@ python cli.py text       --size 20 --out out/text.png  # the typeface: a specime
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
+python cli.py gallery    --manifest out         # the build as one page (add --embed to send it)
 python tests/test_core.py                       # 68 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
@@ -96,9 +99,10 @@ python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 28 tests
 python tests/test_figures.py                    # 26 tests
+python tests/test_gallery.py                    # 20 tests
 ```
 
-Every one of those runs on every push as well -- the nine suites, the demo built
+Every one of those runs on every push as well -- the ten suites, the demo built
 twice and compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13,
 in `.github/workflows/tests.yml`.
 
@@ -2479,6 +2483,102 @@ tests, not by looking at output -- one asserting that a red-only field stays red
 one asserting that the two kinds differ -- and that is the argument for the tests in
 this package being about *properties* rather than about pixels.
 
+## The build as a page (`export/gallery.py`)
+
+Thirty-three sheets, a sidecar beside each, and no way to see what a build contains
+without opening files one at a time. That was the oldest item on the list. This is
+the interface to it: `out/index.html`, written by `demo` as its last step, or on its
+own with
+
+```bash
+python cli.py gallery --manifest out            # linked: 29 KB, opens beside the pictures
+python cli.py gallery --manifest out --embed    # inlined: 6.5 MB, travels as one file
+```
+
+### A page, not a window
+
+The obvious answer to "a GUI over the generators" is a Tk window, and tkinter is in
+the standard library, so this is a decision rather than a shortage. The argument
+against it is that a generator set's interface *is the build*: every picture already
+has a sidecar that names the function which drew it, the seed it came from, and the
+licence it is under. Anything that displays those pictures has to read those
+sidecars, or it will drift from them -- and the moment it reads them it is no longer
+a program with a state machine and an event loop. It is a rendering of files that
+exist. A page is that rendering with nothing left over: no install, no dependency, no
+event loop to keep alive, and one artefact that can be opened from disk today and in
+ten years.
+
+The page is deliberately dumb. One stylesheet, inline. No JavaScript, no web font, no
+build step of its own. It reads `credits.manifest()` -- the same walk of sidecars the
+licensing gate uses -- so a generator appears on the page the day it starts writing a
+sidecar, and nothing has to be remembered. A registry of descriptions would be a
+second list to keep true; the sidecar is the first one.
+
+### What a card says
+
+Four things a sheet raises and does not answer:
+
+- **what drew it** -- the sidecar's `source`, verbatim: `procedural:gen.maps.autotile`
+  is a module you can open, and it is the answer to "how was this made";
+- **from what** -- its seed, and its count, because `x8` is the difference between a
+  sheet and a sprite;
+- **the numbers** -- the sidecar as a table, sorted by key;
+- **that the file is the file** -- the first 16 hex of its sha256, which is the digest
+  `cli.py demo` prints and what makes "byte for byte" checkable by a person and not
+  only by CI.
+
+The title is the file stem with its dashes opened out (`icons-atlas` is "icons
+atlas"), and that is the whole of the naming: a caption written by hand would be one
+more thing that can disagree with the build, and this page exists to be checked
+against the build.
+
+### A list is a length
+
+A sidecar is not a small document. An animation's sidecar holds every frame's
+rectangle and the phase it was drawn at; a map's holds its provinces, its rivers, its
+roads. Putting that in a card would make the page a JSON viewer with pictures in it,
+so a list becomes `12 items` and a dict becomes `6 keys`, and only the scalars are
+printed. The frame rectangles are one `export.sheet` call away for anyone who wants
+them; the card's job is to tell you whether to want them.
+
+### The gate is part of the view
+
+The page says, in the gate's own words, whether the gate would ship the build it is
+showing. A clean build gets one green line. A picture with no sidecar, or a sidecar
+that records no licence or names a source nobody can account for, gets a red block at
+the top listing the files -- the same list `cli.py credits --check` exits nonzero on.
+
+This is the one place where the gallery is not neutral. CC BY means attribution is a
+condition of shipping, so a view that quietly displayed a build the gate would reject
+would be a view that moved the licence violation into the place people look. The
+credits block itself travels at the bottom of the page, verbatim from
+`credits.credits()`, including the Kevin MacLeod line. A gallery that is missing it is
+not a gallery of *this* build.
+
+A campaign file (`out/maps.campaign.<seed>.json`) is not an asset and has no picture,
+so it gets a line -- name, `format`, size -- under `data` instead of a card. The page
+is a catalogue of the build, not only of its illustrations.
+
+### Two files or one
+
+By default the page links the pictures beside it: 29 KB of HTML over 4.9 MB of pictures,
+which is the version to regenerate while working, because the browser is reading the
+files that were just written. `--embed` base64s each picture into the page, which is
+6.5 MB of HTML and one file with no folder to lose -- the version to send to someone
+who does not have the build. Both are pure functions of the directory: build twice,
+get the same bytes, which is what the 20 tests in `tests/test_gallery.py` assert along
+with the claims a view can get wrong -- that every sidecar becomes exactly one card,
+that an embedded picture decodes back to the file's bytes, that a 400-entry list is
+one line, and that `<script>` in a sidecar is text.
+
+### What is not here
+
+No editing, no regeneration, no live preview. The page describes a build; the build
+is still `cli.py demo` and the seed. A viewer that could also *make* things would need
+a second copy of every default, and the first copy is already in the modules. If the
+loop wants closing, the honest next step is a build watcher that re-runs `demo` and
+reloads the tab, not a second interface with its own idea of what a parameter is.
+
 ## Roadmap
 
 Generators to sit on top of the core, in the order they become useful:
@@ -2738,6 +2838,14 @@ Generators to sit on top of the core, in the order they become useful:
   honest people.  The gate reports rather than repairs and returns a nonzero exit
   code, and the credits screen is the one picture exempt from the sidecar rule
   because it is the attribution itself)*.
+- **a GUI over the generators** -- ~~a view of the build: every sheet, the numbers
+  behind it, and the command that rebuilds it~~ *(done: `export/gallery.py` writes
+  `out/index.html` -- a page rather than a window, because the interface of a
+  generator set is the build and the build already describes itself in sidecars; the
+  cards are the manifest, the gate's verdict is on the page in the gate's own words,
+  and the credits travel with it)*; ~~live regeneration from the view~~ *(open, and
+  it is a build watcher rather than a second interface: a page that could also make
+  things would need a second copy of every default)*.
 
 ## Licensing notes
 
