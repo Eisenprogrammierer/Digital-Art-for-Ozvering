@@ -31,12 +31,13 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/tiles.png`, `out/factions.png`, a sheet per mip level as
+`out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
-every UI part, for every map its biome census, its rivers, its roads, its realms, its
+every UI part, for the typeface every character's advance and ink box per face, for
+every map its biome census, its rivers, its roads, its realms, its
 provinces and the sea provinces with the realms that hold them, for every tiling
 texture its seam error and how many tiles its tiling used, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
@@ -73,6 +74,7 @@ python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit 
 python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
+python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
@@ -83,6 +85,7 @@ python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 73 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
+python tests/test_text.py                       # 21 tests
 ```
 
 ## Core toolkit (`core/`)
@@ -228,9 +231,9 @@ own section below, because the reason for it is a question the construction so f
 cannot answer.
 
 Every one of those passes is lit by the same `LIGHT = (-0.45, 0.65)` as the
-heraldry, the portraits, the UI and the maps, and `tests/test_textures.py` asserts
-it -- one light across the project is most of what makes individually generated
-assets look like one art set rather than one folder.
+heraldry, the portraits, the UI, the maps and the type, and `tests/test_textures.py`
+asserts it -- one light across the project is most of what makes individually
+generated assets look like one art set rather than one folder.
 
 Nothing in the recipe is in pixels. The margin, the bevel, the clearance, the rim
 width and the shadow offset are all world units on the unit square, which is why
@@ -1211,6 +1214,212 @@ body layer at all), a material refused by name, the ramp bounded, the three stat
 sharing every `d`, one file across two DPIs, a byte-identical rewrite, and the
 writer's numbers compact and never `-0`.
 
+## Text (`gen/text/`)
+
+Every other package here is a painter of *pictures*. This one is a painter of
+something that has obligations a picture does not: a **font**.
+
+The licensing notes called fonts the one asset family that leaks. You cannot draw
+your way out of that leak with a better picture, because a font is not a picture of
+letters -- it is a *measurement* of them. An engine asks a font where a letter ends
+so it knows where the next one begins, how tall a line is so it knows where the next
+one goes, and which characters exist so it knows what to refuse. Ship a glyph and a
+guess and the guess is what breaks.
+
+So this package generates the alphabet the same way the rest of the toolkit generates
+everything: a few numbers, deterministically, in world units, with the shape and the
+style kept apart. It is not a font *file*. It is a function from `(text, face, size)`
+to pixels, and a sidecar of metrics.
+
+| Module | What it provides |
+| --- | --- |
+| `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, nine bytes each. Also `advance` and `advance`'s refusal. |
+| `pen` | What turns a skeleton into a letter: **weight**, **contrast** (a broad nib is thin on a horizontal), **serif**, **slant** and **width**, the serif rule, and — measured off the result rather than declared beside it — `ink_box`, `advance` and `offset`. Five presets: `sans`, `text`, `display`, `italic`, `slab`. |
+| `typeset` | `measure`, `place`, `ink_bounds`, `paint`, `draw`, `block`: advances, tracking between letters, alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
+
+### A letter is a skeleton, and the letter is what a pen does to it
+
+The split is the whole package, and it is the same split the icons make between a
+charge and a plate:
+
+* the **skeleton** says *which* letter this is — one or more polylines, in em units,
+  drawn on the guides every face agrees about;
+* the **pen** says how thick, how contrasted, how serifed, how slanted and how wide.
+
+Nothing about style is in the alphabet file. A stem and a hairline are the *same*
+skeleton read by a pen that changes width with the direction of the stroke; a serif
+is a rule about stroke *ends*; a slant is a shear applied to the points before the
+pen sees them. So one alphabet is a monoline UI face and a modulated book face, and
+the difference between them is four numbers — which is why there is no new gene and
+no new file, and why the five presets in the demo are one alphabet printed five
+times.
+
+The alphabet is written in **tenths of an em** and the grammar is three tokens:
+
+```
+"a": (5.1, "A2.0,2.3,2.0,2.3,0,360 | 4.0,0 4.0,5 A2.3,3.6,1.7,1.4,0,180"),
+```
+
+— a body width in tenths, then strokes split by `|`; `x,y` is a point; `Acx,cy,rx,ry,a0,a1`
+is an elliptical arc sampled from `a0` to `a1` degrees. Tenths, because a typographer's
+grid is where the judgements live: the letters were drawn on graph paper and the file
+*is* the graph paper. Arc steps are 12°, which is about a sixteenth of a circle —
+enough that a bowl reads as round at any size a game draws text, and few enough that
+the pen still has a polyline rather than a mesh.
+
+### The guides are the alphabet's interface
+
+The em box, counting up from the baseline:
+
+```
+ASCENDER   0.80   the top of a letter with an ascender (b, d, k, l)
+CAP_HEIGHT 0.70   the top of a capital
+X_HEIGHT   0.50   the top of a lowercase x
+BASELINE   0.00
+DESCENDER -0.20   the bottom of a descender (p, g, y)
+```
+
+The first four are the **guides**, and they are load-bearing twice. They are the lines
+the skeletons are drawn *to* — a centreline touches a guide, so the ink the pen lays
+around it overshoots by half a stem, which is exactly what a real face does and
+exactly why `ink_box` measures rather than trusts. And they are the only horizontals a
+serif is allowed to grow on, which is how an alphabet can be stroke data and still
+have feet.
+
+A test measures it: the top of an `H` in the `sans` pen is the cap line plus half a
+stem, to a half-texel. If somebody moves a guide or changes how a stem is measured,
+the two stop agreeing *there* instead of in a game's menu.
+
+### A serif is a rule about ends
+
+A serif is not a shape. It is:
+
+* a bar **perpendicular to the stroke**;
+* only at a stroke's **end**;
+* and only if that end lands on a guide **and arrives within 18° of vertical or
+  horizontal**.
+
+A vertical arrival gets a **foot** (a bar across the stem); a horizontal arrival gets
+a **beak** (a bar standing on the arm). Two refinements earn their keep:
+
+* the **x-height is the one horizontal an arm may not be serifed on**. A bowl springs
+  from the x-height *tangentially*, so an `n`'s shoulder and an `o`'s flank arrive
+  there looking exactly like a terminal. The rule reads the guide, and the x-height is
+  excluded for arms — so a round letter is identical under a serifed pen and a
+  monoline one, which is a test.
+* an end within 18° of vertical is a stem; a **slash** is 58° off and is the one
+  punctuation mark whose ends sit on the cap line and must stay pointed. Also a test.
+
+Everything else about a serif — its length, its thickness, the fillet where it meets
+the stem — is a number, and it scales with the weight, so the same rule reads as a
+book face's feet and a slab's blocks.
+
+### The advance is measured, not declared
+
+This is where writing the first specimen paid for itself. The sketch version had each
+glyph declare a width and the renderer trust it; the first three-line specimen showed
+`quick` set as `ąuick` and `brown` with its `b` touching its `o`.
+
+The cause was not a bad number. It was that **a width is not a property of a letter,
+it is a property of the letter and the pen together**: the serif on a stem's foot
+hangs past the stem by half its length, so a face whose advance was right at weight
+0.08 collides at weight 0.12 and collides *worse* with serifs on. Any declared
+advance is therefore a promise the pen can break.
+
+So the promise moved to the pen — but where exactly it moved is the part that took
+three specimens to get right, and the wrong answer is instructive:
+
+* **`advance` is the larger of the design width and the letter's *body* plus a
+  sidebearing on each side.** A design width the body overruns is not a width — the
+  pen wins.
+* **`offset`** shifts a glyph right so that its body starts on its own left
+  sidebearing, because a stem at `x = 0` with a foot on it has ink to the left of the
+  origin, and a glyph reaching into its neighbour's space is the same bug from the
+  other side.
+
+The trap is the word "body". The first fix measured the advance off the **finished
+ink** — feet and all — which is the obvious reading and is wrong, because a serif is
+*centred on its stem* and half of it therefore lies outside it. Charging the advance
+for the serif tips charges every letter for its feet twice, and it lands hardest on the
+narrowest letters: an `i` is one stem wide with the feet of an `n`, so it was being
+handed a slot half again as wide as its own ink, and the specimen showed the second
+bug as plainly as it had shown the first — `quick` set as `qu ick`, a hole in the
+middle of a word.
+
+The metal-type answer is the right one. A serif hangs **into the sidebearing**: the
+letter's ground is set by its stems, the feet are allowed to use the room that was
+already there, and the advance only grows when a foot would reach past the air it is
+allowed (`AIR = 0.02` em beyond the sidebearing). It is the sort, the little block of
+metal a letter was cast on, and it is why a foot can be substantial without a narrow
+letter growing wide: the serif is not something the letter *adds*, it is something the
+letter does inside the room it already had.
+
+The third bug was one line of arithmetic in the same place. Measuring the ink, the
+code added the pen's half-width to **everything** — but a stroke is a *centreline*,
+which the pen haloes, and a serif is a **box**, drawn at its own size. Charging the pen
+radius to a box measures a foot half a stem too wide, and it does the same damage more
+quietly, with no collision to point at it.
+
+So the tests are about the two promises separately, which is the only way to keep them
+from eating each other:
+
+* the **body** keeps at least `SIDEBEARING = 0.05` em on each side, so two stems are
+  never closer than that;
+* the **finished ink** stays inside the ground the advance gives it, so two letters
+  never touch at all — and because that has to hold for the whole legal range of weight
+  and serif, the test walks four weights and three serif amounts across all 95
+  characters. It is exactly at a heavy weight that a foot reaches furthest past its
+  stem.
+
+Kerning, optical pairs, hinting — none of it is here, and none of it is needed to stop
+two letters touching. What it takes instead is being honest about what a serif is.
+
+### Leading is a baseline distance, not a gap
+
+The first `block` spaced lines by leaving a gap between their ink, which is the same
+mistake one line down: a gap between ink makes a line of all-capitals sit closer to
+its neighbour than a line with a descender in it, and the paragraph gets a rhythm of
+its own that has nothing to do with the text.
+
+`leading` is therefore **baseline to baseline, in ems** — the typographer's number,
+a property of the face — and a block's baselines are exactly that far apart whatever
+is on them. The sheet's *height* still follows the ink, because a block is sized by
+what is in it; but the distance between two baselines does not move, which is the
+distinction the test measures on the pixels: the same line printed twice, with and
+without a descender, is one leading apart both times.
+
+Tracking is the same discipline one step in: it goes *between* letters, so a line of
+`n` letters has `n - 1` of them, and `measure` is the sum of the advances and nothing
+else. Every layout bug in the world starts as an off-by-one-tracking.
+
+### A missing character is refused, not drawn
+
+`é` and `Ж` are not in the alphabet, the alphabet knows it, and asking for one raises
+an error naming the character and saying how many the face covers. It does not fall
+back to a box, and it does not fall back to a question mark.
+
+The reason is that both of those are *visible in a shipped menu*. A face that draws a
+box has decided, silently, that a missing glyph is a rendering problem; it is not, it
+is a **data** problem, and the only useful moment to say so is the moment somebody asks
+for a character the face does not have. The refusal is also asymmetric on purpose: a
+bad *name* (`--face comic`) is refused, because there is no nearest sensible face; a
+bad *number* (`weight = 9`) is clipped into range, because there is a nearest sensible
+weight and refusing it would only make a live parameter unusable.
+
+### What is not here
+
+No kerning, no ligatures, no hinting, no Cyrillic, no `.ttf`. The letters are drawn at
+the size they are asked for, and the honest version of "optically correct at 12 px" is
+to pick the `sans` pen, which is what a UI face is for. The demo sheet's last block is
+the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one of them is
+*generated* at that size rather than scaled down from a big one — which is the one
+claim this package shares with every other one here, and the reason it can make it.
+
+The sidecar is the other half of the deliverable: `ozart/font/1`, with the guides, the
+leading, and every character's advance and ink box in em units. A game that lays out
+text from it never has to re-derive the pen, and a game that does not can still draw
+the letters.
+
 ## Maps (`gen/maps/`)
 
 A map is the first asset here that is *data* before it is a picture: a grid
@@ -2028,6 +2237,19 @@ Generators to sit on top of the core, in the order they become useful:
   tiles; an odd-sized tile cannot be halved exactly and the reduction says so instead
   of pretending, and the sidecar carries each level's own density, where the coarsest
   sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*.
+- **text** -- ~~a face that is code rather than a file: an alphabet of skeletons, a
+  pen that gives it weight, contrast, serifs and slant, and the metrics an engine
+  needs to lay a line out~~ *(done: `gen/text/` -- 95 characters of printable ASCII as
+  polylines in tenths of an em, drawn on four guides; the split between what a letter
+  *is* and what a pen *does to it* is what makes five faces one alphabet, which is why
+  the genome, the sidecar formats and the credits gate all learned nothing new. Two of
+  the decisions are places where the obvious version was wrong: an advance is
+  *measured* off the ink rather than declared beside it, because a width that a serif
+  overruns is not a width and the collision appears exactly when the weight goes up;
+  and a missing character raises rather than drawing a box, because a box in a shipped
+  menu is a question that was answered silently.  This is also the licensing note's
+  "fonts leak" closed: the shipped face is a function of a seed like everything else,
+  and Pillow's bitmap font is back to being what it always was here -- a dev tool).*
 - **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the
   `vector` module in `gen/ui/`: a panel is four rounded rectangles and a polar
   ornament, so it is the one asset here with an exact vector form. The paths are
@@ -2063,9 +2285,11 @@ Generators to sit on top of the core, in the order they become useful:
 * Generated PNGs: no third-party rights are involved -- keep the seed in the
   registry and the asset can always be rebuilt.
 * Watch these three, they are the usual ways third-party rights leak in:
-  **fonts** (use OFL/Apache, or draw glyphs procedurally -- Pillow's built-in
-  bitmap font is the only one used here, and only for the credits screen and dev
-  previews), **external textures/brushes** (don't), and **CC-BY music**
+  **fonts** (closed here: `gen/text/` draws its own -- 95 characters from an alphabet
+  of skeletons and a pen, so the shipped face is code and a seed like everything else.
+  Pillow's built-in bitmap font survives only in the credits screen and the dev
+  preview captions, which is the right place for it and the reason this package
+  exists at all), **external textures/brushes** (don't), and **CC-BY music**
   (attribution is mandatory).
 
 ### Attribution
@@ -2084,14 +2308,18 @@ python cli.py credits --manifest out --png out/credits.png   # ...or draw the sc
 ```
 
 A text file is not what a game ships. `screen` draws the same block with Pillow's
-built-in bitmap font and scales it up with nearest-neighbour -- the one font this
-project is allowed to ship, and at least the right kind of ugly -- and the size
-follows the text in both directions, because a credits list is a *scroll*: page it
-and the one line the licence actually demands ends up on page four. What is fixed
-instead is the line *length*, in characters rather than pixels, so the wrap cannot
-move when the output size does. A credit line that fits at 960 and is clipped at
-480 is a credit line that is not there, and the wrapping is therefore a function
-that returns rows rather than pixels, so a test can read the words back out.
+built-in bitmap font and scales it up with nearest-neighbour -- a dev tool doing a
+dev job, and at least the right kind of ugly. (It is no longer the *only* font this
+project has: `gen/text/` draws a real face. The screen has not moved onto it, and
+that is deliberate -- the credits are the one picture here whose job is to be read at
+any size by anybody, and a face whose advances are a release old is the wrong thing
+to introduce into the one file a licence depends on.) The size follows the text in
+both directions, because a credits list is a *scroll*: page it and the one line the
+licence actually demands ends up on page four. What is fixed instead is the line
+*length*, in characters rather than pixels, so the wrap cannot move when the output
+size does. A credit line that fits at 960 and is clipped at 480 is a credit line that
+is not there, and the wrapping is therefore a function that returns rows rather than
+pixels, so a test can read the words back out.
 
 The manifest is worth trusting for the same kind of reason: a test asserts that
 every sheet the demos write has a sidecar. Not that the entries are right -- that

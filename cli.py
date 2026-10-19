@@ -19,6 +19,7 @@ Usage
     python cli.py portraits  --seed 7 --count 8 --size 256
     python cli.py lineage    --seed 7 --children 6
     python cli.py ui         --seed 7 --count 3 --scale 2
+    python cli.py text       --size 20 --out out/text.png
     python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
@@ -57,6 +58,9 @@ from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import roads as map_roads  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
+from gen.text import pen as text_pen  # noqa: E402
+from gen.text import skeleton as text_skeleton  # noqa: E402
+from gen.text import typeset  # noqa: E402
 from gen.textures import atlas as tex_atlas  # noqa: E402
 from gen.textures import boards as tex_boards  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
@@ -320,6 +324,111 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
         image.save(path)
         _sidecar(path, seed, "procedural:export.atlas", **info)
         _report(path)
+    return _report(out)
+
+
+def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
+              width: int = 1400) -> Path:
+    """The specimen: one alphabet, five faces, and the metrics in the sidecar.
+
+    Every label on this sheet is set in the face it labels, which is the only honest
+    way to show a font: a caption in somebody else's type proves nothing about
+    legibility.  The bottom block is the same sentence at six sizes, each *generated*
+    at that size rather than scaled -- a 12-pixel line here is a 12-pixel line drawn
+    by a 12-pixel pen, which is the claim the package makes.
+
+    The sidecar is the deliverable an engine loads: the guides, the leading, and every
+    glyph's advance and ink box, in em units, so layout does not have to re-derive the
+    pen to know where a letter ends.
+    """
+    faces = list(faces or text_pen.names())
+    paper = (0.965, 0.957, 0.933)
+    ink = (0.13, 0.14, 0.18)
+    quiet = (0.46, 0.46, 0.50)
+    margin = 44
+    gap = 10
+
+    rows = []
+
+    def add(canvas, after=gap):
+        rows.append((canvas, after))
+
+    # the masthead
+    add(typeset.draw("Digital Art for Ozvering", text_pen.get("display"),
+                     em=size * 2.15, pad=0.08, colour=ink), after=6)
+    add(typeset.draw("an alphabet you can regenerate -- 95 characters, five faces, "
+                     "no font file; the advances are in the sidecar",
+                     text_pen.get("italic"),
+                     em=size * 0.92, pad=0.08, colour=quiet), after=26)
+
+    alphabet = [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "abcdefghijklmnopqrstuvwxyz",
+        "0123456789 .,:;!?()[]{}&@%$#",
+        "The quick brown fox jumps over the lazy dog",
+    ]
+    for name in faces:
+        spec = text_pen.get(name)
+        add(typeset.draw(
+            f"{name}   weight {spec['weight']:.3f}   contrast {spec['contrast']:.2f}"
+            f"   serif {spec['serif']:.2f}   slant {spec['slant']:.2f}"
+            f"   width {spec['width']:.2f}",
+            {**spec, "weight": 0.052, "contrast": 0.0, "serif": 0.0},
+            em=size * 0.62, pad=0.06, colour=quiet), after=4)
+        for row in alphabet:
+            add(typeset.draw(row, spec, em=size, pad=0.06, colour=ink), after=1)
+        add(Canvas(1, 1), after=18)
+
+    # the size sweep: the same sentence, drawn at the size it says it is.  The
+    # monoline, because a size ladder is a question about a UI face -- and because the
+    # honest answer to "does it read at 11 px" is a pen that was *chosen* for 11 px.
+    add(typeset.draw("Sizes, each drawn at its own size",
+                     {**text_pen.get("sans"), "weight": 0.052},
+                     em=size * 0.62, pad=0.06, colour=quiet), after=4)
+    for em in (11, 12, 14, 18, 24, 32, 48):
+        add(typeset.draw(f"{em} px   Handgloves, WAVE 1942, quick brown fox",
+                         text_pen.get("sans"), em=float(em), pad=0.05, colour=ink),
+            after=max(4, int(em * 0.22)))
+
+    # the paragraph: the case the face is actually for
+    add(Canvas(1, 1), after=14)
+    add(typeset.block([
+        "A letter is a skeleton and a pen: the skeleton says which letter it is,",
+        "the pen says how thick, how contrasted, how serifed and how slanted.",
+        "Change the pen and the same alphabet becomes a UI face or a book face;",
+        "change nothing and the same seed is the same picture, byte for byte.",
+    ], text_pen.get("text"), em=size * 0.85, pad=0.06, leading=1.40,
+        colour=ink), after=0)
+
+    height = sum(c.h + after for c, after in rows) + 2 * margin
+    sheet = Canvas(width, height, scale=1.0, center=(0.0, 0.0), background=paper)
+    y = margin
+    for canvas, after in rows:
+        if canvas.w > 1:
+            sheet.blit(canvas.rgb, canvas.a, margin, y)
+        y += canvas.h + after
+    sheet.save(out)
+
+    # The metrics: what an engine needs, and what a reader of the sidecar can verify.
+    metric = {}
+    for name in faces:
+        spec = text_pen.get(name)
+        metric[name] = {
+            "spec": {k: round(v, 4) for k, v in spec.items()},
+            "leading": 1.35,
+            "advances": {ch: round(text_pen.advance(ch, spec), 4)
+                         for ch in text_skeleton.names()},
+            "ink": {ch: [round(v, 4) for v in text_pen.ink_box(ch, spec)]
+                    for ch in text_skeleton.names()},
+        }
+    _sidecar(out, seed, "procedural:gen.text.pen",
+             format="ozart/font/1",
+             em=1.0, units="em",
+             guides={"baseline": 0.0, "x_height": text_skeleton.X_HEIGHT,
+                     "cap_height": text_skeleton.CAP_HEIGHT,
+                     "ascender": text_skeleton.ASCENDER,
+                     "descender": text_skeleton.DESCENDER},
+             faces=metric)
     return _report(out)
 
 
@@ -1439,6 +1548,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_vectors(out, seed=seed, count=2, scale=2)
     demo_maps(out / "maps.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
+    demo_text(out / "text.png")
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
     _report(creditslib.write_screen(out))
@@ -1545,6 +1655,13 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--mips", type=int, default=1,
                    help="levels of packed mip sheets (1 = the one atlas sheet)")
 
+    tx = sub.add_parser("text", help="the generated typeface: specimen sheet and font metrics")
+    tx.add_argument("--out", default="out/text.png", type=Path)
+    tx.add_argument("--size", type=int, default=20, help="pixels per em for the specimen rows")
+    tx.add_argument("--face", action="append", default=None, choices=text_pen.names(),
+                    help="a face to show; repeat it for several (default: all five)")
+    tx.add_argument("--width", type=int, default=1400, help="pixels wide")
+
     fa = sub.add_parser("factions", help="a faction from its name: shield, banner, blazon")
     fa.add_argument("--out", default="out/factions.png", type=Path)
     fa.add_argument("--seed", type=int, default=7, help="only labels the sheet; the names decide")
@@ -1636,6 +1753,10 @@ def main(argv=None) -> int:
                   provinces=args.provinces, rivers=args.river,
                   factions=args.factions, road=args.road,
                   sea_provinces=args.seas)
+    elif args.cmd == "text":
+        # a face has no seed: the alphabet and the pen are the whole of it, and the
+        # sidecar says so with a seed of zero rather than inventing one
+        demo_text(args.out, size=args.size, faces=args.face, width=args.width)
     elif args.cmd == "factions":
         demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
                       ratio=_ratio(args.ratio))

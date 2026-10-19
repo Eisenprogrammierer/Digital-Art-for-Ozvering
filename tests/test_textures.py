@@ -142,10 +142,11 @@ def test_the_light_is_the_same_light_in_every_generator():
     from gen.icons import paint as icon_paint
     from gen.maps import paint as map_paint
     from gen.portraits import brush as portrait_brush
+    from gen.text import pen as text_pen
     from gen.ui import paint as ui_paint
 
     for module in (heraldry_paint, icon_paint, icon_badge, map_paint, portrait_brush,
-                   ui_paint):
+                   text_pen, ui_paint):
         assert np.allclose(np.asarray(module.LIGHT, dtype=float),
                            np.asarray(tile.LIGHT, dtype=float)), module.__name__
 
