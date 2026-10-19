@@ -97,7 +97,7 @@ python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 97 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
-python tests/test_text.py                       # 28 tests
+python tests/test_text.py                       # 40 tests
 python tests/test_figures.py                    # 26 tests
 python tests/test_gallery.py                    # 20 tests
 ```
@@ -1445,7 +1445,8 @@ to pixels, and a sidecar of metrics.
 | --- | --- |
 | `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, 66 of Cyrillic and the 53 accented letters of ISO-8859-1 — 214 in all, in three tables: drawn, **aliased** (А is A) and **composed** (é is e and an acute). Also `advance` and `advance`'s refusal. |
 | `pen` | What turns a skeleton into a letter: **weight**, **contrast** (a broad nib is thin on a horizontal), **serif**, **slant** and **width**, the serif rule, the marks and where they go (`MARK_GAP`, a mark fitted into its letter's own advance), and — measured off the result rather than declared beside it — `ink_box`, `advance` and `offset`. Five presets: `sans`, `text`, `display`, `italic`, `slab`. |
-| `typeset` | `measure`, `place`, `ink_bounds`, `paint`, `draw`, `block`: advances, tracking between letters, alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
+| `kern` | Optical spacing from the pen's own profiles: how far a pair may close before it spends the daylight it is promised, how much white it carries over the face's **reference pair** (two `n`s, measured in the same pen), and the twelfth-of-an-em clamp that stops a rule from guessing. Cached by `(character, pen)`. |
+| `typeset` | `measure`, `place`, `ink_bounds`, `pair`, `paint`, `draw`, `block`: advances, **kerns** and tracking between letters, alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
 
 ### A letter is a skeleton, and the letter is what a pen does to it
 
@@ -1620,8 +1621,9 @@ from eating each other:
   stem. A mark is in that walk too, which is the point of the next section: an accented
   letter is a letter, and its accent has to keep out of its neighbour's way as well.
 
-Kerning, optical pairs, hinting — none of it is here, and none of it is needed to stop
-two letters touching. What it takes instead is being honest about what a serif is.
+Kerning is not a table here and hinting is not here at all (see *A kern is a rule about
+white*, below); neither is what stops two letters touching. What it takes instead is
+being honest about what a serif is.
 
 ### Leading is a baseline distance, not a gap
 
@@ -1638,8 +1640,56 @@ distinction the test measures on the pixels: the same line printed twice, with a
 without a descender, is one leading apart both times.
 
 Tracking is the same discipline one step in: it goes *between* letters, so a line of
-`n` letters has `n - 1` of them, and `measure` is the sum of the advances and nothing
-else. Every layout bug in the world starts as an off-by-one-tracking.
+`n` letters has `n - 1` of them. Every layout bug in the world starts as an
+off-by-one-tracking.
+
+### A kern is a rule about white, not a table of pairs
+
+An advance is a property of **one** letter, which is why it cannot know what happens
+between two. Two stems stand at the daylight the pen gives them and that is right; an
+`A` and a `V` stand at the same daylight and leave a wedge you can see through, and a
+`T`'s bar ends a hundredth of an em short of an `o` that could have walked in further.
+A foundry fixes this with a table of pairs, one number at a time, because every pair is
+a judgement.
+
+There is no table here. A table is a second font that can disagree with the first, and
+214 characters would need forty-five thousand judgements -- numbers with nothing behind
+them. `gen/text/kern.py` reads instead the two letters' **profiles** out of the field the
+pen draws them with (for each height, how far left and right the ink reaches) and closes
+the pair by the **smallest** of three answers:
+
+1. **the room the closest approach has left** before it reaches the daylight the pair is
+   promised: `AIR = 0.02` em between stems, `MARK_GAP = 0.05` em if either letter wears
+   an accent, because two accents are the thinnest ink in the face;
+2. **the white the pair is carrying over the reference**, which is measured rather than
+   declared: what two `n`s keep between them in this very pen -- 0.17 em in `text` and
+   0.13 in `sans`, because a serifed face keeps wider daylight than a monoline;
+3. **a twelfth of an em**, which is an admission rather than a measurement: a rule that
+   reads profiles will happily close a pair a designer would not.
+
+Two decisions in that list are places where the obvious version is wrong. The spacing
+question is asked of the **bodies**, because an accent is fitted into the ground its
+letter already had -- the same reason the advance is measured off the body and not off
+the ink. The safety question is asked of the **finished ink**, so a kern cannot walk a
+mark into its neighbour. And the profiles count the rows a letter *misses*, filled in
+from that letter's own far edge: a `T`'s bar is *above* the `o` and constrains it all the
+same, and without that the closest approach between them is the stem and the rule never
+asks the bar anything.
+
+The numbers that come out are small and checkable: `T`+`o` closes by 0.08 em, `A`+`V` by
+0.02 (its serifs already nearly touch), two `o`s by 0.03, two `n`s by nothing at all, as
+the pair everything else is measured against. The spread of the air across a specimen
+falls by a fifth in the book face -- which is what "even colour" means when it is
+measured rather than claimed -- and the tests hold the promise that no pair, with the
+correction applied, comes nearer than the daylight it was promised. The specimen sheet
+prints the notorious pairs twice, with the rule and without it: a claim about white is
+checked by looking, which is also how the third constant was chosen.
+
+What the rule cannot see is that a bowl is not a stem. A round side leaves more white
+above and below the point where it comes nearest, so two `o`s at a stem's daylight still
+read a little loose, and the rule takes back only a third of that. That is the honest
+budget of a rule where a foundry has a table. Ligatures are the next thing, and they are
+not a distance at all: they are a letter that is two letters.
 
 ### A missing character is refused, not drawn
 
@@ -1663,7 +1713,9 @@ sensible weight and refusing it would only make a live parameter unusable.
 
 ### What is not here
 
-No kerning, no ligatures, no hinting, no marks stacked on marks, no `.ttf`. The letters
+No ligatures, no hinting, no marks stacked on marks, no `.ttf` -- and no pair table,
+which is a decision and not a gap: the kerns are the rule above, derived from the pen
+every time a line is laid out. The letters
 are drawn at the size they are asked for, and the honest version of "optically correct at
 12 px" is to pick the `sans` pen, which is what a UI face is for. The demo sheet's last
 block is the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one of them is
@@ -2807,7 +2859,14 @@ Generators to sit on top of the core, in the order they become useful:
   up; and a missing character raises rather than drawing a box, because a box in a
   shipped menu is a question that was answered silently. A third is the mark: it is
   fitted into the ground the letter already has, so an accent never widens a word nor
-  lands in its neighbour's slot. This is also the licensing note's "fonts leak" closed:
+  lands in its neighbour's slot)*; ~~kerning, without a table of pairs~~ *(done:
+  `gen/text/kern.py` -- the two letters' profiles read out of the pen's own field, the
+  close bounded by the daylight the pair is promised, the white it carries over the
+  measured reference pair, and a twelfth of an em; the spacing question asked of the
+  bodies and the safety question of the finished ink, which is the same split the
+  advance makes)*; ~~ligatures~~ *(open: not a distance but a letter that is two
+  letters, and the skeleton has no way yet to say that one stroke belongs to two
+  characters)*. This is also the licensing note's "fonts leak" closed:
   the shipped face is a function of a seed like everything else, and Pillow's bitmap
   font is back to being what it always was here -- a dev tool).*
 - **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the

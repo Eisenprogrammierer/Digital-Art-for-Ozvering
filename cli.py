@@ -67,6 +67,7 @@ from gen.maps import roads as map_roads  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.text import pen as text_pen  # noqa: E402
 from gen.text import skeleton as text_skeleton  # noqa: E402
+from gen.text import kern as kernlib  # noqa: E402
 from gen.text import typeset  # noqa: E402
 from gen.textures import atlas as tex_atlas  # noqa: E402
 from gen.textures import boards as tex_boards  # noqa: E402
@@ -394,6 +395,20 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
             add(typeset.draw(row, spec, em=size, pad=0.06, colour=ink), after=1)
         add(Canvas(1, 1), after=18)
 
+    # the kerning specimen: one line with the rule on and the same line with it off.
+    # A kern is a claim about white, and the only way to check a claim about white is
+    # to put the two lines beside each other -- which is also why the pairs here are
+    # the notorious ones and not a sentence that happens to contain them.
+    add(Canvas(1, 1), after=14)
+    add(typeset.draw("Kerning -- the same line with the rule, and without it",
+                     {**text_pen.get("sans"), "weight": 0.052},
+                     em=size * 0.62, pad=0.06, colour=quiet), after=6)
+    kerned = "AVATAR WAVE To Type LT fiy oo nn r. va yo"
+    add(typeset.draw(kerned, {**text_pen.get("text"), "kern": 1.0},
+                     em=size * 1.9, pad=0.06, colour=ink), after=7)
+    add(typeset.draw(kerned, {**text_pen.get("text"), "kern": 0.0},
+                     em=size * 1.9, pad=0.06, colour=quiet), after=20)
+
     # the size sweep: the same sentence, drawn at the size it says it is.  The
     # monoline, because a size ladder is a question about a UI face -- and because the
     # honest answer to "does it read at 11 px" is a pen that was *chosen* for 11 px.
@@ -447,6 +462,15 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
                      "cap_height": text_skeleton.CAP_HEIGHT,
                      "ascender": text_skeleton.ASCENDER,
                      "descender": text_skeleton.DESCENDER},
+             # Kerning is a rule and not a table, so what a reader of the sidecar gets
+             # is the rule's three numbers and the air each face calls normal -- the
+             # number every pair in that face is measured against.  A foundry would
+             # ship the pairs; a rule that can name its own reference does not need to.
+             kerning={"air_floor": kernlib.AIR_FLOOR,
+                      "close_max": round(kernlib.CLOSE_MAX, 4),
+                      "profile_rows": kernlib.PROFILE_ROWS,
+                      "reference": {name: round(kernlib.reference(text_pen.get(name)), 4)
+                                    for name in faces}},
              faces=metric)
     return _report(out)
 

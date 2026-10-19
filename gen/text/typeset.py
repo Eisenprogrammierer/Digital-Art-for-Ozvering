@@ -3,10 +3,11 @@
 Three jobs, and they are three different questions:
 
 * **How far does the pen move?**  :func:`advance` is the skeleton's own advance with
-  the pen's width applied; :func:`measure` is a line's worth of them.  Tracking is
-  *between* letters, so a line of ``n`` letters has ``n - 1`` of them -- the one thing
-  a font's metrics have to get right, because every layout bug starts as an
-  off-by-one-tracking.
+  the pen's width applied; :func:`measure` is a line's worth of them.  Between two
+  letters the pen also pays the *kern* -- the correction :mod:`gen.text.kern` reads off
+  the two profiles -- and the tracking.  Both are *between* letters, so a line of ``n``
+  letters has ``n - 1`` of each: that is the one thing a font's metrics have to get
+  right, because every layout bug starts as an off-by-one-tracking.
 * **Where does each letter sit?**  :func:`place` answers with the pen positions, and
   :func:`ink_bounds` answers with where the *ink* actually reached, which is not the
   same box: the em box has room in it that no letter uses, so a line centred by its
@@ -27,10 +28,10 @@ import numpy as np
 
 from core import palette, render
 from core.canvas import Canvas
-from gen.text import pen, skeleton
+from gen.text import kern, pen, skeleton
 
 __all__ = ["INK", "advance", "measure", "place", "ink_bounds", "spec_of", "paint",
-           "draw", "block"]
+           "draw", "block", "pair"]
 
 #: The colour a line of text is drawn in when nobody says otherwise: a soft black,
 #: which is what a page wants and what a bright UI wants to be told otherwise about.
@@ -38,13 +39,21 @@ INK = (0.15, 0.17, 0.21)
 
 
 def spec_of(spec=None) -> dict:
-    """A full typesetting spec: the pen's five numbers and the tracking."""
+    """A full typesetting spec: the pen's five numbers, the tracking and the kerning.
+
+    ``kern`` is a *strength* and not a distance: 1 draws the line the rule asks for, 0
+    draws it on the bare advances, and anything between is a fraction of the correction.
+    That is what makes "with and without" a specimen rather than an argument, and it is
+    the only knob here: a per-pair table would be the second font this package refuses
+    to be.
+    """
     out = pen.clamp(spec)
-    try:
-        tracking = float((spec or {}).get("tracking", 0.0))
-    except (TypeError, ValueError):
-        tracking = 0.0
-    out["tracking"] = float(np.clip(tracking, -0.05, 0.30))
+    for key, lo, hi, fallback in (("tracking", -0.05, 0.30, 0.0), ("kern", 0.0, 1.0, 1.0)):
+        try:
+            v = float((spec or {}).get(key, fallback))
+        except (TypeError, ValueError):
+            v = fallback
+        out[key] = float(np.clip(v, lo, hi))
     return out
 
 
@@ -57,13 +66,33 @@ def advance(ch: str, spec=None) -> float:
     return pen.advance(ch, s)
 
 
+def _pair(a: str, b: str, s: dict) -> float:
+    """The pen's move from the start of ``a`` to the start of ``b``, in em units.
+
+    One place, because three callers need the same arithmetic and the two corrections
+    are both *between* letters.  The kern comes first and the tracking second, in that
+    order on purpose: a kern is what the two shapes ask of each other, and tracking is
+    what the typesetter asks of the line -- adding air to a pair should not cancel the
+    correction its shapes asked for.
+    """
+    return pen.advance(a, s) + s["kern"] * kern.kern(a, b, s) + s["tracking"]
+
+
 def measure(text: str, spec=None) -> float:
-    """The width of ``text`` in em units, tracking included but not trailed."""
+    """The width of ``text`` in em units: advances, kerns and tracking, not trailed.
+
+    ``measure`` with ``kern = 0`` and no tracking is the sum of the advances and
+    nothing else, which is what the sidecar's table is for; with both, it is the line
+    the pen will actually lay out.
+    """
     s = spec_of(spec)
     text = str(text)
     if not text:
         return 0.0
-    return sum(advance(ch, s) for ch in text) + s["tracking"] * (len(text) - 1)
+    # each pair's distance *starts* at a letter, so the last letter's own advance is
+    # added after the loop and the first one is never counted twice
+    total = sum(_pair(a, b, s) for a, b in zip(text, text[1:]))
+    return total + pen.advance(text[-1], s)
 
 
 def place(text: str, spec=None) -> list:
@@ -74,11 +103,13 @@ def place(text: str, spec=None) -> list:
     because the right sidebearing of the last letter is not part of the ink either.
     """
     s = spec_of(spec)
+    text = str(text)
     out = []
     x = 0.0
-    for ch in str(text):
+    for i, ch in enumerate(text):
         out.append((ch, x + pen.offset(ch, s)))
-        x += advance(ch, s) + s["tracking"]
+        if i + 1 < len(text):
+            x += _pair(ch, text[i + 1], s)
     return out
 
 
@@ -127,6 +158,16 @@ def _window(X, Y, box, pad: float = 2.0):
     c0, c1 = int(cols[0]), int(cols[-1]) + 1
     r0, r1 = int(rows[0]), int(rows[-1]) + 1
     return X[r0:r1, c0:c1], Y[r0:r1, c0:c1], r0, c0
+
+
+def pair(a: str, b: str, spec=None) -> float:
+    """The distance from the start of ``a`` to the start of ``b``, corrections included.
+
+    The number :func:`measure` sums and :func:`place` walks; public because a layout
+    that draws a line one letter at a time -- a menu, a caption, the credits screen --
+    needs the same distance the line would have had.
+    """
+    return _pair(a, b, spec_of(spec))
 
 
 def paint(canvas: Canvas, text: str, spec=None, x: float = 0.0, y: float = 0.0,

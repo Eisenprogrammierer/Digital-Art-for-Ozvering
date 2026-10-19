@@ -380,20 +380,27 @@ def strokes(ch: str, spec=None, marks: bool = True):
     return base + mark if marks else base
 
 
-def glyph_field(ch: str, spec, X, Y):
+def glyph_field(ch: str, spec, X, Y, marks: bool = True):
     """The distance field of one glyph, in em units, baseline-left at ``(0, 0)``.
 
     The caller evaluates it on whatever grid it likes; the field is the same field at
     every size, which is the whole reason a letter can be *drawn* at 300 px and at
     12 px instead of being drawn large and resampled.
+
+    With ``marks`` false the accent over the letter is left out, the same way
+    :func:`strokes` leaves it out: the body of a letter and the accent fitted into its
+    ground are two different questions, and measuring the body is what the spacing asks
+    for while the finished ink is what a draw and a box ask for.
     """
     s = clamp(spec)
     weight, contrast = s["weight"], s["contrast"]
     k = FILLET * weight                    # the fillet the joins get
     reach = 0.5 * weight
-    base, marks = _placed(ch, s)
+    base, accents = _placed(ch, s)
+    if not marks:
+        accents = []
     d = None
-    for pts, feet in ([(p, True) for p in base] + [(p, False) for p in marks]):
+    for pts, feet in ([(p, True) for p in base] + [(p, False) for p in accents]):
         if len(pts) == 1:
             seg = sdf.circle(X, Y, reach, pts[0][0], pts[0][1])
             d = seg if d is None else sdf.smooth_union(d, seg, k)
@@ -441,7 +448,7 @@ def _metrics(ch: str, s: dict) -> tuple:
     return (core, full, lsb, rsb, adv, lsb - core[0])
 
 
-def ink_box(ch: str, spec=None) -> tuple:
+def ink_box(ch: str, spec=None, marks: bool = True) -> tuple:
     """Where the glyph's ink reaches, ``(x0, y0, x1, y1)`` in em units.
 
     Measured off the skeleton and the pen rather than declared, so it follows a
@@ -451,11 +458,15 @@ def ink_box(ch: str, spec=None) -> tuple:
     the ink actually is (so a line can be centred on what the eye sees).
 
     This is the *finished* ink: the feet and the mark over the letter.  Spacing is
-    measured off :func:`core_box`, which is the body and nothing else.
+    measured off :func:`core_box`, which is the body and nothing else -- and with
+    ``marks`` false the accent is left out here too, which is what a caller profiling a
+    letter *by height* needs: a box that is taller than the body spreads fewer samples
+    over the same rows and measures a different letter.
     """
     s = clamp(spec)
-    base, marks = _placed(ch, s)
-    boxes = [b for b in (_box_of(base, s, True), _box_of(marks, s, False)) if b]
+    base, accents = _placed(ch, s)
+    accents = accents if marks else []
+    boxes = [b for b in (_box_of(base, s, True), _box_of(accents, s, False)) if b]
     if not boxes:
         return (0.0, 0.0, 0.0, 0.0)
     return (min(b[0] for b in boxes), min(b[1] for b in boxes),

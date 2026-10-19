@@ -9,8 +9,11 @@ about numbers agreeing with pixels:
   skeleton, because a pen lays a stem around a centreline and half of it overshoots;
 * the **advance** is wide enough for the ink plus its sidebearings, at every weight
   the pen allows, because that is the promise the spacing system makes;
-* **measure** is the sum of the advances and nothing else, so a layout can compute a
-  line's width without drawing it -- and get the same answer as the drawing does;
+* **measure** is the sum of what the pen spends -- advances, kerns and tracking -- so a
+  layout can compute a line's width without drawing it and get the same answer the
+  drawing does;
+* a **kern** only ever closes a pair, never by more than a twelfth of an em, and never
+  to less than the pen's own air, so the correction cannot undo the sidebearings;
 * a **serif** grows on a guide and nowhere else, which is the whole serif rule;
 * a **mark** over a letter is fitted into the ground the letter already had, so an
   accented letter is not a wider letter and an accent never lands in its neighbour;
@@ -39,7 +42,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.canvas import Canvas  # noqa: E402
-from gen.text import pen, skeleton, typeset  # noqa: E402
+from gen.text import kern, pen, skeleton, typeset  # noqa: E402
 
 
 # ------------------------------------------------------------------- helpers
@@ -184,14 +187,25 @@ def test_a_serif_hangs_into_the_sidebearing_rather_than_widening_its_letter():
         assert pen.ink_box("i", spec)[0] + pen.offset("i", spec) >= 0.0
 
 
-def test_measure_is_the_sum_of_the_advances_and_the_tracking_between_them():
-    """Tracking is *between* letters: n letters have n - 1 gaps, not n."""
+def test_measure_is_the_advances_the_kerns_and_the_tracking_between_them():
+    """The two corrections are *between* letters: n letters have n - 1 of each, not n.
+
+    Three ways to get this wrong and one test that sees all three: a trailing kern, a
+    trailing tracking, and a kern applied *within* a letter's own advance rather than
+    after it.
+    """
     spec = {**pen.get("text"), "tracking": 0.04}
     text = "Handgloves"
-    want = sum(typeset.advance(ch, spec) for ch in text) + 0.04 * (len(text) - 1)
+    want = sum(typeset.advance(ch, spec) for ch in text)
+    want += sum(kern.kern(a, b, spec) for a, b in zip(text, text[1:]))
+    want += 0.04 * (len(text) - 1)
     assert abs(typeset.measure(text, spec) - want) < 1e-9
     assert typeset.measure("", spec) == 0.0
     assert abs(typeset.measure("a", spec) - typeset.advance("a", spec)) < 1e-9
+    # with the rule off it is the sum of the advances, which is what the sidecar lists
+    bare = {**spec, "kern": 0.0}
+    assert abs(typeset.measure(text, bare)
+               - (sum(typeset.advance(ch, bare) for ch in text) + 0.04 * (len(text) - 1))) < 1e-9
 
 
 def test_place_never_steps_backwards_and_the_last_pen_position_is_the_measure():
@@ -202,7 +216,12 @@ def test_place_never_steps_backwards_and_the_last_pen_position_is_the_measure():
     assert [ch for ch, _ in spots] == list(text)
     xs = [x for _, x in spots]
     assert all(b > a for a, b in zip(xs, xs[1:])), xs
-    # the pen after the last letter, less the trailing tracking, is the measure
+    # every step is the pair's own distance, and the pen after the last letter is the
+    # measure: no trailing kern, no trailing tracking
+    for i, (a, b) in enumerate(zip(text, text[1:])):
+        step = xs[i + 1] - xs[i]
+        assert abs(step - (typeset.pair(a, b, spec)
+                           + pen.offset(b, spec) - pen.offset(a, spec))) < 1e-9
     end = xs[-1] - pen.offset(text[-1], spec) + typeset.advance(text[-1], spec)
     assert abs(end - typeset.measure(text, spec)) < 1e-9
 
@@ -559,6 +578,175 @@ def test_a_canvas_the_drawing_returns_is_a_canvas():
     assert isinstance(c, Canvas)
     assert c.w > 0 and c.h > 0
     assert np.isfinite(c.rgb).all() and np.isfinite(c.a).all()
+
+
+# ------------------------------------------------------------------- kerning
+def test_a_kern_only_closes_and_never_further_than_a_twelfth():
+    """The direction is a decision: the advances already keep the pen's daylight.
+
+    A positive kern would be the rule second-guessing the sidebearings, and a kern
+    larger than ``CLOSE_MAX`` is the rule guessing at a pair it cannot see the point of.
+    """
+    text = "AVLTWaTofiyovay. r"
+    for face in pen.names():
+        spec = pen.get(face)
+        for a, b in zip(text, text[1:]):
+            k = kern.kern(a, b, spec)
+            assert -kern.CLOSE_MAX - 1e-12 <= k <= 1e-12, (face, a + b, k)
+
+
+def test_the_reference_pair_is_two_stems_and_takes_no_kern():
+    """The face's own answer to "how much air is normal" is measured, not declared."""
+    for face in pen.names():
+        spec = pen.get(face)
+        close, mean = kern.air("n", "n", spec)
+        assert abs(kern.reference(spec) - mean) < 1e-12
+        assert abs(kern.kern("n", "n", spec)) < 1e-12, face
+
+
+def test_a_round_pair_closes_and_the_pair_it_is_measured_against_does_not():
+    """Two bowls carry more white than two stems, so the rule takes some of it back."""
+    spec = pen.get("text")
+    assert kern.kern("o", "o", spec) < 0.0
+    assert kern.kern("T", "o", spec) < 0.0
+    # the clamp is what a designer's restraint looks like in code: these are the pairs
+    # whose white is far over the reference and whose shapes would close further
+    assert abs(kern.kern("L", "T", spec) + kern.CLOSE_MAX) < 1e-9
+    assert abs(kern.kern("r", ".", spec) + kern.CLOSE_MAX) < 1e-9
+
+
+def test_no_pair_comes_closer_than_the_daylight_it_was_promised():
+    """The safety claim, over every pair of a working alphabet and of the accents.
+
+    The kern may spend the room the closest approach has and not one em-unit more, so a
+    kerned line cannot make two letters touch -- the same promise the advance makes,
+    checked on the pairs that come nearest.
+    """
+    spec = pen.get("text")
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq" + "ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ"
+    for a in chars:
+        for b in chars:
+            got = kern.air(a, b, spec)
+            if got is None:
+                continue
+            after = got[0] + kern.kern(a, b, spec)
+            # a pair may already be closer than its floor -- the pen drew it that way and
+            # a kern may not *open* a pair, so the promise is "no closer than it was"
+            assert after >= min(got[0], kern.floor(a, b, spec)) - 1e-9, (a + b, got, after)
+
+
+def test_a_mark_is_not_a_stem_and_keeps_a_mark_s_daylight():
+    """Two accents are the thinnest ink in the face, so they get the larger floor.
+
+    A rule that knew only the closest approach closed ``ÀÁ`` until the two accents were
+    0.017 em apart: less daylight than the pen keeps between a mark and the letter under
+    it (``MARK_GAP = 0.05``), spent on the thinnest ink in the face.  A mark is fitted
+    into the ground its letter already had, so a pair that wears one keeps that daylight
+    and not a stem's.
+    """
+    spec = pen.get("text")
+    for face in pen.names():
+        s = pen.get(face)
+        assert kern.floor("À", "Á", s) == kern.MARK_FLOOR
+        assert kern.floor("n", "n", s) == kern.AIR_FLOOR
+        assert kern.floor("À", "n", s) == kern.MARK_FLOOR
+    for face in pen.names():
+        s = pen.get(face)
+        for a, b in [("À", "Á"), ("É", "Ê"), ("Â", "Ã"), ("Ö", "Ù"), ("à", "é")]:
+            got = kern.air(a, b, s)
+            if got is None:
+                continue
+            after = got[0] + kern.kern(a, b, s)
+            assert after >= min(got[0], kern.MARK_FLOOR) - 1e-9, (face, a + b, got, after)
+    # and the bodies of two marked letters are still measured as bodies: the spacing
+    # question does not see the accent at all
+    bare = kern.air("A", "A", spec)
+    marked = kern.air("À", "Á", spec)
+    assert abs(bare[1] - marked[1]) < 1e-9
+
+
+def test_a_space_is_not_a_letter_and_takes_no_kern():
+    """A kern is a correction to the ink's spacing, and a space has no ink."""
+    spec = pen.get("text")
+    assert kern.air(" ", "a", spec) is None
+    assert kern.kern(" ", "a", spec) == 0.0
+    assert kern.kern("a", " ", spec) == 0.0
+    assert abs(typeset.measure("a b", spec)
+               - (typeset.advance("a", spec) + typeset.advance(" ", spec)
+                  + typeset.advance("b", spec)
+                  + kern.kern("a", " ", spec) + kern.kern(" ", "b", spec))) < 1e-9
+
+
+def test_the_kern_strength_is_a_fraction_of_the_correction():
+    """``kern = 0.5`` is half the correction, not a different rule."""
+    spec = pen.get("text")
+    text = "AVATAR To"
+    full = typeset.measure(text, {**spec, "kern": 1.0})
+    half = typeset.measure(text, {**spec, "kern": 0.5})
+    none = typeset.measure(text, {**spec, "kern": 0.0})
+    assert full < half < none
+    assert abs((half - none) - 0.5 * (full - none)) < 1e-9
+
+
+def test_kerning_evens_the_colour_of_a_specimen():
+    """What the rule is *for*, measured rather than asserted.
+
+    The air a pair carries is its mean daylight over the heights it shares.  A face with
+    one advance per glyph cannot know what two letters do together, so the spread of
+    those numbers across a specimen is the unevenness a reader sees as grey patches; the
+    correction is supposed to bring them in, and this is the check that it does.
+    """
+    spec = pen.get("text")
+    sample = ["nn", "oo", "To", "AV", "LT", "fi", "r.", "va", "yo", "Wa", "Ty", "oc",
+              "de", "ha", "il", "ou", "st"]
+    before = [kern.air(a, b, spec)[1] for a, b in sample]
+    after = [kern.air(a, b, spec)[1] + kern.kern(a, b, spec) for a, b in sample]
+    assert np.std(after) < 0.85 * np.std(before), (np.std(before), np.std(after))
+
+
+def test_the_kern_follows_the_pen_and_not_the_name_of_the_face():
+    """A monoline and a book face are spaced by their own ink, not by a shared table."""
+    sans, text = pen.get("sans"), pen.get("text")
+    assert abs(kern.reference(sans) - kern.reference(text)) > 0.02
+    pairs = [("o", "o"), ("T", "o"), ("W", "a"), ("T", "y"), ("A", "V"), ("f", "i")]
+    assert any(abs(kern.kern(a, b, sans) - kern.kern(a, b, text)) > 1e-6 for a, b in pairs)
+    heavier = {**text, "weight": 0.20}
+    assert abs(kern.reference(heavier) - kern.reference(text)) > 1e-3
+
+
+def test_profiles_are_cached_and_the_cache_is_bounded():
+    """A line asks for the same profile again and again; a slider asks for new ones."""
+    kern.clear()
+    spec = pen.get("text")
+    kern.kern("f", "i", spec)
+    first = kern.stats()
+    assert first["misses"] >= 2
+    kern.kern("f", "i", spec)
+    again = kern.stats()
+    assert again["misses"] == first["misses"]      # the pair's own answer is cached
+    assert again["hits"] >= 2
+    assert again["profiles"] <= kern.CACHE_MAX
+    kern.clear()
+    assert kern.stats()["profiles"] == 0 and kern.stats()["pairs"] == 0
+
+
+def test_kerning_leaves_every_advance_alone():
+    """The sidecar lists advances; a kern is between two letters and inside neither."""
+    spec = pen.get("text")
+    for ch in "AaTof.,":
+        assert typeset.advance(ch, {**spec, "kern": 0.0}) == pen.advance(ch, spec)
+        assert typeset.advance(ch, {**spec, "kern": 1.0}) == pen.advance(ch, spec)
+
+
+def test_a_kerned_line_is_narrower_by_its_kerns_and_still_inside_its_measure():
+    """The ink follows the kerns, and the advance still has room for it."""
+    spec = pen.get("text")
+    line = "AVATAR WAVE"
+    kerned = typeset.ink_bounds(line, {**spec, "kern": 1.0})
+    bare = typeset.ink_bounds(line, {**spec, "kern": 0.0})
+    assert kerned[2] < bare[2]
+    assert kerned[0] == bare[0]
+    assert kerned[2] <= typeset.measure(line, {**spec, "kern": 1.0}) + 1e-9
 
 
 if __name__ == "__main__":
