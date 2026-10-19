@@ -36,6 +36,20 @@ The first four are also the **guides**: the horizontals a serif is allowed to gr
 on.  That is the whole serif rule, and it is why the alphabet can be stroke data and
 still have feet.
 
+The alphabet is not only the Latin one.  Cyrillic is the same *design* with a second
+alphabet written on it, and the file says so three ways rather than drawing it twice:
+
+* **A letter that is another letter's shape** is an :data:`ALIASES` entry -- А is A,
+  Н is H, eighteen of the sixty-six in all -- because that is a fact about the shapes
+  and not a coincidence to be typed out and then allowed to drift;
+* **A letter that is a letter with a mark** is a :data:`COMPOSED` entry: Ё is Е with
+  two dots, Й is И with a breve, and the accented letters of ISO-8859-1 are the same
+  machinery (é is e with an acute).  The mark's own strokes live in :data:`MARKS`, and
+  *where* it goes is the pen's question -- the gap depends on how much ink the letter
+  under it is carrying -- so this file says which mark and never how high;
+* **the rest** are drawn here on the same guides and the same grid as everything else,
+  which is the point: a second alphabet of one design, not a second design.
+
 The data grammar, one glyph per line -- an advance in tenths of an em, and its
 strokes:
 
@@ -52,8 +66,9 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["GLYPHS", "X_HEIGHT", "CAP_HEIGHT", "ASCENDER", "DESCENDER", "GUIDES",
-           "names", "has", "advance", "strokes"]
+__all__ = ["GLYPHS", "ALIASES", "MARKS", "COMPOSED", "DOTTED", "X_HEIGHT",
+           "CAP_HEIGHT", "ASCENDER", "DESCENDER", "GUIDES", "names", "has", "advance",
+           "strokes", "mark_of", "mark_strokes"]
 
 #: The lines of the face, in em units.  See the module docstring.
 X_HEIGHT = 0.50
@@ -73,9 +88,10 @@ ARC_STEP = 12.0
 # --------------------------------------------------------------------------
 # the alphabet
 # --------------------------------------------------------------------------
-#: One entry per printable ASCII character: ``(advance, strokes)``.  Space has no
-#: strokes, and a stroke that is a single point is a dot -- which is how a period is
-#: a period rather than a small box.
+#: One entry per printable ASCII character, plus the Cyrillic letters that are neither
+#: another letter's shape nor a letter with a mark: ``(advance, strokes)``.  Space has no strokes, and a stroke
+#: that is a single point is a dot -- which is how a period is a period rather than a
+#: small box.
 GLYPHS = {
     # ---- capitals.  Flat letters keep a body of four tenths; rounds take more,
     # and the wide ones (M, W) take what their strokes need.
@@ -180,7 +196,126 @@ GLYPHS = {
     "^": (4.6, "0.2,4.4 2.3,7.0 4.4,4.4"),
     "`": (2.6, "0.2,6.8 1.6,5.8"),
     "|": (2.2, "0.5,-1.5 0.5,7.7"),
+    # ---- Cyrillic capitals.  А, В, Е, З, К, М, Н, О, Р, С, Т and Х are not here:
+    # they are the Latin letters (or the digit), and ALIASES says so.
+    "Б": (5.5, "0,0 0,7 | 0,7 3.6,7 | A0,2.0,3.5,2.0,90,-90"),
+    "Г": (4.9, "0,0 0,7 | 0,7 3.8,7"),
+    "Д": (5.4, "0.4,7 3.6,7 | 0.4,7 -0.2,-0.7 | 3.6,7 4.2,-0.7 | -0.6,0 4.6,0"),
+    "Ж": (6.2, "0,7 2.3,3.5 0,0 | 4.6,7 2.3,3.5 4.6,0 | 2.3,0 2.3,7"),
+    "И": (5.6, "0,7 0,0 4.0,7 4.0,0"),
+    "Л": (5.6, "0,0 1.0,7 4.0,7 4.0,0"),
+    "П": (5.8, "0,0 0,7 4.4,7 4.4,0"),
+    "У": (5.6, "0,7 2.2,2.4 | 4.4,7 2.2,2.4 0.4,-1.9"),
+    "Ф": (6.2, "2.4,0 2.4,7 | A2.4,3.5,2.2,3.5,0,360"),
+    "Ц": (6.2, "0,0 0,7 4.4,7 4.4,-1.6 5.8,-1.6"),
+    "Ч": (5.6, "0,7 0,2.6 4.4,2.6 | 4.4,0 4.4,7"),
+    "Ш": (6.6, "0,7 0,0 4.8,0 4.8,7 | 2.4,0 2.4,7"),
+    "Щ": (7.0, "0,7 0,0 4.8,0 4.8,7 | 2.4,0 2.4,7 | 4.8,0 4.8,-1.6 6.2,-1.6"),
+    "Ъ": (5.5, "0,0 0,7 | 0,7 3.6,7 | A0,2.0,3.5,2.0,90,-90"),
+    "Ы": (6.4, "0,0 0,7 | A0,2.0,3.2,2.0,90,-90 | 4.6,0 4.6,7"),
+    "Ь": (5.4, "0,0 0,7 | A0,2.0,3.2,2.0,90,-90"),
+    "Э": (5.9, "A2.4,3.5,2.4,3.5,220,500 | 2.3,3.5 4.6,3.5"),
+    "Ю": (7.4, "1.8,0 1.8,7 | A4.4,3.5,2.4,3.5,0,360"),
+    "Я": (5.6, "4.4,0 4.4,7 | A4.4,5.3,3.2,1.7,90,270 | 3.4,3.6 0.1,0"),
+    # ---- Cyrillic lowercase: the x-height is 5 and the descender -2 here too.
+    "б": (5.1, "A2.2,2.5,2.2,2.5,0,360 | 0,2.5 0,6.4 | A1.6,6.4,1.6,1.5,180,60"),
+    "в": (4.6, "0,0 0,5 | A0,3.7,2.1,1.3,90,-90 A0,1.2,2.3,1.2,90,-90"),
+    "г": (4.0, "0,0 0,5 | 0,5 3.0,5"),
+    "д": (5.0, "0.4,5 3.4,5 | 0.4,5 -0.1,-0.6 | 3.4,5 3.9,-0.6 | -0.5,0 4.5,0"),
+    "ж": (5.0, "0,5 1.8,2.5 0,0 | 3.6,5 1.8,2.5 3.6,0 | 1.8,0 1.8,5"),
+    "з": (4.6, "A1.6,3.7,1.6,1.3,170,-45 A1.8,1.3,1.8,1.3,55,-165"),
+    "и": (5.0, "0,5 0,0 3.4,5 3.4,0"),
+    "к": (4.8, "0,0 0,5 | 3.0,5 0,2.0 | 1.4,2.9 3.4,0"),
+    "л": (4.8, "0,0 0.8,5 3.4,5 3.4,0"),
+    "м": (5.8, "0,0 0,5 2.0,1.6 4.0,5 4.0,0"),
+    "н": (5.0, "0,0 0,5 | 3.4,0 3.4,5 | 0,2.5 3.4,2.5"),
+    "п": (5.0, "0,0 0,5 3.4,5 3.4,0"),
+    "т": (4.6, "0,5 3.4,5 | 1.7,5 1.7,0"),
+    "у": (5.0, "0,5 2.0,0.4 | 3.8,5 1.2,-1.8"),
+    "ф": (5.8, "A1.8,2.5,1.8,2.5,0,360 | 1.8,-2 1.8,8"),
+    "ц": (5.0, "0,0 0,5 3.4,5 3.4,-1.2 4.6,-1.2"),
+    "ч": (4.8, "0,5 0,2.4 3.4,2.4 | 3.4,0 3.4,5"),
+    "ш": (6.2, "0,5 0,0 4.8,0 4.8,5 | 2.4,0 2.4,5"),
+    "щ": (6.6, "0,5 0,0 4.8,0 4.8,5 | 2.4,0 2.4,5 | 4.8,0 4.8,-1.2 6.0,-1.2"),
+    "ъ": (4.8, "0,0 0,5 | 0,5 2.6,5 | A0,1.2,2.4,1.2,90,-90"),
+    "ы": (5.6, "0,0 0,5 | A0,1.2,2.4,1.2,90,-90 | 3.8,0 3.8,5"),
+    "ь": (4.8, "0,0 0,5 | A0,1.2,2.4,1.2,90,-90"),
+    "э": (5.0, "A1.8,2.5,1.8,2.5,220,500 | 1.7,2.5 3.5,2.5"),
+    "ю": (6.2, "1.4,0 1.4,5 | A3.4,2.5,2.0,2.5,0,360"),
+    "я": (4.8, "3.0,0 3.0,5 | A3.0,3.6,2.2,1.4,90,270 | 2.8,2.4 0.2,0"),
 }
+
+
+#: The letters whose form is another letter's: Cyrillic А is Latin A, Н is H, С is C,
+#: and eighteen of the sixty-six are like that (one of them is the digit 3, because a
+#: З is a 3 in this design).  It is not a shortcut -- it is the fact the two alphabets
+#: are built on, and saying it in the data keeps the two copies from ever disagreeing.
+ALIASES = {
+    "А": "A", "В": "B", "Е": "E", "З": "3", "К": "K", "М": "M", "Н": "H", "О": "O",
+    "Р": "P", "С": "C", "Т": "T", "Х": "X",
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x",
+}
+
+#: The marks, as skeletons of their own in the same grammar as the letters -- tenths
+#: of an em, arcs as ellipses -- centred on ``x = 0`` with their ink on ``y = 0``, and
+#: either ``above`` the letter or ``below`` it.  A mark is a separate thing that rides
+#: over a letter, so it is data about the mark and not about any one letter -- and
+#: every mark here is used by at least one :data:`COMPOSED` letter, because a mark
+#: nobody writes is a mark nobody has looked at.
+MARKS = {
+    "acute": ("-1.2,0 1.4,2.8", "above"),
+    "grave": ("1.2,0 -1.4,2.8", "above"),
+    "circumflex": ("-1.7,0.2 0,2.6 1.7,0.2", "above"),
+    "tilde": ("A-0.95,1.0,0.95,0.9,210,0 A0.95,1.0,0.95,0.9,180,390", "above"),
+    "diaeresis": ("-1.2,1.0 | 1.2,1.0", "above"),
+    "ring": ("A0,1.3,1.15,1.3,0,360", "above"),
+    "breve": ("A0,1.6,1.8,1.6,150,390", "above"),
+    "cedilla": ("0.2,0 0.2,-1.4 A-1.0,-1.4,1.2,1.2,0,-90", "below"),
+}
+
+#: The letters written as a base and a mark: "this letter, with this over it".  The
+#: accented letters of ISO-8859-1 are all of them -- that is the set a Western European
+#: game actually types, and it is closed, so the face either has all of it or is
+#: missing a letter somebody will type.  A letter that needs a caron, an ogonek or a
+#: stroke (ł, ą, č, ż) is one line here away, and until then it is refused by name.
+COMPOSED = {
+    "À": ("A", "grave"), "Á": ("A", "acute"), "Â": ("A", "circumflex"),
+    "Ã": ("A", "tilde"), "Ä": ("A", "diaeresis"), "Å": ("A", "ring"),
+    "Ç": ("C", "cedilla"),
+    "È": ("E", "grave"), "É": ("E", "acute"), "Ê": ("E", "circumflex"),
+    "Ë": ("E", "diaeresis"),
+    "Ì": ("I", "grave"), "Í": ("I", "acute"), "Î": ("I", "circumflex"),
+    "Ï": ("I", "diaeresis"),
+    "Ñ": ("N", "tilde"),
+    "Ò": ("O", "grave"), "Ó": ("O", "acute"), "Ô": ("O", "circumflex"),
+    "Õ": ("O", "tilde"), "Ö": ("O", "diaeresis"),
+    "Ù": ("U", "grave"), "Ú": ("U", "acute"), "Û": ("U", "circumflex"),
+    "Ü": ("U", "diaeresis"),
+    "Ý": ("Y", "acute"),
+    "à": ("a", "grave"), "á": ("a", "acute"), "â": ("a", "circumflex"),
+    "ã": ("a", "tilde"), "ä": ("a", "diaeresis"), "å": ("a", "ring"),
+    "ç": ("c", "cedilla"),
+    "è": ("e", "grave"), "é": ("e", "acute"), "ê": ("e", "circumflex"),
+    "ë": ("e", "diaeresis"),
+    "ì": ("i", "grave"), "í": ("i", "acute"), "î": ("i", "circumflex"),
+    "ï": ("i", "diaeresis"),
+    "ñ": ("n", "tilde"),
+    "ò": ("o", "grave"), "ó": ("o", "acute"), "ô": ("o", "circumflex"),
+    "õ": ("o", "tilde"), "ö": ("o", "diaeresis"),
+    "ù": ("u", "grave"), "ú": ("u", "acute"), "û": ("u", "circumflex"),
+    "ü": ("u", "diaeresis"),
+    "ý": ("y", "acute"), "ÿ": ("y", "diaeresis"),
+    # ---- and the two Cyrillic ones.  Ё is Е with two dots and Й is И with a breve:
+    # one letter and a mark, which is what the machinery is for.  Note that the base of
+    # Ё is the *Cyrillic* Е, which is itself an alias -- two steps, and never a cycle.
+    "Ё": ("Е", "diaeresis"), "ё": ("е", "diaeresis"),
+    "Й": ("И", "breve"), "й": ("и", "breve"),
+}
+
+#: The two letters whose dot a mark takes the place of.  An i and a j wear a dot
+#: because there is nowhere else for the eye to catch them, and a mark lands exactly
+#: where the dot is: an acute on an i is *above the stem*, not above the dot.
+DOTTED = ("i", "j")
 
 
 # --------------------------------------------------------------------------
@@ -188,19 +323,60 @@ GLYPHS = {
 # --------------------------------------------------------------------------
 def names() -> list:
     """Every character the face has a skeleton for, in a stable order."""
-    return sorted(GLYPHS)
+    return sorted(set(GLYPHS) | set(ALIASES) | set(COMPOSED))
 
 
 def has(ch: str) -> bool:
     """Whether ``ch`` is in the face.  A missing character is an error, not a box."""
-    return str(ch) in GLYPHS
+    key = str(ch)
+    return key in GLYPHS or key in ALIASES or key in COMPOSED
+
+
+def mark_of(ch: str):
+    """The ``(mark, base)`` this character is written as, or ``None``.
+
+    The pair is what the pen needs: a mark and the letter it goes over.  Where the mark
+    sits is not here, because it is not a property of the letter -- it depends on the
+    ink the pen has already laid down (see :func:`gen.text.pen.strokes`).
+    """
+    entry = COMPOSED.get(str(ch))
+    return None if entry is None else (entry[1], entry[0])
+
+
+def mark_strokes(mark: str) -> list:
+    """A mark's own skeleton: centred at ``x = 0``, its ink on ``y = 0``."""
+    if mark not in MARKS:
+        raise KeyError(f"no mark called {mark!r}: there are {len(MARKS)}, "
+                       + ", ".join(sorted(MARKS)))
+    return _read(MARKS[mark][0], mark)
+
+
+def _base(ch: str) -> str:
+    """The key a character's strokes come from, once aliases are followed.
+
+    Three ways to have a glyph, and they are three different facts: its own entry, the
+    entry of a letter it shares a form with, or -- for a letter wearing a mark -- its
+    base's, because the mark is not part of the letter's form.
+    """
+    key = str(ch)
+    if key in COMPOSED:
+        key = COMPOSED[key][0]
+    if key in ALIASES:
+        key = ALIASES[key]
+    return key
 
 
 def advance(ch: str) -> float:
-    """The glyph's own advance, in em units, with no tracking of any kind."""
-    key = str(ch)
+    """The glyph's own advance, in em units, with no tracking of any kind.
+
+    A composed letter advances by its *base*: an accent hangs over the letter, and a
+    letter with something over it is not a wider letter.  (The pen may still widen it,
+    the same way a serif does, if the mark reaches past the sidebearing it was given --
+    see :func:`gen.text.pen.advance`.)
+    """
+    key = _base(ch)
     if key not in GLYPHS:
-        raise KeyError(f"no skeleton for {key!r}: the face covers {len(GLYPHS)} "
+        raise KeyError(f"no skeleton for {str(ch)!r}: the face covers {len(names())} "
                        f"characters, and a missing one is a mistake rather than a box")
     return GLYPHS[key][0] / 10.0
 
@@ -214,22 +390,15 @@ def _arc(cx, cy, rx, ry, a0, a1, into):
         into.append((cx + rx * np.cos(a), cy + ry * np.sin(a)))
 
 
-def strokes(ch: str) -> list:
-    """The glyph's skeleton: a list of polylines, in em units, y up.
-
-    ``(0, 0)`` is the baseline at the glyph's origin, so a caller can place the glyph
-    by an offset and nothing else.  A stroke of one point is a dot.
-    """
-    key = str(ch)
-    if key not in GLYPHS:
-        raise KeyError(f"no skeleton for {key!r}")
+def _read(text: str, key: str) -> list:
+    """A strokes-string read into polylines in em units."""
     out = []
-    for text in GLYPHS[key][1].split("|"):
-        text = text.strip()
-        if not text:
+    for part in text.split("|"):
+        part = part.strip()
+        if not part:
             continue
         pts = []
-        for token in text.split():
+        for token in part.split():
             if token[0] in "Aa":
                 nums = [float(v) for v in token[1:].split(",")]
                 if len(nums) != 6:
@@ -241,4 +410,36 @@ def strokes(ch: str) -> list:
                 pts.append((float(x) / 10.0, float(y) / 10.0))
         if pts:
             out.append(pts)
+    return out
+
+
+def _undotted(pts: list) -> list:
+    """The letter without its dot: a one-point stroke above the x-height is the dot."""
+    dots = [i for i, s in enumerate(pts) if len(s) == 1 and s[0][1] > X_HEIGHT]
+    if not dots:
+        return pts
+    drop = max(dots, key=lambda i: pts[i][0][1])
+    return [s for i, s in enumerate(pts) if i != drop]
+
+
+def strokes(ch: str) -> list:
+    """The glyph's skeleton: a list of polylines, in em units, y up.
+
+    ``(0, 0)`` is the baseline at the glyph's origin, so a caller can place the glyph
+    by an offset and nothing else.  A stroke of one point is a dot.
+
+    Two things worth knowing at the call site.  A letter wearing a mark gives the
+    **base's** strokes and not the mark's: the mark is not part of the letter's form,
+    and where it goes is the pen's question, so :func:`gen.text.pen.strokes` is what
+    puts it in place.  And an *i* or a *j* under a mark gives up its dot, because the
+    mark lands where the dot was.
+    """
+    key = str(ch)
+    base = _base(key)
+    if base not in GLYPHS:
+        raise KeyError(f"no skeleton for {key!r}")
+    out = _read(GLYPHS[base][1], key)
+    entry = COMPOSED.get(key)
+    if entry is not None and entry[0] in DOTTED and MARKS[entry[1]][1] == "above":
+        out = _undotted(out)
     return out

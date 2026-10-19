@@ -12,6 +12,8 @@ about numbers agreeing with pixels:
 * **measure** is the sum of the advances and nothing else, so a layout can compute a
   line's width without drawing it -- and get the same answer as the drawing does;
 * a **serif** grows on a guide and nowhere else, which is the whole serif rule;
+* a **mark** over a letter is fitted into the ground the letter already had, so an
+  accented letter is not a wider letter and an accent never lands in its neighbour;
 * a **missing character** is refused rather than drawn as a box, because a box in the
   middle of a menu is a bug that shipped, and a refusal is a bug that did not.
 
@@ -269,10 +271,55 @@ def test_a_serif_is_perpendicular_to_its_stroke():
         assert hh > hw, "a beak on a horizontal arm is taller than it is thick"
 
 
+# ---------------------------------------------------------------------- marks
+def test_no_accent_widens_the_letter_it_is_over():
+    """The advance is the letter's; the mark is fitted into it, not paid for.
+
+    Two claims, and the second is the stronger one.  An accented letter is never wider
+    than its base -- ``é`` is an ``e``'s width -- in any face.  And where the base has
+    no dot to lose, it is *exactly* the base's width: adding an accent is not adding a
+    letter, so the spacing of a word does not change when one is spelt with one.
+    """
+    for name in pen.names():
+        spec = pen.get(name)
+        for ch, (base, _mark) in skeleton.COMPOSED.items():
+            assert pen.advance(ch, spec) <= pen.advance(base, spec) + 1e-9, (name, ch)
+            if base not in skeleton.DOTTED:
+                assert pen.advance(ch, spec) == pen.advance(base, spec), (name, ch)
+
+
+def test_a_mark_keeps_a_daylight_between_itself_and_the_letter():
+    """The gap is measured ink to ink, so it is the same gap at every weight.
+
+    A mark anchored a fixed distance above the *skeleton* would sit inside a heavy
+    face's serifs -- a cap's foot reaches above the cap line, and a display weight
+    reaches further.  Anchored above the ink, the paper between the two is
+    :data:`pen.MARK_GAP` no matter what the pen weighed.  Measured on the raster, as
+    the widest clear band across the glyph.
+    """
+    for name in pen.names():
+        spec = pen.get(name)
+        for ch in ("é", "Å", "ñ", "ё", "Й", "ç"):
+            mask, _origin = _ink(ch, spec)
+            rows = np.nonzero(mask.any(axis=1))[0]
+            run = best = 0
+            for row in range(rows[0], rows[-1] + 1):
+                run = 0 if mask[row].any() else run + 1
+                best = max(best, run)
+            assert best >= pen.MARK_GAP * _EM - 2, (name, ch, best)
+            # and the mark is above (or below) the letter, not inside it
+            assert rows[-1] - rows[0] > 2 * best, (name, ch)
+
+
 # ------------------------------------------------------------------ refusals
 def test_a_character_the_face_does_not_have_is_refused():
-    """A missing glyph is an error with a name in it, not a box."""
-    for ch in ("\u00e9", "\u0416", "\n"):
+    """A missing glyph is an error with a name in it, not a box.
+
+    The three here are the three ways to be missing: a letter of another alphabet
+    (``ß`` and ``ї`` are German and Ukrainian, and neither is in this face), and a
+    control character, which is not a letter at all.
+    """
+    for ch in ("\u00df", "\u0457", "\n"):
         try:
             skeleton.advance(ch)
         except KeyError as exc:
@@ -297,12 +344,113 @@ def test_a_face_nobody_wrote_is_refused_and_a_number_is_clipped():
     assert pen.validate({"wight": 0.1}), "a misspelt parameter was accepted"
 
 
-def test_the_face_covers_all_of_printable_ascii():
-    """Ninety-five characters, and the count is the promise."""
+def test_the_face_is_printable_ascii_plus_the_two_alphabets_it_promises():
+    """Three sets, and each one is the promise: 95 + 66 + 53 = 214 characters.
+
+    The ASCII is what a program types without thinking.  The Cyrillic is the whole
+    alphabet, thirty-three and thirty-three, because half an alphabet is not a font.
+    And the accented letters are all of ISO-8859-1 -- the Western European set a game
+    actually types -- which is closed, so it is the one set where "some of it" is a
+    promise broken quietly.  Nothing else is in the face, and a character outside all
+    three is refused by name.
+    """
     import string
-    want = set(string.printable) - set("\t\n\r\x0b\x0c")
-    assert set(skeleton.names()) == want
-    assert len(skeleton.names()) == 95
+    ascii_ = set(string.printable) - set("\t\n\r\x0b\x0c")
+    cyrillic = ({chr(c) for c in range(0x0410, 0x042F + 1)}
+                | {chr(c) for c in range(0x0430, 0x044F + 1)}
+                | {"Ё", "ё"})
+    accented = set("ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ"
+                   "àáâãäåçèéêëìíîïñòóôõöùúûüýÿ")
+    assert len(ascii_) == 95 and len(cyrillic) == 66 and len(accented) == 53
+    assert ascii_ | cyrillic | accented == set(skeleton.names())
+    assert len(skeleton.names()) == 214
+    # and the three have nothing in common, so the count is a sum and not a guess
+    assert not (ascii_ & cyrillic) and not (ascii_ & accented) and not (cyrillic & accented)
+
+
+# ------------------------------------------------------------ the second alphabet
+def test_a_letter_that_is_the_same_shape_is_the_same_letter():
+    """Seventeen Cyrillic letters are the Latin ones, aliased rather than copied.
+
+    ``А`` is ``A`` -- not *like* an A, the same three strokes -- and the difference is
+    the difference between one face with two alphabets and two faces that will drift
+    apart the first time somebody redraws an A.  The pen is asked as well as the file,
+    because an alias that the pen does not follow is a copy with extra steps.
+    """
+    spec = pen.get("text")
+    assert len(skeleton.ALIASES) == 18
+    for ch, latin in skeleton.ALIASES.items():
+        assert skeleton.strokes(ch) == skeleton.strokes(latin), ch
+        assert pen.advance(ch, spec) == pen.advance(latin, spec), ch
+        assert pen.ink_box(ch, spec) == pen.ink_box(latin, spec), ch
+        assert pen.strokes(ch, spec) == pen.strokes(latin, spec), ch
+
+
+def test_the_three_tables_point_at_each_other_and_at_nothing_else():
+    """An alias to an alias, a base that is missing, a mark nobody wears: three holes.
+
+    Each of them is silent -- the face simply would not have a letter somebody types --
+    and each is one comparison to catch, so they are caught here rather than in a menu.
+    """
+    assert set(skeleton.names()) == set(skeleton.GLYPHS) | set(skeleton.ALIASES) \
+        | set(skeleton.COMPOSED)
+    for ch, latin in skeleton.ALIASES.items():
+        assert latin in skeleton.GLYPHS, ch
+        assert latin not in skeleton.ALIASES, f"{ch} aliases an alias"
+        assert latin not in skeleton.COMPOSED, ch
+    for ch, (base, mark) in skeleton.COMPOSED.items():
+        assert mark in skeleton.MARKS, ch
+        assert ch not in skeleton.GLYPHS and ch not in skeleton.ALIASES, ch
+        assert skeleton._base(ch) in skeleton.GLYPHS, ch
+    assert {mark for _base, mark in skeleton.COMPOSED.values()} == set(skeleton.MARKS), \
+        "a mark nobody wears is a mark nobody has looked at"
+    for ch in skeleton.names():
+        assert skeleton.has(ch)
+
+
+def test_an_accent_takes_the_dot_s_place_on_an_i():
+    """A letter with a mark over it wears one mark, not two.
+
+    ``í`` is a dotless ``i`` with an acute where the dot was, so the accented letter has
+    the same number of strokes as the plain one -- if the dot had been left in place the
+    acute would be sitting on it, and the pair would read as a colon.
+    """
+    spec = pen.get("text")
+    assert len(pen.strokes("i", spec)) == 2, "an i is a stem and a dot"
+    assert len(pen.strokes("í", spec)) == 2, "an i with an acute is a stem and an acute"
+    assert len(pen.strokes("í", spec, marks=False)) == 1
+    assert pen.ink_box("í", spec)[3] > pen.ink_box("i", spec)[3], "the acute is above the dot"
+    # ... and it is the same stem the accent is measured from
+    assert pen.core_box("í", spec)[0::2] == pen.core_box("i", spec)[0::2]
+
+
+def test_the_cyrillic_alphabet_stands_on_the_same_guides_as_the_latin():
+    """Thirty-three and thirty-three, and not one at a height of its own.
+
+    Measured on a monoline, because a serif is allowed to reach past the line it grows
+    on and that would hide the letter's own height behind a beak.  The letters that are
+    not on the line are the ones that are not meant to be, and they are the same kinds
+    the Latin face has: a breve and a diaeresis above, an ascender on ``б``, and a stem
+    running through a circle on ``ф``.
+    """
+    spec = {**pen.get("text"), "serif": 0.0}
+    half = 0.5 * spec["weight"]
+    caps = "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" + "Ё"
+    lows = "абвгдежзийклмнопрстуфхцчшщъыьэюя" + "ё"
+    assert len(caps) == 33 and len(lows) == 33
+    for ch in caps:
+        if ch in "ЁЙ":                      # a diaeresis and a breve stand above
+            continue
+        assert abs(pen.ink_box(ch, spec)[3] - (skeleton.CAP_HEIGHT + half)) < 0.004, ch
+    for ch in lows:
+        if ch in "бёйф":                    # an ascender, two marks, one tall stem
+            continue
+        assert abs(pen.ink_box(ch, spec)[3] - (skeleton.X_HEIGHT + half)) < 0.004, ch
+    # the tails that are meant to leave the line, and the letters that are not
+    for ch in "ДЦЩУдруфцщ":
+        assert pen.ink_box(ch, spec)[1] < -half - 0.01, ch
+    for ch in "АБВГЕЖЗИЙКЛМНОПРСТФХЧШЪЫЬЭЮЯ" + "абвгежзийклмнопстхчшъыьэюяё":
+        assert pen.ink_box(ch, spec)[1] >= -half - 0.004, ch
 
 
 # --------------------------------------------------------------------- drawing

@@ -87,7 +87,7 @@ python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 89 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
-python tests/test_text.py                       # 22 tests
+python tests/test_text.py                       # 28 tests
 ```
 
 Every one of those runs on every push as well -- the eight suites, the demo built
@@ -1239,8 +1239,8 @@ to pixels, and a sidecar of metrics.
 
 | Module | What it provides |
 | --- | --- |
-| `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, nine bytes each. Also `advance` and `advance`'s refusal. |
-| `pen` | What turns a skeleton into a letter: **weight**, **contrast** (a broad nib is thin on a horizontal), **serif**, **slant** and **width**, the serif rule, and — measured off the result rather than declared beside it — `ink_box`, `advance` and `offset`. Five presets: `sans`, `text`, `display`, `italic`, `slab`. |
+| `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, 66 of Cyrillic and the 53 accented letters of ISO-8859-1 — 214 in all, in three tables: drawn, **aliased** (А is A) and **composed** (é is e and an acute). Also `advance` and `advance`'s refusal. |
+| `pen` | What turns a skeleton into a letter: **weight**, **contrast** (a broad nib is thin on a horizontal), **serif**, **slant** and **width**, the serif rule, the marks and where they go (`MARK_GAP`, a mark fitted into its letter's own advance), and — measured off the result rather than declared beside it — `ink_box`, `advance` and `offset`. Five presets: `sans`, `text`, `display`, `italic`, `slab`. |
 | `typeset` | `measure`, `place`, `ink_bounds`, `paint`, `draw`, `block`: advances, tracking between letters, alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
 
 ### A letter is a skeleton, and the letter is what a pen does to it
@@ -1272,6 +1272,44 @@ grid is where the judgements live: the letters were drawn on graph paper and the
 *is* the graph paper. Arc steps are 12°, which is about a sixteenth of a circle —
 enough that a bowl reads as round at any size a game draws text, and few enough that
 the pen still has a polyline rather than a mesh.
+
+### The second alphabet is not a second font
+
+Cyrillic is the same design with a second alphabet written on it, and the file says so
+three ways rather than drawing it twice:
+
+* **a letter that is another letter's shape** is an `ALIASES` entry — `А` is `A`, `Н` is
+  `H`, eighteen of the sixty-six — because that is a fact about the shapes and not a
+  coincidence to be typed out and then allowed to drift;
+* **a letter that is a letter with a mark** is a `COMPOSED` entry: `é` is `e` and an
+  acute, `Й` is `И` and a breve. The mark's own strokes live in `MARKS`, and *where* it
+  goes is the pen's question, never this file's, because the gap depends on how much ink
+  the letter under it is carrying;
+* **the rest** are drawn here, on the same guides and the same grid as everything else —
+  which is the point: a second alphabet of one design, not a second design.
+
+The marks are the same eight, reused: acute, grave, circumflex, tilde, diaeresis, ring,
+breve and cedilla. That is every accented letter of ISO-8859-1 — the closed Western
+European set a game actually types — plus the two Cyrillic ones, so `ё` and `й` are not
+a special case but the same machinery in the other alphabet.
+
+### An accent is fitted into the letter, not added to it
+
+An `i` is one stem wide, and every accent in the world is wider than that. Charging the
+advance for the accent gives the letter a slot with a hole in it, and `í` in the middle
+of a word is exactly where the hole shows. So the advance is measured off the letter
+**without** its mark, and the mark is then fitted into the ground that leaves: drawn at
+full size when it fits, scaled down uniformly when it does not — uniformly, because
+squashing an acute in one direction turns it into a different accent — and only slid
+sideways in the one case that cannot be fitted at all.
+
+Two smaller judgements live in the same place. A mark over a dotted letter **takes the
+dot's place**: `í` is a dotless `i` with an acute where the dot was, because the dot is
+not a mark and an acute sitting on one reads as a colon. And the mark is anchored to the
+**ink**, not to the skeleton, so the paper between a cap's serif and the accent over it
+is the same `MARK_GAP = 0.05` em at every weight; across, it is centred over the letter's
+*body*, because bodies are symmetric and serifs are not — an accent centred on a box
+with one beak in it slides off the side of an `e`.
 
 ### The guides are the alphabet's interface
 
@@ -1373,9 +1411,10 @@ from eating each other:
   never closer than that;
 * the **finished ink** stays inside the ground the advance gives it, so two letters
   never touch at all — and because that has to hold for the whole legal range of weight
-  and serif, the test walks four weights and three serif amounts across all 95
+  and serif, the test walks four weights and three serif amounts across all 214
   characters. It is exactly at a heavy weight that a foot reaches furthest past its
-  stem.
+  stem. A mark is in that walk too, which is the point of the next section: an accented
+  letter is a letter, and its accent has to keep out of its neighbour's way as well.
 
 Kerning, optical pairs, hinting — none of it is here, and none of it is needed to stop
 two letters touching. What it takes instead is being honest about what a serif is.
@@ -1400,26 +1439,32 @@ else. Every layout bug in the world starts as an off-by-one-tracking.
 
 ### A missing character is refused, not drawn
 
-`é` and `Ж` are not in the alphabet, the alphabet knows it, and asking for one raises
-an error naming the character and saying how many the face covers. It does not fall
-back to a box, and it does not fall back to a question mark.
+`ß`, `ї` and `ł` are not in the alphabet, the alphabet knows it, and asking for one
+raises an error naming the character and saying how many the face covers. It does not
+fall back to a box, and it does not fall back to a question mark.
 
-The reason is that both of those are *visible in a shipped menu*. A face that draws a
-box has decided, silently, that a missing glyph is a rendering problem; it is not, it
-is a **data** problem, and the only useful moment to say so is the moment somebody asks
-for a character the face does not have. The refusal is also asymmetric on purpose: a
-bad *name* (`--face comic`) is refused, because there is no nearest sensible face; a
-bad *number* (`weight = 9`) is clipped into range, because there is a nearest sensible
-weight and refusing it would only make a live parameter unusable.
+The boundary is a decision rather than an accident: printable ASCII, the whole of
+Cyrillic, and every accented letter of ISO-8859-1 — 214 characters. Those three sets are
+*closed*, which is the only reason a face can promise them. A letter outside them (a
+caron, an ogonek, a stroke) is one line in `GLYPHS` or `COMPOSED` away, and until
+somebody writes that line the honest answer is a refusal.
+
+The reason is that a box or a question mark is *visible in a shipped menu*. A face that
+draws a box has decided, silently, that a missing glyph is a rendering problem; it is
+not, it is a **data** problem, and the only useful moment to say so is the moment
+somebody asks for a character the face does not have. The refusal is also asymmetric on
+purpose: a bad *name* (`--face comic`) is refused, because there is no nearest sensible
+face; a bad *number* (`weight = 9`) is clipped into range, because there is a nearest
+sensible weight and refusing it would only make a live parameter unusable.
 
 ### What is not here
 
-No kerning, no ligatures, no hinting, no Cyrillic, no `.ttf`. The letters are drawn at
-the size they are asked for, and the honest version of "optically correct at 12 px" is
-to pick the `sans` pen, which is what a UI face is for. The demo sheet's last block is
-the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one of them is
-*generated* at that size rather than scaled down from a big one — which is the one
-claim this package shares with every other one here, and the reason it can make it.
+No kerning, no ligatures, no hinting, no marks stacked on marks, no `.ttf`. The letters
+are drawn at the size they are asked for, and the honest version of "optically correct at
+12 px" is to pick the `sans` pen, which is what a UI face is for. The demo sheet's last
+block is the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one of them is
+*generated* at that size rather than scaled down from a big one — which is the one claim
+this package shares with every other one here, and the reason it can make it.
 
 The sidecar is the other half of the deliverable: `ozart/font/1`, with the guides, the
 leading, and every character's advance and ink box in em units. A game that lays out
@@ -2334,17 +2379,23 @@ Generators to sit on top of the core, in the order they become useful:
   sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*.
 - **text** -- ~~a face that is code rather than a file: an alphabet of skeletons, a
   pen that gives it weight, contrast, serifs and slant, and the metrics an engine
-  needs to lay a line out~~ *(done: `gen/text/` -- 95 characters of printable ASCII as
-  polylines in tenths of an em, drawn on four guides; the split between what a letter
-  *is* and what a pen *does to it* is what makes five faces one alphabet, which is why
-  the genome, the sidecar formats and the credits gate all learned nothing new. Two of
-  the decisions are places where the obvious version was wrong: an advance is
-  *measured* off the ink rather than declared beside it, because a width that a serif
-  overruns is not a width and the collision appears exactly when the weight goes up;
-  and a missing character raises rather than drawing a box, because a box in a shipped
-  menu is a question that was answered silently.  This is also the licensing note's
-  "fonts leak" closed: the shipped face is a function of a seed like everything else,
-  and Pillow's bitmap font is back to being what it always was here -- a dev tool).*
+  needs to lay a line out~~ *(done: `gen/text/` -- 214 characters: printable ASCII,
+  the whole Cyrillic alphabet and the accented letters of ISO-8859-1, as polylines in
+  tenths of an em, drawn on four guides. The second alphabet is not a second font:
+  where a Cyrillic letter has a Latin letter's shape it is that letter, aliased, and
+  where it is a letter with a mark it is that letter and a mark, so 214 characters are
+  95 characters' worth of drawing and two tables of the rest. The split between
+  what a letter *is* and what a pen *does to it* is what makes five faces one alphabet,
+  which is why the genome, the sidecar formats and the credits gate all learned nothing
+  new. Two of the decisions are places where the obvious version was wrong: an advance
+  is *measured* off the ink rather than declared beside it, because a width that a
+  serif overruns is not a width and the collision appears exactly when the weight goes
+  up; and a missing character raises rather than drawing a box, because a box in a
+  shipped menu is a question that was answered silently. A third is the mark: it is
+  fitted into the ground the letter already has, so an accent never widens a word nor
+  lands in its neighbour's slot. This is also the licensing note's "fonts leak" closed:
+  the shipped face is a function of a seed like everything else, and Pillow's bitmap
+  font is back to being what it always was here -- a dev tool).*
 - **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the
   `vector` module in `gen/ui/`: a panel is four rounded rectangles and a polar
   ornament, so it is the one asset here with an exact vector form. The paths are
@@ -2380,9 +2431,10 @@ Generators to sit on top of the core, in the order they become useful:
 * Generated PNGs: no third-party rights are involved -- keep the seed in the
   registry and the asset can always be rebuilt.
 * Watch these three, they are the usual ways third-party rights leak in:
-  **fonts** (closed here: `gen/text/` draws its own -- 95 characters from an alphabet
-  of skeletons and a pen, so the shipped face is code and a seed like everything else.
-  Pillow's built-in bitmap font survives only in the credits screen and the dev
+  **fonts** (closed here: `gen/text/` draws its own -- 214 characters from an alphabet
+  of skeletons and a pen, with the Cyrillic as aliases and marks on the same letters
+  rather than a second font, so the shipped face is code and a seed like everything
+  else. Pillow's built-in bitmap font survives only in the credits screen and the dev
   preview captions, which is the right place for it and the reason this package
   exists at all), **external textures/brushes** (don't), and **CC-BY music**
   (attribution is mandatory).

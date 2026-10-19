@@ -327,13 +327,18 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
 
 def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
               width: int = 1400) -> Path:
-    """The specimen: one alphabet, five faces, and the metrics in the sidecar.
+    """The specimen: two alphabets, five faces, and the metrics in the sidecar.
 
     Every label on this sheet is set in the face it labels, which is the only honest
     way to show a font: a caption in somebody else's type proves nothing about
     legibility.  The bottom block is the same sentence at six sizes, each *generated*
     at that size rather than scaled -- a 12-pixel line here is a 12-pixel line drawn
     by a 12-pixel pen, which is the claim the package makes.
+
+    The Cyrillic rows are not a second font: they are the Latin letters where the shape
+    is the same and the same skeleton under a mark where it is not, which is what makes
+    the two alphabets one face.  The accented rows are the same machinery doing the
+    same job in the other alphabet.
 
     The sidecar is the deliverable an engine loads: the guides, the leading, and every
     glyph's advance and ink box, in em units, so layout does not have to re-derive the
@@ -354,8 +359,9 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
     # the masthead
     add(typeset.draw("Digital Art for Ozvering", text_pen.get("display"),
                      em=size * 2.15, pad=0.08, colour=ink), after=6)
-    add(typeset.draw("an alphabet you can regenerate -- 95 characters, five faces, "
-                     "no font file; the advances are in the sidecar",
+    add(typeset.draw("an alphabet you can regenerate -- 214 characters, two "
+                     "alphabets, five faces, no font file; the advances are in the "
+                     "sidecar",
                      text_pen.get("italic"),
                      em=size * 0.92, pad=0.08, colour=quiet), after=26)
 
@@ -363,7 +369,13 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         "abcdefghijklmnopqrstuvwxyz",
         "0123456789 .,:;!?()[]{}&@%$#",
+        "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ Ё",
+        "абвгдежзийклмнопрстуфхцчшщъыьэюя ё",
+        "ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ",
+        "àáâãäåçèéêëìíîïñòóôõöùúûüýÿ",
         "The quick brown fox jumps over the lazy dog",
+        "Съешь же ещё этих мягких французских булок, да выпей чаю",
+        "Le vaisseau était à l'ancre; noël approche",
     ]
     for name in faces:
         spec = text_pen.get(name)
@@ -395,6 +407,10 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
         "the pen says how thick, how contrasted, how serifed and how slanted.",
         "Change the pen and the same alphabet becomes a UI face or a book face;",
         "change nothing and the same seed is the same picture, byte for byte.",
+        "",
+        "The second alphabet is not a second font. Where a Cyrillic letter has a",
+        "Latin letter's shape it is that letter, aliased; where it is a letter with",
+        "a mark it is that letter and a mark, fitted into the letter's own width.",
     ], text_pen.get("text"), em=size * 0.85, pad=0.06, leading=1.40,
         colour=ink), after=0)
 
