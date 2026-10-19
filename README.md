@@ -31,15 +31,16 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/coast-tiles.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
+`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for the typeface every character's advance and ink box per face, for
 every map its biome census, its rivers, its roads, its realms, its
-provinces and the sea provinces with the realms that hold them, for the coast tiles
-the grid they sit in and how many of the sixty-four each map wears, for every tiling
+provinces and the sea provinces with the realms that hold them, for the coast and
+biome-border tiles the grid they sit in and how many of the sixty-four each map
+wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
@@ -83,7 +84,7 @@ python tests/test_core.py                       # 64 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 83 tests
+python tests/test_maps.py                       # 89 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 22 tests
@@ -1440,13 +1441,13 @@ kept strictly apart:
 | `grid` | The lattice in axial coordinates: centres, neighbours, hex distance, the corner normal form, and the per-pixel lookup that resolves a world point to a cell and a position inside it. |
 | `terrain` | The geography: a domain-warped elevation field, a moisture field, and the biome table that gives every class of ground a name, a colour and a movement cost. |
 | `coast` | The boundary of a set of hexes as closed loops of corners -- the coastline, the lakes and the edge of the map, all from one walk. |
-| `autotile` | The border as a tileset: which of a hex's six edges is a border, the sixty-four tiles those six bits address, and the sheet a game draws a coastline from instead of walking it. |
+| `autotile` | The border as a tileset: which of a hex's six edges is a border, the sixty-four tiles those six bits address, the sheet a game draws a coastline from instead of walking it -- and, because a border is only where two hexes disagree, the same sixty-four tiles for a biome border, asked *within* the land so the shore stays the coast's. |
 | `rivers` | Where the water goes: pits filled to their spill points, flow accumulated in order of height, and the courses that carry enough of it turned into splines. |
 | `region` | The political map: provinces grown by breadth-first search so that they are connected, capitals at their one-medians, and names -- and, by the same code, the *sea* provinces a fleet moves between. |
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. Then who holds the *water*: each sea province goes to the realm with the longest coast on it, and a zone no realm's coast touches stays the high seas. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
-| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layer -- the coast, drawn from the tileset rather than walked. |
+| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layers -- the coast and the biome border both, drawn from the same tileset rather than walked. |
 
 ### Why axial coordinates, and what they buy
 
@@ -1518,9 +1519,12 @@ sixty-four six-bit numbers, and `gen/maps/autotile.py` draws all sixty-four into
 an eight-by-eight sheet, because a tileset is an *asset*: it has to be complete to
 be usable on somebody else's map, not only on the map that happened to produce it.
 That sheet is the one file in the demo that no seed can change, and what the seed
-is for is the other number in its sidecar -- how few of the sixty-four a map
-actually wears (26 and 27 for the demo's two maps, which is the measured answer to
-"do sixty-four tiles matter").
+is for is the other numbers in its sidecar -- how few of the sixty-four a map
+actually wears. There are two of them, because the tileset answers two questions,
+and together they are the measured answer to "do sixty-four tiles matter": a
+coastline wears 26 and 27 of the sixty-four on the demo's two maps, while a *biome*
+border wears 57 and 59. A coast is one line; ground mixes hex by hex, and almost
+every key turns up somewhere.
 
 The rule everything else follows from is that **a tile's ink lies inside its own
 ground**. A stroke centred on the shared edge would belong half to each neighbour,
@@ -1548,10 +1552,25 @@ map, where a centred stroke leaves ink on the paper and a tile does not -- which
 the place the tiles earn their keep, and the reason a coastline stops hanging over
 the edge of the sheet.
 
-The labels are any labelling and not water against land: `borders` asks whether the
-neighbour differs, so the biome table is a labelling too and an inland border is the
-same sixty-four tiles with a different ink. What is special about the coast is only
-that it is the border the map is actually drawn with.
+A border is where two hexes disagree, and none of the module is about water. The
+biome table is a labelling like any other, so the same sixty-four tiles draw an
+inland border as well: `out/borders.png` is one map twice, once with the coastline
+and once with both borders, and the only thing that differs between the two panels
+is the second layer. The one thing a biome border needs that a coast does not is a
+place to stop. Which ground lies on the other side of the water is the coastline's
+business, and a border drawn there would only make the coast thicker, so the
+question is asked `within` the land -- the same question, restricted to edges whose
+*both* hexes are in a set -- and because a hex off the map is never in the set, a
+biome border cannot hang over the rim of the map either, which is a decision that
+falls out of the restriction instead of being a second rule.
+
+The coast is special only in being the border the map is actually drawn with, and
+it is asked the same way: `borders(land, grid, outside=sea)`, because what lies
+beyond this map's edge is water. On the map the biome border is off unless the
+caller asks for it (`paint.map_image(..., inland=0.55)`), and that is deliberate:
+the map already draws a lattice to count steps on, and two sets of hex-shaped lines
+is one too many. In `borders.png` the lattice is off for the same reason, so the
+only hex-shaped thing in the picture is the border that is being shown.
 
 ### Rivers need the pits filled first
 
@@ -2264,7 +2283,18 @@ Generators to sit on top of the core, in the order they become useful:
   is drawn through the same function the sheet is, so the two cannot disagree -- the
   tiled coast is the walked one to the exported byte inside the map, and differs only
   off the edge of the map, where a stroke leaves ink on the paper and a tile does
-  not)*.
+  not)*; ~~the same tiles for a *biome* border~~ *(done: nothing in the tileset was
+  ever about water -- a border is where two hexes disagree -- so `autotile.borders`
+  grew one parameter, `within`, and the biome border is the coast's own question
+  asked of the land alone: an edge is a border only where both hexes are in the set,
+  which keeps the shore the coastline's business and, because a hex off the map is
+  never in the set, keeps a biome border off the rim as well. The count the sheet
+  prints is now two counts, and they are the argument: a coast wears 26 of the
+  sixty-four keys, a biome border 57, so the sheet has to be complete either way.
+  `out/borders.png` is one map twice, coast only and both, with the lattice off so
+  that the only hex-shaped thing in the picture is the border being shown, and the
+  map draws it only when asked -- `paint.map_image(..., inland=...)` -- because two
+  sets of hex-shaped lines on one map is one too many)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a

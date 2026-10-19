@@ -500,6 +500,99 @@ def test_the_tiled_coast_is_the_stroked_coast_inside_the_map():
     assert not np.any(b.a[~cell.ok] > 0.0)      # the tiles cannot
 
 
+def test_within_asks_the_difference_question_of_a_subset():
+    # A coast is the whole story of where land ends; a biome border is the part of
+    # it that is inside the land.  So ``within``: an edge is a border only where
+    # both of the hexes that meet on it are in the set asked about -- and a hex off
+    # the map is never in it, which is what takes the rim out of the question.
+    g = gridlib.HexGrid(9, 7, size=10.0)
+    labels = (np.arange(g.rows)[:, None] * 2 + np.arange(g.cols)[None, :]) % 5
+    inside = (np.arange(g.rows)[:, None] + np.arange(g.cols)[None, :]) % 3 != 0
+    key = autotile.borders(labels, g, within=inside)
+    for row, col in g.flat():
+        for d in range(autotile.EDGES):
+            bit = int(key[row, col]) >> d & 1
+            nr, nc = (int(v) for v in g.nbr[row, col, d])
+            if not inside[row, col] or nr < 0 or not inside[nr, nc]:
+                assert bit == 0, (row, col, d)
+            else:
+                assert bit == (labels[nr, nc] != labels[row, col]), (row, col, d)
+
+
+def test_the_rim_drops_out_of_the_question_when_the_edge_is_not_within():
+    g = gridlib.HexGrid(1, 1, size=10.0)
+    labels = np.zeros((1, 1), dtype=np.int64)
+    assert int(autotile.borders(labels, g, within=np.zeros((1, 1), dtype=bool))[0, 0]) == 0
+    # even a hex that is itself within: there is nobody on the other side to differ
+    # from, and "off the map" is not a class the caller asked about
+    assert int(autotile.borders(labels, g, within=np.ones((1, 1), dtype=bool))[0, 0]) == 0
+    # ...while without ``within`` the rim is still what ``outside`` says it is
+    assert int(autotile.borders(labels, g)[0, 0]) == autotile.MASKS - 1
+
+
+def test_a_within_grid_of_the_wrong_shape_is_refused():
+    g = gridlib.HexGrid(5, 5, size=10.0)
+    try:
+        autotile.borders(np.zeros((5, 5), dtype=np.int64), g,
+                         within=np.zeros((5, 4), dtype=bool))
+    except ValueError:
+        return
+    raise AssertionError("borders accepted a mis-shaped within grid")
+
+
+def test_a_biome_border_is_an_edge_inside_the_land_and_nowhere_else():
+    # The second labelling, asked of a real field: every edge the biome key marks
+    # has land on both sides and different ground across it, and no edge that
+    # reaches the water is marked at all -- which is the whole of why the coast
+    # stays one line instead of becoming a thicker one.
+    g = gridlib.HexGrid(20, 14, size=8.0)
+    f = terrain.fields(g, seed=5, sea_fraction=0.45)
+    key = autotile.borders(f["biome"], g, within=~f["water"])
+    assert np.any(key)                          # a map's ground does mix
+    for row, col in g.flat():
+        for d in range(autotile.EDGES):
+            if not int(key[row, col]) >> d & 1:
+                continue
+            nr, nc = (int(v) for v in g.nbr[row, col, d])
+            assert nr >= 0                       # no rim edge survives ``within``
+            assert not f["water"][row, col] and not f["water"][nr, nc]
+            assert f["biome"][nr, nc] != f["biome"][row, col]
+
+
+def test_a_biome_border_wears_more_of_the_sheet_than_a_coast_does():
+    # Measured, not promised -- the number beside the sheet on the demo.  A coast is
+    # one line and wears a couple of dozen of the sixty-four keys; ground mixes hex
+    # by hex, so a biome border needs nearly all of them.  Neither is a reason to
+    # ship fewer tiles, and this is the reason the count is worth printing.
+    g = gridlib.HexGrid(24, 16, size=6.0)
+    f = terrain.fields(g, seed=8)
+    coast_keys = autotile.tiles(autotile.borders((~f["water"]).astype(np.int64),
+                                                 g, outside=0))[1]
+    inland_keys = autotile.tiles(autotile.borders(f["biome"], g,
+                                                  within=~f["water"]))[1]
+    assert 2 <= len(coast_keys) <= 40
+    assert len(coast_keys) < len(inland_keys) <= autotile.MASKS
+
+
+def test_the_biome_borders_reach_only_land_and_are_off_until_asked_for():
+    # The second use at the export, where the claim belongs: the same map twice,
+    # once with the biome borders, and the ink is inside the land -- the sea, the
+    # coast and the paper beyond the map are the same bytes in both.
+    kw = dict(seed=4, cols=16, rows=11, size=11.0, provinces=0)
+    off = paint.map_image(**kw)
+    assert np.array_equal(off.to_uint8(), paint.map_image(**kw, inland=0.0).to_uint8())
+    on = paint.map_image(**kw, inland=0.55)
+    changed = np.any(off.to_uint8().astype(int) != on.to_uint8().astype(int), axis=2)
+    assert changed.any()
+    g = gridlib.HexGrid(16, 11, size=11.0)
+    cell = g.cell(*off.grid())
+    f = terrain.fields(g, seed=4)
+    r = np.clip(cell.rc[..., 0], 0, g.rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, g.cols - 1)
+    assert not np.any(changed & ~cell.ok)       # nothing on the paper
+    assert not np.any(changed & f["water"][r, c])   # and nothing in the sea
+
+
 # ------------------------------------------------------------------- picture
 def test_a_rendered_map_is_a_pure_function_of_its_seed():
     a = paint.map_image(seed=6, cols=16, rows=11, size=9.0)

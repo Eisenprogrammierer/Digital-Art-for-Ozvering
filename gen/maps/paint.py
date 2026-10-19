@@ -422,6 +422,7 @@ def map_image(
     texture: float = 0.07,
     lattice: float = 0.085,
     cliff: float = 0.55,
+    inland: float = 0.0,
     river: float = 0.92,
     river_fraction: float | None = None,
     road: float = 0.0,
@@ -453,6 +454,14 @@ def map_image(
     boundary and nothing else: the sea's colour is the depth of the sea and a
     political wash over it would be mud.  A map with sea provinces and a map without
     are the same map on land, down to the pixel.
+
+    ``inland`` draws the *biome* border -- where two land hexes are of different
+    ground -- with the same edge tiles the coast is drawn with, thinner and at
+    whatever opacity is asked for.  It is the tileset's other use and not a second
+    system: a border is where two hexes disagree, the disagreement is between two
+    biomes here and between land and sea there, and everything downstream of that
+    is the caller's ink.  A tile on water is off the land by construction, so the
+    two borders never overlap and neither can be mistaken for the other.
     """
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
@@ -473,6 +482,15 @@ def map_image(
 
     if cliff > 0.0:
         canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))
+
+    # The coast's own arithmetic, asked of a different field.  A biome border is an
+    # edge between two land hexes of different ground, so it is ``within`` the land
+    # -- an edge that reaches the water belongs to the coastline, which is one line
+    # and not a thicker one -- and it is drawn thinner and paler, because the ground
+    # changing is a smaller event than the land ending.
+    if inland > 0.0:
+        edge = autotile.borders(f["biome"], grid, within=~f["water"])
+        autotile.border_layer(canvas, grid, edge, cell, INK, width=0.11, alpha=inland)
 
     res = None
     if provinces > 0 and (~f["water"]).any():

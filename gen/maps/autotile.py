@@ -32,6 +32,12 @@ comes from the height of a hex and of its neighbours, so two hexes wearing the
 same tile can be a plain and a mountain, and a sheet of ground tiles would be a
 sheet of lies.  The border is the part that is genuinely local, so it is the part
 that becomes tiles.
+
+Nothing above is about water.  A border is where two hexes disagree, so the same
+sixty-four tiles draw a coastline, a biome border, a frontier between two realms
+or a line between two countries; the labelling is the caller's and so is the ink.
+The one thing a coast needs that a biome border does not is a boundary to stop
+at -- which is what ``within`` is for.
 """
 from __future__ import annotations
 
@@ -75,7 +81,7 @@ def _segment_distance(x, y, ax, ay, bx, by):
     return np.hypot(px - ex * h, py - ey * h)
 
 
-def borders(labels, grid: HexGrid, outside=None) -> np.ndarray:
+def borders(labels, grid: HexGrid, outside=None, within=None) -> np.ndarray:
     """Which of each hex's six edges is a border, as a six-bit number.
 
     Bit ``d`` is set when the neighbour across edge ``d`` is of a different
@@ -88,19 +94,33 @@ def borders(labels, grid: HexGrid, outside=None) -> np.ndarray:
     The maps here pass the sea, because that is what their edge already looks
     like: a frame of coastline all the way round would be a picture frame rather
     than a coast.
+
+    ``within`` asks the same question of a *sub*set: an edge is a border only
+    where both of the hexes that meet on it are in that set.  A biome border is
+    asked with ``within=~water``, because which ground is on the other side of
+    the water is a question the coastline already answers, and a border drawn
+    between a forest and the sea would only make the coast thicker.  A hex off
+    the map is never within, so the rim drops out on its own and ``outside`` has
+    nothing left to say about it.
     """
     labels = np.asarray(labels, dtype=np.int64)
     if labels.shape != (grid.rows, grid.cols):
         raise ValueError(f"labels must be {grid.rows}x{grid.cols}, not {labels.shape}")
+    if within is not None:
+        within = np.asarray(within, dtype=bool)
+        if within.shape != labels.shape:
+            raise ValueError(f"within must be {grid.rows}x{grid.cols}, not {within.shape}")
     beyond = -1 if outside is None else int(outside)
     out = np.zeros((grid.rows, grid.cols), dtype=np.int64)
     for d in range(EDGES):
         nr, nc = grid.nbr[..., d, 0], grid.nbr[..., d, 1]
-        across = np.where(nr >= 0,
-                          labels[np.clip(nr, 0, grid.rows - 1),
-                                 np.clip(nc, 0, grid.cols - 1)],
-                          beyond)
-        out |= np.where(across != labels, 1 << d, 0)
+        here = nr >= 0
+        rr = np.clip(nr, 0, grid.rows - 1)
+        cc = np.clip(nc, 0, grid.cols - 1)
+        different = np.where(here, labels[rr, cc], beyond) != labels
+        if within is not None:
+            different &= within & np.where(here, within[rr, cc], False)
+        out |= np.where(different, 1 << d, 0)
     return out
 
 

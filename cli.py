@@ -21,7 +21,7 @@ Usage
     python cli.py ui         --seed 7 --count 3 --scale 2
     python cli.py text       --size 20 --out out/text.png
     python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
-    python cli.py coast      --out out/coast-tiles.png --size 20
+    python cli.py coast      --out out/coast-tiles.png --size 20  # & borders.png, in use
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
 """
@@ -1307,7 +1307,7 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
 
 def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
                hex_size: float = 13.0, sea: float = 0.42, size: float = 20.0,
-               gap: int = 8) -> Path:
+               gap: int = 8, inland: float = 0.55) -> Path:
     """The coastline as a tileset: all sixty-four edge tiles, and what a map wears.
 
     A coast used to be a polyline walked round the land and stroked, which is a
@@ -1325,6 +1325,16 @@ def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: i
     each of the demo's maps actually wears, which is the measured answer to "do
     sixty-four tiles matter".
 
+    And the count is asked twice, because the tileset answers two questions.  A
+    border is where two hexes disagree, so the same sprites draw the *biome*
+    border as well -- that is the coast's question asked ``within`` the land --
+    and the two numbers say something worth knowing about each: a coastline wears
+    a couple of dozen of the sixty-four, because a coast is a line, while a biome
+    border wears nearly all of them, because ground mixes hex by hex.  Both facts
+    are why the sheet has to be complete: a game cannot be handed the keys one map
+    happened to use.  ``borders.png`` draws both on the same map to show it; the
+    sheet here is what they are cut from.
+
     The caption is drawn below the grid rather than on it, so the grid stays a
     container: the tile rects are recorded in the sidecar and a game crops them
     from the file, exactly as it would from any other sheet.
@@ -1337,11 +1347,16 @@ def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: i
         g = map_grid.HexGrid(cols, rows, hex_size)
         f = map_terrain.fields(g, seed=s, sea_fraction=sea)
         edge = map_autotile.borders((~f["water"]).astype(np.int64), g, outside=0)
-        _index, keys = map_autotile.tiles(edge)
-        worn.append((s, len(keys)))
-    caption = (f"coast tiles   {map_autotile.MASKS} edge keys, "
-               f"{map_autotile.EDGES} edges each   hex {size:g} px   "
-               + "   ".join(f"seed {s}: {n} worn" for s, n in worn))
+        _coast, coast_keys = map_autotile.tiles(edge)
+        # The same arithmetic, a different field: a biome border is an edge between
+        # two land hexes of different ground, so it is asked *within* the land and
+        # the coast keeps the shore to itself.
+        biome = map_autotile.borders(f["biome"], g, within=~f["water"])
+        _inland, inland_keys = map_autotile.tiles(biome)
+        worn.append((s, len(coast_keys), len(inland_keys)))
+    caption = (f"{map_autotile.MASKS} edge keys, {map_autotile.EDGES} edges each   "
+               f"hex {size:g} px"
+               + "".join(f"   seed {s}: {n} coast, {m} inland" for s, n, m in worn))
     font = _font(12)
     need = int(ImageDraw.Draw(png.to_image(sheet)).textlength(caption, font=font)) + 14
     strip = 26
@@ -1366,8 +1381,43 @@ def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: i
         "pitch": [round(np.sqrt(3.0) * size, 4), round(1.5 * size, 4)],
         "ink": {"colour": palette.srgb_to_hex(map_paint.INK),
                 "width": 0.24, "alpha": 0.80},
-        "worn": [{"seed": s, "keys": n} for s, n in worn],
+        "worn": [{"seed": s, "coast": n, "inland": m} for s, n, m in worn],
     })
+
+    # The second use, drawn rather than asserted.  The same map twice: once with the
+    # coastline alone and once with the biome borders as well, and nothing else
+    # differs between the two -- the lattice is off on both, so the only hex-shaped
+    # thing in the picture is the border itself, which is the thing being shown.
+    s0, n0, m0 = worn[0]
+    variants = [(0.0, "coastline", n0)]
+    if inland > 0.0:
+        variants.append((inland, "+ biome borders", m0))
+    panels, captions = [], []
+    for alpha, what, keys in variants:
+        panels.append(map_paint.map_image(
+            seed=s0, cols=cols, rows=rows, size=hex_size, sea_fraction=sea,
+            lattice=0.0, provinces=0, seas=0, road=0.0, inland=alpha))
+        captions.append(f"seed {s0}   {what}   {keys} of {map_autotile.MASKS} keys")
+    borders = out.with_name("borders.png")
+    sheet_gap = 26
+    uses = png.to_image(render.sheet(panels, cols=len(variants), gap=sheet_gap,
+                                     background=(0.90, 0.90, 0.93)))
+    font = _font(11)
+    for i, text in enumerate(captions):
+        x, y, _cw, _ch = _grid_pos(panels, len(variants), sheet_gap, i)
+        _label(uses, (x + 3, y + panels[i].h + 4), text, font=font)
+    uses.save(borders, "PNG", optimize=True)
+    _sidecar(borders, seed, "procedural:gen.maps.autotile", borders={
+        "grid": [cols, rows],
+        "hex_size": hex_size,
+        "sea_target": sea,
+        "ink": {"colour": palette.srgb_to_hex(map_paint.INK)},
+        "coast": {"width": 0.24, "alpha": 0.80},
+        "inland": {"width": 0.11, "alpha": inland, "asked": "within the land"},
+        "lattice": 0.0,
+        "maps": [{"seed": s, "coast_keys": n, "inland_keys": m} for s, n, m in worn],
+    })
+    _report(borders)
     return _report(out)
 
 
@@ -1769,6 +1819,8 @@ def build_parser() -> argparse.ArgumentParser:
     co.add_argument("--cols", type=int, default=26, help="hexes across, for the counting")
     co.add_argument("--rows", type=int, default=17, help="hexes down, for the counting")
     co.add_argument("--sea", type=float, default=0.42, help="water fraction of the counted maps")
+    co.add_argument("--inland", type=float, default=0.55,
+                    help="opacity of the biome-border panel, 0 to leave it out")
 
     cr = sub.add_parser("credits", help="what we owe, and the manifest of what we made")
     cr.add_argument("--out", default=None, type=Path,
@@ -1832,7 +1884,7 @@ def main(argv=None) -> int:
     elif args.cmd == "coast":
         demo_coast(args.out, seed=args.seed, count=args.count, cols=args.cols,
                    rows=args.rows, hex_size=args.hex_size, sea=args.sea,
-                   size=args.size)
+                   size=args.size, inland=args.inland)
     elif args.cmd == "text":
         # a face has no seed: the alphabet and the pen are the whole of it, and the
         # sidecar says so with a seed of zero rather than inventing one
