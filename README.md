@@ -76,7 +76,7 @@ python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
-python tests/test_core.py                       # 62 tests, no pytest needed
+python tests/test_core.py                       # 64 tests, no pytest needed
 python tests/test_heraldry.py                   # 73 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
@@ -93,7 +93,7 @@ python tests/test_icons.py                      # 33 tests
 | `sdf` | Distance-field primitives (disc, rounded box, capsule, ring, arbitrary polygon, regular polygon, star) and operators: hard/smooth union, intersection, difference, stroke (`outline`), offset, plus `transformed`/`moved`/`rotated`/`scaled`/`mirrored`/`repeated`. |
 | `noise` | Deterministic hash-based value noise, fBm, ridged/turbulence variants, domain warping, Worley cells (F1) and Worley cell walls (F2−F1). |
 | `palette` | sRGB ↔ OKLab/OKLCH, gamut fitting by chroma bisection, perceptually even mixing and ramps, harmony schemes, and farthest-point `distinct_palette`. |
-| `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export. |
+| `canvas` | Linear-light RGBA buffer with a world-space camera (`scale`, `dx`), correct source-over compositing, sRGB conversion only on export, and one export rule: a pixel whose alpha rounds to zero carries no colour. |
 | `render` | Distance field → pixels: anti-aliased `coverage`, bevel lighting from the field's gradient (raised or, with `inset=True`, the same ramp turned over into a recess), separable blur, drop shadows, contact sheets. |
 | `credits` | The two halves of an attribution: the hand-written list of sources we do not own (with the credit line each licence demands) and the manifest read out of the sidecars every exporter writes -- and the credits screen drawn from both. `check` reads them back as a pre-ship gate. |
 | `export` | PNG writer, and `export.atlas`: trim a sprite to the pixels it actually uses, pack a set with a bottom-left skyline, and emit the rectangle table an engine cuts the sheet up with. |
@@ -116,6 +116,16 @@ python tests/test_icons.py                      # 33 tests
 3. **Mix colour in OKLab, decision-make in OKLCH.** Ramps stay perceptually even
    and palettes get guaranteed separation, which is what stops a generated set
    from turning into a pile of near-identical blues.
+
+4. **A pixel the file calls invisible carries no colour.** Alpha is *coverage*, so
+   the export rule is total: where the byte is `0`, the colour is `0` too. A
+   blurred shadow leaves its own colour at an alpha of a millionth over a wide
+   field of pixels; the eye cannot see any of it, and a *filter* can -- a bilinear
+   nine-slice stretch of a frame over content, a naive downsample, a tool that
+   builds a mipmap without premultiplying -- which is the straight-alpha halo this
+   project premultiplies to avoid inside the cloth. `Canvas.to_uint8` zeroes those
+   pixels, and leaves every pixel the file calls visible exactly the plain
+   quantisation of what it was.
 
 ## Icons (`gen/icons/`, `export/atlas.py`)
 

@@ -375,6 +375,40 @@ def test_to_uint8_roundtrip_of_flat_colour():
     assert np.array_equal(arr[0, 0, :3], np.round(np.array(col) * 255).astype(np.uint8))
 
 
+def test_a_pixel_the_file_calls_invisible_exports_no_colour():
+    """Zero alpha and a colour cannot both survive the export.
+
+    Alpha is coverage, so the tail of a blurred shadow is a wide field of pixels
+    whose alpha is a millionth -- a pixel the file will declare is not there.  The
+    colour it holds at that alpha is not the colour of anything in the picture: it
+    is where the blur happened to land.  It matters anyway, because a consumer that
+    filters straight alpha (a bilinear nine-slice stretch over content, a naive
+    downsample) reaches into the invisible pixel and pulls its colour out into a
+    visible one.  So the export rule is total: where the exported alpha is zero,
+    the colour is zero too.
+    """
+    scale, sigma = 32.0, 0.08
+    c = Canvas(96, 96, scale=scale)
+    plate = np.zeros((96, 96))
+    plate[30:66, 30:66] = 1.0
+    sh = render.drop_shadow(plate, scale, offset=(0.0, -0.02), sigma=sigma, opacity=0.42)
+    c.over_srgb((0.03, 0.03, 0.05), sh)
+
+    # The tail is real: this many pixels round to invisible and still hold colour,
+    # so a test that only checked the export would be checking nothing.
+    invisible = (np.round(c.a * 255.0) == 0.0) & (c.rgb.max(axis=-1) > 0.0)
+    assert invisible.sum() > 100, int(invisible.sum())
+
+    arr = c.to_uint8()
+    assert not (((arr[..., 3] == 0) & (arr[..., :3] > 0).any(axis=-1))).any()
+
+    # And it is a *repair*: every pixel the file calls visible is exactly what a
+    # plain quantisation would have written, so nothing the eye can see moved.
+    visible = arr[..., 3] > 0
+    plain = np.clip(np.round(palette.linear_to_srgb(c.rgb) * 255.0), 0, 255).astype(np.uint8)
+    assert np.array_equal(arr[..., :3][visible], plain[visible])
+
+
 # ------------------------------------------------------------------ curves
 def test_bezier_hits_its_endpoints_and_degree_two_midpoint():
     p = curve.bezier_quadratic((0.0, 0.0), (1.0, 1.0), (2.0, 0.0), n=9)
@@ -554,6 +588,32 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         assert packed["members"] and 0.0 < packed["density"] <= 1.0
         for entry in packed["members"]:
             assert len(entry["rect"]) == 4 and len(entry["trim"]) == 4, entry["name"]
+
+
+def test_no_picture_the_demos_write_has_a_colour_where_it_has_no_alpha():
+    """The export rule, checked on the bytes rather than on the canvas it came from.
+
+    An icon's shadow, a hollow frame's hole and a flag's transparent margin are all
+    places a colour can survive at an alpha that rounds to nothing -- and all three
+    are exactly the assets a game *filters*: a frame is stretched over content, an
+    atlas is sampled with a bilinear kernel.  This reads the files Pillow wrote, so
+    it is the exported bytes that carry the claim.
+    """
+    import cli
+    from PIL import Image
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        cli.demo_icons(d / "icons.png", seed=3, count=2, size=24)
+        cli.demo_ui(d / "ui.png", seed=3, count=1, scale=1, style="slate")
+        cli.demo_flags(d / "flags.png", seed=7, count=2, size=48, hang="mixed")
+        sheets = sorted(d.glob("*.png"))
+        assert sheets, "the fixture wrote nothing"
+        for p in sheets:
+            with Image.open(p) as img:
+                arr = np.asarray(img.convert("RGBA"))
+            bad = (arr[..., 3] == 0) & (arr[..., :3] > 0).any(axis=-1)
+            assert not bad.any(), (p.name, int(bad.sum()))
 
 
 # ------------------------------------------------------- the credits screen

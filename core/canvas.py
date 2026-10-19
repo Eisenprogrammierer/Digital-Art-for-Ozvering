@@ -130,12 +130,38 @@ class Canvas:
 
     # --------------------------------------------------------------- export
     def to_uint8(self, background=None) -> np.ndarray:
-        """8-bit RGBA array for export; applies the sRGB transfer function."""
+        """8-bit RGBA array for export; applies the sRGB transfer function.
+
+        The last step is not a quantisation but a repair, and it is worth saying
+        why.  Alpha is *coverage*: a pixel whose exported alpha is zero is a pixel
+        the file declares is not there.  Whatever colour such a pixel happens to
+        hold is not the colour of anything in the picture -- it is the tail of a
+        blur, an artefact of the order the passes ran in rather than of what the
+        asset depicts.  A drop shadow written over an empty pixel leaves the
+        shadow's colour at an alpha of a millionth, which rounds to zero and stays
+        there; a hollow frame does it in its own hole, all the way across it.
+
+        Leaving it is not free, because the file is not what the eye sees.  Any
+        consumer that filters straight alpha -- a bilinear scale of a nine-slice
+        over content, a naive box downsample, a mipmap a tool builds without
+        premultiplying -- reaches into that invisible pixel and pulls its colour
+        into a visible one.  It is the same halo :func:`gen.heraldry.cloth._shed`
+        premultiplies to avoid.
+
+        So the rule is total and exact: where the file says the alpha is zero, the
+        colour is zero.  Nothing the eye can see changes -- every pixel the file
+        calls visible is the plain quantisation of what it was -- and the colour of
+        nothing stops travelling with the picture.  Where it *does* travel today is
+        worth noting: a contact sheet composites its tiles onto an opaque ground, so
+        the only asset in a build that still has transparent pixels is the sprite
+        atlas -- which is also the asset a game samples with a bilinear kernel.
+        """
         rgb, a = self.flatten(background)
         srgb = palette.linear_to_srgb(rgb)
         out = np.empty((self.h, self.w, 4), dtype=np.uint8)
         out[..., :3] = np.clip(np.round(srgb * 255.0), 0, 255).astype(np.uint8)
         out[..., 3] = np.clip(np.round(a * 255.0), 0, 255).astype(np.uint8)
+        out[out[..., 3] == 0, :3] = 0
         return out
 
     def save(self, path, background=None):
