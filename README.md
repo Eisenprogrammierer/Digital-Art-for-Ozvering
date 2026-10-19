@@ -86,8 +86,12 @@ python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 83 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
-python tests/test_text.py                       # 21 tests
+python tests/test_text.py                       # 22 tests
 ```
+
+Every one of those runs on every push as well -- the eight suites, the demo built
+twice and compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13,
+in `.github/workflows/tests.yml`.
 
 ## Core toolkit (`core/`)
 

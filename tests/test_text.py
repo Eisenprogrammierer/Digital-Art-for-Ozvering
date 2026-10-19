@@ -374,9 +374,8 @@ def test_a_block_of_no_lines_is_refused():
 
 def test_the_emboss_lights_the_letters_with_the_one_light():
     """A glyph is a shape like any other: the same light, from the same direction."""
-    from gen.textures import tile
-    assert np.allclose(np.asarray(pen.LIGHT, dtype=float),
-                       np.asarray(tile.LIGHT, dtype=float))
+    from core import render
+    assert pen.LIGHT is render.LIGHT
     flat = typeset.draw("Handgloves", pen.get("text"), em=60, pad=0.1)
     lit = typeset.draw("Handgloves", pen.get("text"), em=60, pad=0.1, emboss=0.08)
     assert not np.array_equal(flat.rgb, lit.rgb), "the emboss changed nothing"

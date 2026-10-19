@@ -51,15 +51,13 @@ from __future__ import annotations
 import numpy as np
 
 from core import sdf
+from core.render import LIGHT
 from gen.text import skeleton
 
 __all__ = ["DEFAULTS", "PRESETS", "LINES", "SERIF_LEN", "SERIF_THICK", "SERIF_ANGLE",
            "SIDEBEARING", "AIR", "FILLET", "LIGHT", "names", "get", "clamp", "validate",
            "thickness", "glyph_field", "ink_box", "core_box", "overhang", "advance",
            "offset", "strokes"]
-
-#: The one light, as everywhere else in the toolkit.
-LIGHT = (-0.45, 0.65)
 
 #: The five faces that come for free.  The skeleton is the same for all of them.
 PRESETS = {

@@ -22,7 +22,17 @@ __all__ = [
     "translate_array",
     "drop_shadow",
     "sheet",
+    "LIGHT",
 ]
+
+#: The one light direction this project has, in world units and with y up.
+#:
+#: It lives in the core rather than in the packages because "every asset here is
+#: lit the same way" is a property of the toolkit and not of any one generator --
+#: and eight copies of a literal kept in step by a test are not one light, they
+#: are eight lights that agree today.  Every shading call defaults to it, so the
+#: packages that do not name a light get this one rather than a ninth.
+LIGHT = (-0.45, 0.65)
 
 
 # --------------------------------------------------------------------------
@@ -67,7 +77,7 @@ def shade(
     d,
     dx: float = 1.0,
     bevel: float = 0.15,
-    light=(-0.45, 0.65),
+    light=LIGHT,
     ambient: float = 0.45,
     diffuse: float = 0.6,
     spec: float = 0.25,

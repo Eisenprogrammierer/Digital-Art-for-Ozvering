@@ -1,0 +1,63 @@
+name: tests
+
+# What this checks is the two promises the README makes and the one it cannot
+# keep by itself:
+#
+#   * the eight suites pass -- on the Python the README claims is enough, and on
+#     a recent one, because a floor nobody runs is a floor nobody knows;
+#   * two runs of the demo agree *with each other*, byte for byte.  Not with a
+#     golden hash: a hash would also fail the day numpy or Pillow changes a
+#     rounding, which is not a bug in this repository, and a check that cries
+#     wolf is a check that gets switched off;
+#   * the build can be credited, which is the licence.  `credits --check` reads
+#     the sidecars back rather than trusting them, so this is the gate and not a
+#     formality.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: install
+        run: pip install -r requirements.txt pyflakes
+
+      - name: lint
+        run: pyflakes cli.py core gen export tests
+
+      - name: the eight suites
+        run: |
+          for suite in core heraldry portraits ui maps textures icons text; do
+            echo "== $suite"
+            python "tests/test_$suite.py"
+          done
+
+      - name: the demo builds a whole asset set, and the credits cover it
+        run: |
+          python cli.py demo --out out --seed 7
+          python cli.py credits --manifest out --check
+
+      # The same command again, into a second directory: every generated file has
+      # to be the same file, which is the claim the whole project rests on.  On
+      # one interpreter only -- it is a property of the code, not of the version.
+      - name: twice, and byte for byte
+        if: matrix.python-version == '3.13'
+        run: |
+          python cli.py demo --out out2 --seed 7
+          diff -r out out2

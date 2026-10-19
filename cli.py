@@ -78,10 +78,6 @@ from gen.ui import slice as ui_slice  # noqa: E402
 from gen.ui import style as ui_style  # noqa: E402
 from gen.ui import vector as ui_vector  # noqa: E402
 
-# A single light direction for the whole project.  Consistency of lighting is
-# most of what makes individually generated assets read as one art set.
-LIGHT = (-0.45, 0.65)
-
 #: A roster of faction names, shared by the heraldry sheet and the icon set -- the
 #: same houses on both, which is the point of a faction owning a coat *and* an icon
 #: set.  A faction's identity is a name and nothing else, so a demo has to be handed
@@ -468,7 +464,7 @@ def demo_shapes(out: Path, size: int = 160, cols: int = 3) -> Path:
         c.over((0.0, 0.0, 0.0), render.drop_shadow(
             render.coverage(d, c.dx), c.scale, offset=(0.0, -0.045), sigma=0.025, opacity=0.3
         ))
-        c.over(render.shade(colors[i], d, dx=c.dx, bevel=0.09, light=LIGHT), render.coverage(d, c.dx))
+        c.over(render.shade(colors[i], d, dx=c.dx, bevel=0.09), render.coverage(d, c.dx))
         cells.append(c)
 
     sheet = render.sheet(cells, cols=cols, gap=10, background=(0.94, 0.94, 0.96))

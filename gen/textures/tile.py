@@ -29,13 +29,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from core.render import LIGHT
+
 __all__ = ["LIGHT", "lit", "luminance", "periodic_noise", "repeat", "seam_error",
            "smooth", "tile_coords"]
 
-#: The project's single light direction, in pixels/points with y pointing up.
-#: Every generator in this repository uses it; a texture lit from anywhere else
-#: would look like a visitor from another project.
-LIGHT = (-0.45, 0.65)
+
 
 
 def periodic_noise(shape, seed: int = 0, scale: float = 6.0, stretch: float = 1.0):

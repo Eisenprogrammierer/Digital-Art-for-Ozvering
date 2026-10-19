@@ -16,11 +16,9 @@ import numpy as np
 
 from core import palette, render
 from core.canvas import Canvas
+from core.render import LIGHT
 
 from . import tinctures
-
-#: The single light direction shared by every generated asset, in world units.
-LIGHT = (-0.45, 0.65)
 
 __all__ = [
     "LIGHT",

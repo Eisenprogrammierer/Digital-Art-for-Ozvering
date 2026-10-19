@@ -34,6 +34,7 @@ Run either way::
 from __future__ import annotations
 
 import hashlib
+import inspect
 import sys
 from pathlib import Path
 
@@ -131,12 +132,15 @@ def test_repeat_lays_the_field_out_and_multiplies_its_size():
 
 
 def test_the_light_is_the_same_light_in_every_generator():
-    """One light for the whole project, checked where the modules keep it.
+    """One light for the whole project, and *one* -- not eight that agree.
 
     A texture lit from the other side is the fastest way to make an asset look
-    borrowed, and this is the cheapest possible test of it -- five module constants
-    and an equality.
+    borrowed, so every package exposes a ``LIGHT``.  Those used to be eight copies
+    of a literal kept in step by this test; they are now one object in
+    ``core.render``, and the identity check is what says so -- an equality would
+    pass just as happily on nine copies.
     """
+    from core import render
     from gen.heraldry import paint as heraldry_paint
     from gen.icons import badge as icon_badge
     from gen.icons import paint as icon_paint
@@ -145,10 +149,11 @@ def test_the_light_is_the_same_light_in_every_generator():
     from gen.text import pen as text_pen
     from gen.ui import paint as ui_paint
 
+    assert tile.LIGHT is render.LIGHT
+    assert inspect.signature(render.shade).parameters["light"].default is render.LIGHT
     for module in (heraldry_paint, icon_paint, icon_badge, map_paint, portrait_brush,
                    text_pen, ui_paint):
-        assert np.allclose(np.asarray(module.LIGHT, dtype=float),
-                           np.asarray(tile.LIGHT, dtype=float)), module.__name__
+        assert module.LIGHT is render.LIGHT, module.__name__
 
 
 # -------------------------------------------------------------------- truchet

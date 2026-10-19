@@ -22,13 +22,10 @@ import numpy as np
 
 from core import palette, render
 from core.canvas import Canvas
+from core.render import LIGHT
 
 from . import material
 from .frame import Panel
-
-#: One light for the whole project -- the same direction as the heraldry and
-#: portrait packages use, because that is most of what makes assets read as a set.
-LIGHT = (-0.45, 0.65)
 
 #: What a panel throws on the ground.
 SHADOW = (0.03, 0.03, 0.05)

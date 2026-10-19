@@ -26,6 +26,7 @@ import numpy as np
 
 from core import noise, palette, render, sdf
 from core.canvas import Canvas
+from core.render import LIGHT
 
 from . import autotile, coast, politics, region, rivers, roads, terrain
 from .grid import HexGrid
@@ -47,11 +48,6 @@ __all__ = [
     "stroke_polyline",
     "terrain_layer",
 ]
-
-#: One light for the whole project.  On a map it means the north-west flanks of
-#: the hills are lit and the south-east ones are not, which is the convention
-#: every atlas uses and therefore the one that reads without being explained.
-LIGHT = (-0.45, 0.65)
 
 #: The dark used for coastlines, the map's edge and the lattice (sRGB).
 INK = palette.hex_to_srgb("#16222e")

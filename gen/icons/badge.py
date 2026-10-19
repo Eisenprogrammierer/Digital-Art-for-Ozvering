@@ -35,15 +35,10 @@ from __future__ import annotations
 import numpy as np
 
 from core import render, sdf
+from core.render import LIGHT
 
 __all__ = ["LIGHT", "BADGE", "CORNER", "TIERS", "MAX_COUNT", "SHADOW", "make",
            "clamp", "field", "marks", "paint"]
-
-#: One light for the whole project -- the same direction every other package
-#: shades with.  Defined here rather than imported, so ``badge`` does not have to
-#: depend on ``paint`` (which owns the passes that call it), and the set-wide
-#: equality test in ``tests/test_textures.py`` is what keeps the literals in step.
-LIGHT = (-0.45, 0.65)
 
 #: What the badge's seat -- the dark ring that separates it from whatever is under
 #: it -- is drawn in.  The icon's own shadow colour, so a badge and a plate throw

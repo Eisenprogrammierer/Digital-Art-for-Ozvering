@@ -31,16 +31,13 @@ import numpy as np
 
 from core import palette, render, sdf
 from core.canvas import Canvas
+from core.render import LIGHT
 
 from . import badge as _badge
 from . import motifs
 
 __all__ = ["LIGHT", "SHADOW", "MARGIN", "draw", "icon", "tints", "clamp", "validate",
            "silhouette", "contrast"]
-
-#: One light for the whole project -- the same direction the heraldry, portrait,
-#: map and UI packages use, because that is most of what makes assets read as a set.
-LIGHT = (-0.45, 0.65)
 
 #: What an icon throws on the ground.
 SHADOW = (0.03, 0.03, 0.05)

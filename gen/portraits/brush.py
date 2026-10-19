@@ -24,6 +24,7 @@ from __future__ import annotations
 import numpy as np
 
 from core import palette, render
+from core.render import LIGHT
 
 from .shape import Shape, as_shape, intersect_bbox, window
 
@@ -32,8 +33,7 @@ __all__ = [
     "Surface",
 ]
 
-#: The single light direction shared by the whole project, in world units.
-LIGHT = (-0.45, 0.65)
+
 
 
 # --------------------------------------------------------------------------
