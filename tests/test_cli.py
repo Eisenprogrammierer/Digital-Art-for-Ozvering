@@ -165,6 +165,26 @@ def test_the_grounds_command_passes_the_mip_count_through():
         assert levels == [0, 1]
 
 
+def test_the_portrait_command_passes_the_demographic_flags_through():
+    """Demography is four more flags on an existing command; wiring is the risk.
+
+    The portrait suite proves the genes reach the picture; this proves the
+    *command* reaches the genes, and that the sidecar records the result a save
+    file needs.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "portrait.png"
+        assert _run("portrait", "--out", out, "--seed", 7, "--size", 64,
+                    "--sex", "male", "--age", "elder",
+                    "--climate", "arid", "--culture", "desert") == 0
+        assert out.is_file() and out.stat().st_size > 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        for key, value in (("sex", "male"), ("age", "elder"),
+                           ("climate", "arid"), ("culture", "desert")):
+            assert meta["genes"][key] == value, key
+            assert f"{key}={value}" in meta["dna"], key
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -91,7 +91,9 @@ python cli.py figures --out out/figures.png --seed 7 --cycle walk --count 8 --fa
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
+python cli.py portrait   --seed 5 --sex female --age elder --climate arid --out out/one.png
 python cli.py portraits  --seed 7 --count 8 --size 256
+python cli.py portraits  --seed 7 --count 8 --sex male --age middle
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit as SVG
@@ -112,7 +114,7 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 37 tests
+python tests/test_portraits.py                  # 42 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
@@ -980,11 +982,15 @@ text  = dna.encode(genes)          # 'style=shounen;hair_style=twin;...' -- the 
 portrait.render(genes, size=384)   # a Canvas; same genes, same bytes
 
 child = dna.breed(dna.random_genes(5), dna.random_genes(1005), seed=12)
-dna.describe(child)                # 'chibi · long hair #cba18f · iris … · smile'
+dna.describe(child)                # 'chibi · long hair #cba18f · iris … · female child · …'
 ```
 
 Colours blend in OKLab, shapes average and drift, categories are drawn from one
-parent or the other, and the result is still a genome. `cli.py lineage` renders two
+parent or the other, and the result is still a genome. The demographic genes --
+`sex`, `age`, `climate`, `culture` -- are appended after the original shape genes,
+so an older DNA string still loads with documented defaults while every legacy gene
+stays mandatory. `age` is both a heritable state and a portrait state: a child of any
+two parents is born `child` or `youth`. `cli.py lineage` renders two
 parents and six children for exactly that reason: a strategy game can populate a
 dynasty by crossing genomes instead of by inventing a face per character, and the
 roster it stores is a few kilobytes of text.

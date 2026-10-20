@@ -15,6 +15,7 @@ Nothing here writes a file and nothing here runs a command; the server does both
 from __future__ import annotations
 
 from gen.figures import figure
+from gen.portraits import demography as portrait_demography
 from gen.portraits import dna as portrait_dna
 from gen.portraits import style as portrait_style
 from gen.text import pen as text_pen
@@ -114,6 +115,16 @@ GENERATORS = [
             _choice("expression", "Expression", "",
                     [""] + list(portrait_dna.EXPRESSIONS),
                     "empty = the seed's own expression", optional=True),
+            _choice("sex", "Sex", "", [""] + list(portrait_demography.SEXES),
+                    "empty = the seed's own; presentation, not a stereotype", optional=True),
+            _choice("age", "Age", "", [""] + list(portrait_demography.AGES),
+                    "empty = the seed's own; changes skin, hair and proportion", optional=True),
+            _choice("climate", "Climate", "",
+                    [""] + list(portrait_demography.CLIMATES),
+                    "the lineage's adaptation, not a nationality", optional=True),
+            _choice("culture", "Culture", "",
+                    [""] + list(portrait_demography.CULTURES),
+                    "the dress tradition: collar, trim and ornament", optional=True),
         ],
     },
     {
@@ -129,6 +140,14 @@ GENERATORS = [
             _int("count", "Portraits", 8, 1, 24),
             _int("size", "Cell (px)", 256, 64, 512),
             _int("cols", "Columns", 4, 1, 8),
+            _choice("sex", "Pin sex", "", [""] + list(portrait_demography.SEXES),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("age", "Pin age", "", [""] + list(portrait_demography.AGES),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("climate", "Pin climate", "", [""] + list(portrait_demography.CLIMATES),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("culture", "Pin culture", "", [""] + list(portrait_demography.CULTURES),
+                    "empty = the sheet samples the range", optional=True),
         ],
     },
     {

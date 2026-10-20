@@ -77,13 +77,13 @@ DEFAULTS = dict(
     brow_thick=0.036,
     brow_arch=0.030,
     brow_tilt=4.0,     # degrees, outer end raised
-    nose_gap=0.020,    # lower lid -> nose
-    nose_w=0.052,
-    nose_h=0.048,
+    nose_gap=0.030,    # lower lid -> nose
+    nose_w=0.068,
+    nose_h=0.060,
     nose_style="wedge",   # "dot" | "wedge" | "line"
-    mouth_gap=0.075,   # nose -> mouth
-    mouth_w=0.126,
-    mouth_curve=0.014,
+    mouth_gap=0.125,   # nose -> mouth
+    mouth_w=0.155,
+    mouth_curve=0.016,
     mouth_style="line",   # "line" | "full"
     blush_gap=0.060,   # lower lid -> blush
     # -- finish -----------------------------------------------------------
@@ -99,7 +99,7 @@ DEFAULTS = dict(
     # stalk.  ``shoulder_w`` is wide enough to leave the frame -- a bust whose
     # corner is visible reads as a pill no matter how the slope is shaped.
     neck_w=0.155,
-    neck_y=-0.735,     # where the neck meets the shoulders
+    neck_y=-0.790,     # where the neck meets the shoulders
     shoulder_w=1.240,
     shoulder_y=-1.760,  # the shoulder polygon's lower edge, well below the frame
 )
@@ -112,31 +112,31 @@ STYLES = {
         head_w=0.480, top_w=0.370, top_y=0.450, wide_y=0.095,
         cheek_w=0.455, cheek_y=-0.170, jaw_w=0.402, jaw_y=-0.262, chin_w=0.238,
         head_d=0.98,
-        eye_dx=0.205, eye_y=-0.105, eye_w=0.375, eye_up=0.190, eye_down=0.145,
-        eye_tilt=4.0, iris_r=0.152, iris_squash=1.06, pupil_r=0.062, hl_r=0.052,
+        eye_dx=0.205, eye_y=-0.105, eye_w=0.335, eye_up=0.168, eye_down=0.128,
+        eye_tilt=4.0, iris_r=0.136, iris_squash=1.06, pupil_r=0.056, hl_r=0.046,
         lash=0.036, lid_w=0.014, crease_w=0.014, lid_shadow=0.50,
         brow_gap=0.035, brow_dx=0.208, brow_w=0.200, brow_thick=0.034,
         brow_arch=0.020, brow_tilt=2.0,
-        nose_gap=0.022, nose_w=0.034, nose_h=0.024, nose_style="dot",
-        mouth_gap=0.078, mouth_w=0.112, mouth_curve=0.012,
+        nose_gap=0.030, nose_w=0.050, nose_h=0.034, nose_style="dot",
+        mouth_gap=0.125, mouth_w=0.138, mouth_curve=0.014,
         blush_gap=0.068,
         line=1.22, ink_w=0.025, blush=0.48, lid_shadow_alpha=0.34, chin_shadow=0.045,
-        neck_w=0.150, neck_y=-0.705, shoulder_w=1.280, shoulder_y=-1.760,
+        neck_w=0.150, neck_y=-0.760, shoulder_w=1.280, shoulder_y=-1.820,
     ),
     "shoujo": dict(
         head_w=0.393, top_w=0.255, top_y=0.448, wide_y=0.105,
         cheek_w=0.388, cheek_y=-0.200, jaw_w=0.312, jaw_y=-0.310, chin_w=0.118,
         head_d=1.02,
-        eye_dx=0.192, eye_y=-0.075, eye_w=0.232, eye_up=0.108, eye_down=0.090,
-        eye_tilt=8.0, iris_r=0.088, iris_squash=1.30, pupil_r=0.034, hl_r=0.031,
+        eye_dx=0.192, eye_y=-0.075, eye_w=0.224, eye_up=0.104, eye_down=0.086,
+        eye_tilt=8.0, iris_r=0.085, iris_squash=1.30, pupil_r=0.033, hl_r=0.030,
         lash=0.029, lid_w=0.009, crease_w=0.012, lid_shadow=0.36,
         brow_gap=0.050, brow_dx=0.198, brow_w=0.190, brow_thick=0.024,
         brow_arch=0.034, brow_tilt=6.0,
-        nose_gap=0.022, nose_w=0.036, nose_h=0.030, nose_style="dot",
-        mouth_gap=0.078, mouth_w=0.104, mouth_curve=0.016,
+        nose_gap=0.030, nose_w=0.052, nose_h=0.040, nose_style="wedge",
+        mouth_gap=0.120, mouth_w=0.130, mouth_curve=0.018,
         blush_gap=0.062,
         line=0.92, ink_w=0.016, blush=0.42, lid_shadow_alpha=0.34, chin_shadow=0.050,
-        neck_w=0.140, neck_y=-0.740, shoulder_w=1.200, shoulder_y=-1.780,
+        neck_w=0.140, neck_y=-0.795, shoulder_w=1.200, shoulder_y=-1.840,
     ),
     "shounen": dict(),  # the defaults, stated for symmetry
     "seinen": dict(
@@ -148,11 +148,11 @@ STYLES = {
         lash=0.024, lid_w=0.010, crease_w=0.013, lid_shadow=0.46,
         brow_gap=0.045, brow_dx=0.204, brow_w=0.188, brow_thick=0.032,
         brow_arch=0.020, brow_tilt=3.0,
-        nose_gap=0.020, nose_w=0.058, nose_h=0.058, nose_style="line",
-        mouth_gap=0.080, mouth_w=0.132, mouth_curve=0.010,
+        nose_gap=0.030, nose_w=0.072, nose_h=0.068, nose_style="wedge",
+        mouth_gap=0.128, mouth_w=0.158, mouth_curve=0.012,
         blush_gap=0.055,
         line=0.95, ink_w=0.019, blush=0.14, lid_shadow_alpha=0.48, chin_shadow=0.070,
-        neck_w=0.165, neck_y=-0.730, shoulder_w=1.300, shoulder_y=-1.800,
+        neck_w=0.165, neck_y=-0.785, shoulder_w=1.300, shoulder_y=-1.860,
     ),
 }
 

@@ -33,8 +33,8 @@ __all__ = ["brows", "paint_brows", "paint_nose", "paint_mouth", "paint_blush",
 # --------------------------------------------------------------------------
 # brows
 # --------------------------------------------------------------------------
-def brows(st, turn: float = 0.0, expr=None) -> list:
-    """Both brows as ``Shape``s, in world coordinates, already turned."""
+def _brow_spines(st, turn: float = 0.0, expr=None):
+    """The three control points of each brow, already turned, plus the side."""
     if expr is None:
         from . import expression
         expr = expression.neutral()
@@ -53,6 +53,14 @@ def brows(st, turn: float = 0.0, expr=None) -> list:
             centre = spine.mean(axis=0)
             spine = (spine - centre) @ rot.T + centre
         spine[:, 0], spine[:, 1] = head.turn_point(spine[:, 0], spine[:, 1], turn, st)
+        out.append((side, spine))
+    return out
+
+
+def brows(st, turn: float = 0.0, expr=None) -> list:
+    """Both brows as ``Shape``s, in world coordinates, already turned."""
+    out = []
+    for _, spine in _brow_spines(st, turn, expr):
         thick = st.brow_thick
         out.append(S.lock(spine, w0=0.80 * thick, w1=0.12 * thick, bulge=0.34 * thick,
                           per_segment=7))
@@ -60,8 +68,22 @@ def brows(st, turn: float = 0.0, expr=None) -> list:
 
 
 def paint_brows(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
-    for brow in brows(st, turn, expr):
+    for (side, spine), brow in zip(_brow_spines(st, turn, expr), brows(st, turn, expr)):
         brush.paint(canvas, brow, h.brow, clip=clip)
+        # Individual hairs, drawn along the brow's own spine.  The solid brow is
+        # the mass; these lines are what keep it from reading as a sticker.
+        for k in range(7):
+            u = (k + 0.5) / 7.0
+            if u < 0.5:
+                p = spine[0] + (spine[1] - spine[0]) * (u / 0.5)
+            else:
+                p = spine[1] + (spine[2] - spine[1]) * ((u - 0.5) / 0.5)
+            off = (k - 3) * 0.0018
+            tip = p + np.array([side * 0.014, 0.004 + off])
+            hair = S.lock([p + np.array([0.0, off]), tip], w0=st.brow_thick * 0.075,
+                          w1=0.0, per_segment=3)
+            colour = h.brow_hi if k % 3 == 0 else h.brow
+            brush.paint(canvas, hair, colour, clip=brow, alpha=0.52)
 
 
 # --------------------------------------------------------------------------
@@ -73,12 +95,24 @@ def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
         if turn != 0.0 and sk.receding(side, turn):
             continue  # the receding ear is hidden by the jaw
         ex, ey = head.turn_point(side * st.head_w * 0.80, st.eye_y + 0.015, turn, st)
+        ex, ey = float(ex), float(ey)
         r = st.head_w * 0.17
+        # A wash of shade gives the ear a plane; the inner curve is the helix.
+        brush.paint(canvas, S.ellipse(r * 0.70, r * 1.08, ex, ey),
+                    h.skin_shadow, clip=clip, alpha=0.10, soft=2.0)
         inner = S.arc((ex - r * 0.25 * side, ey + r), (ex - r * 0.30 * side, ey - r),
                       -side * r * 0.85, 0.5, 14)
         brush.paint(canvas, S.lock(inner, w0=st.crease_w * 0.5, w1=st.crease_w * 0.2,
                                    bulge=st.crease_w * 1.1, per_segment=4),
                     h.line_soft, clip=clip, alpha=0.85)
+        helix = S.arc((ex - r * 0.02 * side, ey + r * 0.72),
+                      (ex - r * 0.10 * side, ey - r * 0.30),
+                      -side * r * 0.55, 0.5, 12)
+        brush.paint(canvas, S.lock(helix, w0=st.crease_w * 0.35, w1=st.crease_w * 0.12,
+                                   per_segment=4),
+                    h.skin_deep, clip=clip, alpha=0.42)
+        lobe = S.ellipse(r * 0.26, r * 0.30, ex + side * r * 0.10, ey - r * 0.86)
+        brush.paint(canvas, lobe, h.skin_warm, clip=clip, alpha=0.20, soft=1.4)
 
 
 # --------------------------------------------------------------------------
@@ -90,12 +124,38 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
     nx, ny = float(nx), float(ny)
     w, hh = st.nose_w, st.nose_h
     style = st.nose_style
+    # Every nose style gets the same bridge: a narrow shadow on the shadow side
+    # and a pale plane on the lit side.  Without it a dot or a wedge floats on the
+    # cheek instead of sitting on a face.
+    bridge_shadow = S.lock([(nx - w * 0.10, ny + hh * 1.75),
+                            (nx - w * 0.16, ny + hh * 0.55),
+                            (nx - w * 0.10, ny + hh * 0.12)],
+                           w0=w * 0.085, w1=w * 0.045, per_segment=5)
+    brush.paint(canvas, bridge_shadow, h.skin_shadow, clip=clip, alpha=0.16, soft=1.5)
+    bridge_light = S.lock([(nx + w * 0.10, ny + hh * 1.55),
+                           (nx + w * 0.14, ny + hh * 0.48),
+                           (nx + w * 0.06, ny + hh * 0.12)],
+                          w0=w * 0.070, w1=w * 0.040, per_segment=5)
+    brush.paint(canvas, bridge_light, h.skin_light, clip=clip, alpha=0.18, soft=1.4)
+    # Alar creases: two short arcs where the nose meets the cheek.  They are the
+    # detail that makes a dot nose read as a nose rather than a freckle.
+    for side in (+1, -1):
+        wing = S.lock([(nx + side * w * 0.34, ny + hh * 0.20),
+                       (nx + side * w * 0.44, ny - hh * 0.02),
+                       (nx + side * w * 0.24, ny - hh * 0.22)],
+                      w0=w * 0.045, w1=w * 0.020, per_segment=4)
+        brush.paint(canvas, wing, h.skin_shadow, clip=clip, alpha=0.20, soft=0.8)
 
     if style == "dot":
         brush.paint(canvas, S.circle(w * 0.36, nx, ny), h.skin_deep, clip=clip,
                     alpha=0.55, soft=2.0)
         brush.paint(canvas, S.circle(w * 0.11, nx, ny - hh * 0.10), h.line_soft, clip=clip,
                     alpha=0.75)
+        for side in (+1, -1):
+            brush.paint(canvas, S.circle(w * 0.075, nx + side * w * 0.26, ny - hh * 0.20),
+                        h.line_soft, clip=clip, alpha=0.46, soft=0.8)
+        brush.paint(canvas, S.ellipse(w * 0.16, hh * 0.10, nx, ny + hh * 0.26),
+                    h.skin_light, clip=clip, alpha=0.42, soft=0.7)
         return
 
     if style == "line":
@@ -105,6 +165,12 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
                     h.line_soft, clip=clip, alpha=0.90)
         brush.paint(canvas, S.ellipse(w * 0.42, hh * 0.34, nx + w * 0.14, ny - hh * 0.36),
                     h.skin_shadow, clip=clip, alpha=0.34, soft=1.8)
+        for side in (+1, -1):
+            brush.paint(canvas, S.ellipse(w * 0.08, hh * 0.08,
+                                          nx + side * w * 0.30, ny - hh * 0.15),
+                        h.line_soft, clip=clip, alpha=0.42, soft=0.8)
+        brush.paint(canvas, S.ellipse(w * 0.18, hh * 0.10, nx + w * 0.10, ny + hh * 0.20),
+                    h.skin_light, clip=clip, alpha=0.45, soft=0.8)
         return
 
     # "wedge": the default.  A shaded plane, then a short ink along its base.
@@ -116,6 +182,12 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
     brush.paint(canvas, S.lock(base, w0=st.lid_w * 0.45, w1=st.lid_w * 0.95,
                                bulge=st.lid_w * 0.5, per_segment=5),
                 h.line, clip=clip, alpha=0.72)
+    for side in (+1, -1):
+        brush.paint(canvas, S.ellipse(w * 0.07, hh * 0.09,
+                                      nx + side * w * 0.30, ny - hh * 0.18),
+                    h.line_soft, clip=clip, alpha=0.40, soft=0.7)
+    brush.paint(canvas, S.ellipse(w * 0.14, hh * 0.09, nx + w * 0.10, ny + hh * 0.24),
+                h.skin_light, clip=clip, alpha=0.46, soft=0.8)
 
 
 # --------------------------------------------------------------------------
@@ -167,23 +239,44 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
         brush.paint(canvas, inner, h.mouth_dark, clip=clip, alpha=0.94)
         if teeth is not None:
             brush.paint(canvas, teeth, h.teeth, clip=clip, alpha=0.92)
+            brush.paint(canvas, S.lock(S.arc(left, right, curve, 0.5, 16),
+                                       w0=0.006, w1=0.006, per_segment=4),
+                        h.lip_shadow, clip=clip, alpha=0.38, soft=0.8)
         # The opening is inked all the way round.  A line *under* it instead
         # doubles the mouth's height and turns a grin into a smudge.
         brush.paint(canvas, inner.outline(line_w * 0.42), h.lip_deep, clip=clip, alpha=0.85)
+        tongue = S.ellipse(mw * 0.24, mw * 0.045, 0.0, inner.bbox[1] + mw * 0.035)
+        brush.paint(canvas, tongue, h.lip_deep, clip=inner, alpha=0.28, soft=1.4)
     else:
         lip = S.arc(left, right, curve, 0.5, 16)
+        # The lower lip gets a volume of its own even on a line mouth: a single
+        # stroke is a scratch, a stroke over a soft body is a mouth.
+        body = S.arc(left, right, -abs(curve) - mw * 0.085, 0.5, 14)
+        brush.paint(canvas, S.lock(body, w0=0.17 * mw, w1=0.17 * mw,
+                                   bulge=0.12 * mw, per_segment=4),
+                    h.lip, clip=clip, alpha=0.48)
         brush.paint(canvas, S.lock(lip, w0=line_w * 0.16, w1=line_w * 0.16,
                                    bulge=line_w * 1.05, per_segment=4),
                     h.line, clip=clip)
-        if st.mouth_style == "full":
-            body = S.arc(left, right, -abs(curve) - mw * 0.11, 0.5, 14)
-            brush.paint(canvas, S.lock(body, w0=0.20 * mw, w1=0.20 * mw,
-                                       bulge=0.16 * mw, per_segment=4),
-                        h.lip, clip=clip, alpha=0.55)
-            brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.04]),
-                                       w0=0.10 * mw, w1=0.10 * mw,
-                                       bulge=0.08 * mw, per_segment=4),
-                        h.lip_light, clip=clip, alpha=0.35)
+        upper = S.arc(left, right, curve * 0.55, 0.5, 14)
+        brush.paint(canvas, S.lock(upper, w0=0.065 * mw, w1=0.065 * mw,
+                                   bulge=0.055 * mw, per_segment=4),
+                    h.lip_deep, clip=clip, alpha=0.30)
+        brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.045]),
+                                   w0=0.085 * mw, w1=0.085 * mw,
+                                   bulge=0.06 * mw, per_segment=4),
+                    h.lip_light, clip=clip, alpha=0.35)
+        brush.paint(canvas, S.ellipse(mw * 0.09, mw * 0.035,
+                                      left[0] * 0.55, my - mw * 0.015),
+                    h.lip_gloss, clip=clip, alpha=0.30, soft=0.8)
+        for corner in (left, right):
+            brush.paint(canvas, S.circle(mw * 0.022, float(corner[0]), float(corner[1])),
+                        h.lip_deep, clip=clip, alpha=0.34, soft=0.6)
+    # Philtrum: two soft ridges above the middle of the upper lip.  At this size
+    # one pale plane is enough; drawing the grooves would be a moustache.
+    px, py = head.turn_point(0.0, my + mw * 0.15, turn, st)
+    brush.paint(canvas, S.ellipse(mw * 0.055, mw * 0.10, float(px), float(py)),
+                h.skin_light, clip=clip, alpha=0.10, soft=1.4)
 
 
 # --------------------------------------------------------------------------

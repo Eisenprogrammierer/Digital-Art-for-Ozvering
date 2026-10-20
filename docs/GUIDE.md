@@ -160,8 +160,8 @@ older than seven days and keeps at most the newest two hundred.
 | Group | Generator | Primary output | Notes |
 | --- | --- | --- | --- |
 | Characters | `figures` | `figures.png` | Sprite sheet; cycle, frames, facing. |
-| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, expression. |
-| Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits. |
+| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, expression, sex, age, climate, culture. |
+| Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits; optional demographic pins. |
 | Characters | `lineage` | `lineage.png` | Two parents and their children. |
 | Heraldry | `arms` | `arms.png` | Coats of arms; count, cell size, forced shield. |
 | Heraldry | `blazon` | `blazon.png` | One coat, its EN/RU blazon and its tincture check. |
@@ -310,13 +310,25 @@ separation is not used.
 
 A portrait is a head as a stack of cross-sections, with a genome that can be traced,
 mixed and bred. `portrait` draws one; `portraits` draws a sheet; `lineage` draws two
-parents and their children. Style, hair and expression can be forced for a one-off.
+parents and their children. Style, hair, expression and the demographic genes can be
+forced for a one-off without changing the others.
 
 ```bash
 python cli.py portrait --out out/one.png --seed 5 --size 384
+python cli.py portrait --out out/elder.png --seed 5 --age elder --climate arid
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
+python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
 ```
+
+`sex`, `age`, `climate` and `culture` are genes like any other. `sex` adjusts
+presentation and a few proportions; `age` changes the life stage, greys the hair in
+the colour script and adds age detail; `climate` is the environment a lineage adapted
+to, so it shifts skin and feature ranges rather than drawing a costume; `culture`
+chooses the dress tradition -- collar, trim and fastening -- and never the face.
+`portraits` accepts the same four flags to pin one gene across the sheet. A DNA
+string written before these genes existed still loads: missing demographic genes take
+their documented defaults, while a missing shape or colour gene is still an error.
 
 ### Heraldry
 

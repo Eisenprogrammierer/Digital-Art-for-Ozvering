@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
-from gen.portraits import cel, dna, expression, face, hair, head, hues, eyes  # noqa: E402
+from gen.portraits import cel, demography, dna, expression, face, hair, head, hues, eyes  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as style_mod  # noqa: E402
 from gen.portraits.shape import Shape  # noqa: E402
@@ -82,7 +82,7 @@ def test_decode_refuses_a_genome_it_does_not_understand():
         ";".join(i for i in items if not i.startswith("eye_w=")),   # a missing gene
         ";".join(("eye_w=oops" if i.startswith("eye_w=") else i) for i in items),
         dna.encode(dict(g, skin="#nothex")),
-        ";".join(items[:-1]),
+        ";".join(i for i in items if not i.startswith("bang_n=")),  # a missing legacy gene
     ]
     for broken in variants:
         try:
@@ -410,7 +410,9 @@ def test_the_crown_is_painted_hair_and_not_skin():
             return img[int(np.argmin(((flat - (x, y)) ** 2).sum(axis=1)))]
 
         def nearest(px, colours):
-            ref = palette.linear_to_srgb(np.array(colours)) * 255.0
+            # The colour script stores sRGB, not linear light; compare in the
+            # space the pixels are exported in.
+            ref = np.array(colours) * 255.0
             return float(np.min(np.linalg.norm(ref - px, axis=1)))
 
         hair_hues = [h.hair, h.hair_shadow, h.hair_deep]
@@ -724,6 +726,88 @@ def test_describe_names_the_genome():
     text = dna.describe(g)
     assert g["style"] in text and g["hair_style"] in text and g["expression"] in text
     assert g["hair"] in text
+
+
+# ------------------------------------------------------------- demography
+def test_old_genomes_default_the_demographic_genes():
+    """A saved dynasty predates sex, age, climate and culture; it must still load.
+
+    The opposite is the important half: only the *new* genes are optional.  A
+    truncated string still loses a leg, so the legacy genes stay mandatory.
+    """
+    g = dna.random_genes(21)
+    old = ";".join(item for item in dna.encode(g).split(";")
+                   if item.partition("=")[0] not in dna.DEMOGRAPHIC)
+    out = dna.decode(old)
+    for key, value in demography.DEFAULTS.items():
+        assert out[key] == value, f"{key} did not default"
+    assert dna.encode(out).endswith(";".join(f"{k}={out[k]}" for k in dna.DEMOGRAPHIC))
+
+
+def test_demography_changes_the_face_and_not_the_dna_contract():
+    """Sex, age and climate sculpt the same construction; culture does not sculpt it."""
+    base = _genes(7, jaw=0.0, nose=0.0, eye_w=0.0)
+    female = _style(dict(base, sex="female"))
+    male = _style(dict(base, sex="male"))
+    child = _style(dict(base, age="child"))
+    elder = _style(dict(base, age="elder"))
+    arid = _style(dict(base, climate="arid"))
+    temperate = _style(dict(base, climate="temperate"))
+
+    assert male.jaw_w > female.jaw_w
+    assert male.neck_w > female.neck_w
+    assert child.eye_w > elder.eye_w
+    assert child.jaw_w < elder.jaw_w
+    assert arid.nose_w > temperate.nose_w
+
+    # Dress is not a face: the culture must not touch a single geometric parameter.
+    north = _style(dict(base, culture="north"))
+    desert = _style(dict(base, culture="desert"))
+    assert north.p == desert.p, "culture changed the face instead of the clothing"
+
+
+def test_age_greys_the_hair_colour_script_not_the_gene():
+    g = _genes(4, age="adult")
+    adult = hues.from_genes(g)
+    grey = hues.from_genes(dict(g, age="elder"))
+    assert np.allclose(adult.hair, palette.hex_to_srgb(g["hair"]))
+    assert not np.allclose(grey.hair, adult.hair), "elder hair stayed the raw gene colour"
+    assert palette.srgb_to_oklch(grey.hair)[0] > palette.srgb_to_oklch(adult.hair)[0]
+
+
+def test_demographic_variants_are_distinct_and_deterministic():
+    """A gene that does not reach the picture is a label, not a portrait gene."""
+    base = _genes(23)
+    variants = {
+        "female": dict(base, sex="female"),
+        "male": dict(base, sex="male"),
+        "androgynous": dict(base, sex="androgynous"),
+    }
+    hashes = {name: _hash(portraitlib.render(g, size=64)) for name, g in variants.items()}
+    assert len(set(hashes.values())) == len(hashes), "sex did not reach the pixels"
+
+    old = _hash(portraitlib.render(dict(base, age="child"), size=64))
+    new = _hash(portraitlib.render(dict(base, age="elder"), size=64))
+    assert old != new, "age did not reach the pixels"
+
+    desert = _hash(portraitlib.render(dict(base, culture="desert"), size=64))
+    north = _hash(portraitlib.render(dict(base, culture="north"), size=64))
+    assert desert != north, "culture did not reach the clothing"
+
+    # The same genes must reproduce the same picture; the demography is not a
+    # hidden random input beside the genome.
+    again = _hash(portraitlib.render(dict(base, age="elder"), size=64))
+    assert again == new
+
+
+def test_breeding_gives_a_child_a_child_stage():
+    a, b = dna.random_genes(5), dna.random_genes(1005)
+    for seed in range(40):
+        child = dna.breed(a, b, seed=seed)
+        assert child["age"] in ("child", "youth")
+        assert child["sex"] in demography.SEXES
+        assert child["climate"] in demography.CLIMATES
+        assert child["culture"] in demography.CULTURES
 
 
 if __name__ == "__main__":

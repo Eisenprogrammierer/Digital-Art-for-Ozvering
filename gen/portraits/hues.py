@@ -24,7 +24,7 @@ import numpy as np
 
 from core import palette
 
-from . import cel, ink
+from . import cel, demography, ink
 
 __all__ = ["Hues", "from_genes", "SCLERA_TINT"]
 
@@ -36,14 +36,17 @@ class Hues:
     """Every colour one portrait paints with, as sRGB triples."""
 
     __slots__ = (
-        "skin", "skin_shadow", "skin_deep", "skin_warm",
-        "hair", "hair_shadow", "hair_deep", "hair_hi",
+        "skin", "skin_shadow", "skin_deep", "skin_warm", "skin_light",
+        "skin_freckle", "skin_cool",
+        "hair", "hair_shadow", "hair_deep", "hair_hi", "hair_root", "hair_fine",
         "line", "line_hair", "line_soft",
         "iris", "iris_light", "iris_dark", "iris_rim", "pupil",
-        "sclera", "lid_shadow", "lash",
-        "brow", "lip", "lip_light", "lip_deep", "mouth_dark", "teeth",
-        "blush", "cloth", "cloth_shadow", "cloth_line",
-        "bg",
+        "iris_fiber", "iris_glow", "pupil_rim",
+        "sclera", "sclera_shadow", "lid_shadow", "lash", "tear",
+        "brow", "brow_hi", "lip", "lip_light", "lip_deep", "lip_gloss",
+        "lip_shadow", "mouth_dark", "teeth",
+        "blush", "cloth", "cloth_shadow", "cloth_hi", "cloth_line",
+        "cloth_trim", "metal", "bg", "bg_hi", "bg_lo",
     )
 
     def __init__(self, **kw):
@@ -54,12 +57,33 @@ class Hues:
         return {k: palette.srgb_to_hex(getattr(self, k)) for k in self.__slots__}
 
 
+#: Dress accents are a property of a culture, not of a face.  They are broad,
+#: readable colours rather than flags: a game can rename the table without having
+#: to repaint the portraits.
+_CULTURE_ACCENT = {
+    "north": (0.56, 0.105, 0.615),
+    "river": (0.57, 0.095, 0.515),
+    "steppe": (0.68, 0.115, 0.115),
+    "coast": (0.62, 0.125, 0.030),
+    "desert": (0.74, 0.085, 0.145),
+    "highland": (0.49, 0.090, 0.315),
+}
+
+#: How much grey a life stage has earned.  Hair does not *become* a different
+#: colour gene; the colour script mixes the gene towards grey so the DNA remains
+#: the same person at every age.
+_AGE_GREY = {"child": 0.0, "youth": 0.0, "adult": 0.0, "middle": 0.16, "elder": 0.62}
+
+
 def from_genes(genes: dict) -> Hues:
     """Derive the whole colour script from the four base colours in the genes."""
     skin = palette.hex_to_srgb(genes["skin"])
-    hair = palette.hex_to_srgb(genes["hair"])
+    raw_hair = palette.hex_to_srgb(genes["hair"])
     iris = palette.hex_to_srgb(genes["iris"])
     cloth = palette.hex_to_srgb(genes["cloth"])
+    age = demography.stage(genes)
+    culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
+    hair = palette.mix(raw_hair, (0.78, 0.79, 0.82), _AGE_GREY.get(age, 0.0))
 
     iris_dark = cel.shadow(iris, depth=0.18, chroma=1.10, hue=-0.02)
     iris_light = cel.highlight(iris, lift=0.16, chroma=0.75, hue=0.012)
@@ -75,6 +99,11 @@ def from_genes(genes: dict) -> Hues:
 
     lip = palette.mix(skin, palette.oklch_to_srgb((0.55, 0.15, 0.985)), 0.42)
     lip_light = cel.highlight(lip, lift=0.10, chroma=0.8)
+    lip_gloss = cel.highlight(lip, lift=0.22, chroma=0.62)
+    lip_shadow = cel.shadow(lip, depth=0.08, chroma=1.10, hue=-0.006)
+    skin_light = cel.highlight(skin, lift=0.040, chroma=0.82)
+    skin_freckle = palette.mix(skin, palette.oklch_to_srgb((0.40, 0.085, 0.095)), 0.24)
+    skin_cool = cel.shadow(skin, depth=0.055, chroma=1.45, hue=-0.060)
 
     blush_lch = palette.srgb_to_oklch(skin).copy()
     blush_lch[1] = min(float(blush_lch[1]) * 1.7 + 0.045, 0.125)
@@ -83,8 +112,16 @@ def from_genes(genes: dict) -> Hues:
 
     bg_lch = palette.srgb_to_oklch(hair).copy()
     bg = palette.oklch_to_srgb((0.955, min(float(bg_lch[1]) * 0.16, 0.022), float(bg_lch[2])))
+    bg_hi = palette.oklch_to_srgb((0.978, min(float(bg_lch[1]) * 0.10, 0.014),
+                                   float(bg_lch[2]) + 0.008))
+    bg_lo = palette.oklch_to_srgb((0.895, min(float(bg_lch[1]) * 0.22, 0.030),
+                                   float(bg_lch[2]) - 0.015))
     teeth = palette.mix((1.0, 1.0, 1.0), skin, 0.07)
     mouth_dark = palette.oklch_to_srgb((0.235, 0.070, (float(palette.srgb_to_oklch(lip)[2]) + 0.02) % 1.0))
+    accent = palette.oklch_to_srgb(_CULTURE_ACCENT.get(culture, _CULTURE_ACCENT["river"]))
+    cloth_hi = cel.highlight(cloth, lift=0.12, chroma=0.82)
+    cloth_trim = palette.mix(cloth, accent, 0.66)
+    metal = palette.oklch_to_srgb((0.72, 0.105, 0.125 if culture in ("steppe", "desert") else 0.62))
 
     # Cel shading spends lightness to buy a terminator, and a deep base has very
     # little of it to spend: the same absolute drop that reads as shade on light
@@ -99,10 +136,15 @@ def from_genes(genes: dict) -> Hues:
         skin_shadow=cel.shadow(skin, depth=0.135 * head_room, chroma=deep_chroma),
         skin_deep=cel.shadow(skin, depth=0.235 * head_room, chroma=deep_chroma + 0.12),
         skin_warm=cel.highlight(skin, lift=0.035, chroma=1.05),
+        skin_light=skin_light,
+        skin_freckle=skin_freckle,
+        skin_cool=skin_cool,
         hair=hair,
         hair_shadow=cel.shadow(hair, depth=0.085, chroma=1.12),
         hair_deep=cel.shadow(hair, depth=0.165, chroma=1.22),
         hair_hi=cel.highlight(hair, lift=0.200, chroma=0.62, hue=0.010),
+        hair_root=cel.shadow(hair, depth=0.24, chroma=1.18),
+        hair_fine=cel.highlight(hair, lift=0.095, chroma=0.78),
         line=line,
         line_hair=ink.shade_line(hair, mul=0.48, floor=0.070, chroma=1.15, hue=-0.018),
         line_soft=ink.shade_line(skin, mul=0.50, floor=0.300, chroma=1.10, hue=-0.018),
@@ -111,18 +153,31 @@ def from_genes(genes: dict) -> Hues:
         iris_dark=iris_dark,
         iris_rim=iris_rim,
         pupil=pupil,
+        iris_fiber=palette.mix(iris_light, (1.0, 1.0, 1.0), 0.22),
+        iris_glow=cel.highlight(iris, lift=0.28, chroma=0.62),
+        pupil_rim=cel.shadow(iris, depth=0.38, chroma=1.05),
         sclera=sclera,
+        sclera_shadow=palette.mix(sclera, lid_shadow, 0.42),
         lid_shadow=lid_shadow,
         lash=lash,
+        tear=palette.mix(lip, sclera, 0.34),
         brow=ink.shade_line(hair, mul=0.58, floor=0.115, chroma=1.10, hue=-0.010),
+        brow_hi=cel.highlight(hair, lift=0.06, chroma=0.82),
         lip=lip,
         lip_light=lip_light,
         lip_deep=cel.shadow(lip, depth=0.13, chroma=1.15, hue=-0.008),
+        lip_gloss=lip_gloss,
+        lip_shadow=lip_shadow,
         mouth_dark=mouth_dark,
         teeth=teeth,
         blush=blush,
         cloth=cloth,
         cloth_shadow=cel.shadow(cloth, depth=0.095, chroma=1.14),
+        cloth_hi=cloth_hi,
         cloth_line=ink.shade_line(cloth, mul=0.42, floor=0.070, chroma=1.10),
+        cloth_trim=cloth_trim,
+        metal=metal,
         bg=bg,
+        bg_hi=bg_hi,
+        bg_lo=bg_lo,
     )

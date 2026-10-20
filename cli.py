@@ -81,6 +81,7 @@ from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
 from gen.textures import truchet as tex_truchet  # noqa: E402
 from gen.textures import wang as tex_wang  # noqa: E402
+from gen.portraits import demography as portrait_demography  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
@@ -921,14 +922,34 @@ def demo_blazon(seed: int = 5, spec_path: Path | None = None, out: Path | None =
     return spec
 
 
-def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, cols: int = 4) -> Path:
+def _apply_demography(genes: dict, sex: str | None = None, age: str | None = None,
+                      climate: str | None = None, culture: str | None = None) -> dict:
+    """Pin any of the demographic genes on a genome, without making the others fixed."""
+    for key, value, allowed in (("sex", sex, portrait_demography.SEXES),
+                                ("age", age, portrait_demography.AGES),
+                                ("climate", climate, portrait_demography.CLIMATES),
+                                ("culture", culture, portrait_demography.CULTURES)):
+        if value is None:
+            continue
+        if value not in allowed:
+            raise ValueError(f"unknown {key} {value!r}")
+        genes[key] = value
+    return genes
+
+
+def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, cols: int = 4,
+                   sex: str | None = None, age: str | None = None,
+                   climate: str | None = None, culture: str | None = None) -> Path:
     """Contact sheet of generated portraits, captioned with their genome.
 
     The sidecar ``.json`` is the point: every tile carries the one-line DNA
     string that would reproduce it exactly, so a sheet of avatars is also a
-    browsable catalogue of the genomes that produced them.
+    browsable catalogue of the genomes that produced them.  The demographic
+    flags pin one gene for the whole sheet; leave them out to sample the range.
     """
-    genomes = [portrait_dna.random_genes(seed + i) for i in range(count)]
+    genomes = [_apply_demography(portrait_dna.random_genes(seed + i), sex=sex, age=age,
+                                 climate=climate, culture=culture)
+               for i in range(count)]
     tiles = [portraitlib.render(g, size=size) for g in genomes]
 
     gap = 24
@@ -949,6 +970,7 @@ def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, co
                 "seed": seed,
                 "source": "procedural:gen.portraits.dna.random_genes",
                 "license": "MIT",
+                "demography": {"sex": sex, "age": age, "climate": climate, "culture": culture},
                 "portraits": [
                     {
                         "seed": seed + i,
@@ -1014,7 +1036,9 @@ def demo_lineage(out: Path, seed: int = 7, size: int = 208, children: int = 6) -
 
 def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, size: int = 384,
                  style: str | None = None, hair: str | None = None,
-                 expression: str | None = None) -> Path:
+                 expression: str | None = None, sex: str | None = None,
+                 age: str | None = None, climate: str | None = None,
+                 culture: str | None = None) -> Path:
     """Render one portrait, from a seed or from a DNA string, and print its genome."""
     if dna is not None:
         genes = portrait_dna.decode(dna)
@@ -1030,6 +1054,7 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
         genes["hair_style"] = hair
     if expression:
         genes["expression"] = expression
+    _apply_demography(genes, sex=sex, age=age, climate=climate, culture=culture)
     genes = portrait_dna.decode(portrait_dna.encode(genes))  # re-clamp through the wire format
 
     text = portrait_dna.encode(genes)
@@ -2160,6 +2185,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--style", default=None, choices=portrait_style.names())
     pr.add_argument("--hair", default=None, choices=list(portrait_dna.HAIR_STYLES))
     pr.add_argument("--expression", default=None, choices=list(portrait_dna.EXPRESSIONS))
+    pr.add_argument("--sex", default=None, choices=list(portrait_demography.SEXES))
+    pr.add_argument("--age", default=None, choices=list(portrait_demography.AGES))
+    pr.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
+    pr.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
 
     ps = sub.add_parser("portraits", help="contact sheet of generated portraits")
     ps.add_argument("--out", default="out/portraits.png", type=Path)
@@ -2167,6 +2196,10 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--count", type=int, default=8)
     ps.add_argument("--size", type=int, default=256)
     ps.add_argument("--cols", type=int, default=4)
+    ps.add_argument("--sex", default=None, choices=list(portrait_demography.SEXES))
+    ps.add_argument("--age", default=None, choices=list(portrait_demography.AGES))
+    ps.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
+    ps.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
 
     ln = sub.add_parser("lineage", help="two parents and their bred children")
     ln.add_argument("--out", default="out/lineage.png", type=Path)
@@ -2338,9 +2371,11 @@ def main(argv=None) -> int:
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":
         portrait_one(args.out, seed=args.seed, dna=args.dna, size=args.size, style=args.style,
-                     hair=args.hair, expression=args.expression)
+                     hair=args.hair, expression=args.expression, sex=args.sex, age=args.age,
+                     climate=args.climate, culture=args.culture)
     elif args.cmd == "portraits":
-        demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols)
+        demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
+                       sex=args.sex, age=args.age, climate=args.climate, culture=args.culture)
     elif args.cmd == "lineage":
         demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
     elif args.cmd == "ui":

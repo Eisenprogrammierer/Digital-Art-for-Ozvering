@@ -195,7 +195,10 @@ def neckline(st, kind: str = "v", w: float = 0.020) -> Shape:
     """
     nw = max(float(st.neck_w) * 1.22, 0.16)
     top = float(st.neck_y)
-    x0, x1 = nw * 1.55, float(st.shoulder_w) * 0.66
+    # A collar that only spans the width of the neck is a necklace; a neckline
+    # has to cross the trapezius.  Keep the endpoints inside the shoulder slope
+    # and let the style's own neck width set the opening.
+    x0, x1 = min(nw * 2.9, float(st.shoulder_w) * 0.54), float(st.shoulder_w) * 0.70
     edge = (top + 0.075) + (x0 - nw) / max(x1 - nw, 1e-6) * (top - (top + 0.075))
     if kind == "crew":
         spine, bulge = [(-x0, top - 0.085), (0.0, top - 0.096), (x0, top - 0.085)], 0.008

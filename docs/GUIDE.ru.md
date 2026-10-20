@@ -162,8 +162,8 @@ out/studio/20261020-201325-1a2b3c/
 | Группа | Генератор | Основной файл | Заметки |
 | --- | --- | --- | --- |
 | Characters | `figures` | `figures.png` | Спрайт-лист; цикл, кадры, направление. |
-| Characters | `portrait` | `portrait.png` | Один портрет; сид, размер, стиль, волосы, выражение. |
-| Characters | `portraits` | `portraits.png` | Лист портретов. |
+| Characters | `portrait` | `portrait.png` | Один портрет; сид, размер, стиль, волосы, выражение, пол, возраст, климат, культура. |
+| Characters | `portraits` | `portraits.png` | Лист портретов; можно закрепить демографические гены. |
 | Characters | `lineage` | `lineage.png` | Два родителя и их дети. |
 | Heraldry | `arms` | `arms.png` | Гербы; количество, размер ячейки, щит. |
 | Heraldry | `blazon` | `blazon.png` | Один герб, его EN/RU-блазон и проверка тинктур. |
@@ -310,13 +310,25 @@ python cli.py figures --out out/figures.png --seed 7 --cycle walk --facing down
 
 Портрет — голова как стопка сечений с прослеживаемым геномом, который можно
 смешивать и скрещивать. `portrait` рисует один, `portraits` — лист, `lineage` — двух
-родителей и детей. Стиль, волосы и выражение можно задать вручную.
+родителей и детей. Стиль, волосы, выражение и демографические гены можно задать
+вручную, не меняя остальные.
 
 ```bash
 python cli.py portrait --out out/one.png --seed 5 --size 384
+python cli.py portrait --out out/elder.png --seed 5 --age elder --climate arid
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
+python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
 ```
+
+`sex`, `age`, `climate` и `culture` — такие же гены, как остальные. `sex` меняет
+презентацию и некоторые пропорции; `age` задаёт возрастную стадию, седину в цветовом
+скрипте и возрастные детали; `climate` — среда, к которой приспособлена линия, поэтому
+он сдвигает диапазоны кожи и черт, а не рисует костюм; `culture` выбирает традицию
+одежды — воротник, отделку и застёжку — и никогда не лицо. `portraits` принимает те же
+четыре флага, чтобы закрепить один ген на всём листе. Строка ДНК, записанная до
+появления этих генов, всё ещё читается: отсутствующие демографические гены получают
+документированные значения по умолчанию, а пропущенный ген формы или цвета — ошибка.
 
 ### Геральдика
 

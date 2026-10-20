@@ -31,10 +31,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from core import palette
 from core.canvas import Canvas
 
-from . import brush, cel, dna, expression, eyes, face, hair, head, hues
+from . import brush, cel, detail, dna, expression, eyes, face, hair, head, hues
 from . import style as style_mod
 
 __all__ = ["FRAME", "canvas", "compose", "render", "render_seed", "describe", "colors"]
@@ -54,14 +53,6 @@ def canvas(size, background=None) -> Canvas:
     return Canvas(w, h, scale=scale, center=(0.0, -head.HEAD_Y), background=background)
 
 
-def _gradient(canvas: Canvas, top, bottom):
-    """A two-stop background in OKLab: flat enough to read as a backdrop."""
-    X, Y = canvas.grid()
-    y0 = Y.min()
-    span = max(float(Y.max() - y0), 1e-6)
-    t = np.clip((Y - y0) / span, 0.0, 1.0)
-    canvas.rgb[:] = palette.srgb_to_linear(palette.ramp_map([bottom, top], t))
-    canvas.a[:] = 1.0
 
 
 def _contour_taper(y_min: float, heavy: float = 1.0, light: float = 0.3):
@@ -88,7 +79,7 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
 
     c = canvas(size)
     if background:
-        _gradient(c, h.bg, palette.mix(h.bg, (0.60, 0.62, 0.70), 0.26))
+        detail.background(c, h, genes, rng)
 
     skull = head.silhouette(st, turn)
     skull_surf = brush.Surface(c, skull)
@@ -104,10 +95,12 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     neck = brush.Surface(c, head.neck(st))
     neck.paint(c, h.skin)
     neck.bands(c, [h.skin_shadow], (0.34,),
-               volume=cel.dome(st.neck_w * 1.7, 0.36, 0.30, cy=st.chin_y - 0.22), bevel=0.03)
+               volume=cel.dome(st.neck_w * 1.7, 0.36, 0.30, cy=st.chin_y - 0.22), bevel=0.03,
+               soft=1.2)
     neck.stroke(c, st.ink_w * st.line * 0.55, h.line_soft, inset=st.ink_w * st.line * 0.34,
                 alpha=0.55, taper=_contour_taper(st.chin_y))
     neck_cov = neck.full_coverage(c)
+    detail.paint_neck(c, st, h, genes, turn, neck_cov)
     cast = np.minimum(neck_cov * (1.0 - skull_cov),
                       brush.shift_cov(skull_cov, -st.chin_shadow, c.scale))
     brush.paint_cov(c, cast, h.skin_deep, soft=1.2, alpha=0.80)
@@ -115,14 +108,11 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     bust = brush.Surface(c, head.shoulders(st))
     bust.paint(c, h.cloth)
     bust.bands(c, [h.cloth_shadow], (0.40,), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
-               bevel=0.05)
+               bevel=0.05, soft=1.8)
     bust.stroke(c, st.ink_w * st.line * 0.85, h.cloth_line, inset=st.ink_w * st.line * 0.42)
-
-    # The collar.  Three kinds, one per seed, because a bust with a neckline is
-    # wearing something and a bare trapezius is not.
-    brush.paint(c, head.neckline(st, ("v", "scoop", "crew")[dna.seed_of(genes) % 3],
-                                 w=st.ink_w * st.line * 1.5),
-                h.cloth_line, alpha=0.90, soft=0.4)
+    neck_kind = ("v", "scoop", "crew")[dna.seed_of(genes) % 3]
+    bust_cov = bust.full_coverage(c)
+    detail.paint_bust(c, st, h, genes, neck_kind, bust_cov)
 
     # The locks rooted at the temples hang in front of the shoulder and behind
     # the jaw, so they belong between the body and the head.
@@ -131,11 +121,13 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     # --- 4. head ----------------------------------------------------------
     skull_surf.paint(c, h.skin)
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),
-                     bevel=0.055)
+                     bevel=0.055, soft=1.6)
     face.paint_ears(c, st, h, turn, clip=skull)
+    detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
     lw = st.ink_w * st.line
     skull_surf.stroke(c, lw, h.line, inset=lw * 0.42,
                       taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34))
+    detail.paint_facial_hair(c, st, h, genes, turn, skull_cov, rng)
     face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 
     # --- 5. features ------------------------------------------------------
@@ -151,6 +143,7 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
 
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
+    detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov)
     return c
 
 

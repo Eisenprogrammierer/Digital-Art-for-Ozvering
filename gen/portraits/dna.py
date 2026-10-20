@@ -25,10 +25,11 @@ import numpy as np
 
 from core import palette
 
+from . import demography
 from . import style as style_mod
 
 __all__ = [
-    "GENES", "CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
+    "GENES", "CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES", "DEMOGRAPHIC",
     "random_genes", "quantise", "encode", "decode", "breed", "mutate",
     "apply_to", "describe", "EXPRESSIONS", "HAIR_STYLES",
 ]
@@ -45,7 +46,12 @@ SHAPE_GENES = (
     "eye_y", "brow_thick", "brow_arch", "nose", "mouth_w", "mouth_smile", "blush",
     "lash", "hair_len", "bang_n",
 )
-GENES = CATEGORICAL + COLOUR_GENES + SHAPE_GENES
+#: Portrait state that is not a mood or a hairstyle.  Appended after the shape
+#: genes so an older DNA string can still be read: the demographic genes are
+#: optional on input and defaulted by :func:`decode`, while every legacy gene is
+#: still required.
+DEMOGRAPHIC = ("sex", "age", "climate", "culture")
+GENES = CATEGORICAL + COLOUR_GENES + SHAPE_GENES + DEMOGRAPHIC
 
 #: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
 _SHAPE_MODS = {
@@ -94,8 +100,21 @@ def _rng(seed) -> np.random.Generator:
     return seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
 
 
-def _skin(rng) -> str:
-    hue, chroma, light = _SKIN_SETS[int(rng.integers(0, len(_SKIN_SETS)))]
+#: Which part of the human range a climate-adapted population samples.  This is
+#: deliberately a *range*, not a fixed swatch: a lineage in the Arctic can still
+#: produce a deep-skinned child, and a tropical lineage can produce a light one.
+_CLIMATE_SKIN = {
+    "arctic": (0, 9),
+    "temperate": (0, 14),
+    "arid": (5, 17),
+    "tropical": (8, 17),
+    "highland": (2, 15),
+}
+
+
+def _skin(rng, climate: str = "temperate") -> str:
+    lo, hi = _CLIMATE_SKIN.get(climate, _CLIMATE_SKIN["temperate"])
+    hue, chroma, light = _SKIN_SETS[int(rng.integers(lo, hi))]
     lch = (
         float(np.clip(light + rng.uniform(-0.025, 0.025), 0.28, 0.95)),
         float(np.clip(chroma * rng.uniform(0.90, 1.10), 0.02, 0.11)),
@@ -105,28 +124,59 @@ def _skin(rng) -> str:
 
 
 def _hair(rng) -> str:
-    """A believable anime hair colour: neutral-dark, warm-natural, or deliberately vivid."""
+    """A believable hair colour.
+
+    Three natural families: near-neutral black/silver/ash, warm brown/auburn/
+    blonde, and a rare cool blue-black.  The vivid branch that used to occupy one
+    roll in four is gone: at contact-sheet size a single olive or violet head
+    dominated the whole sheet, and "fantasy" is better carried by a muted cool
+    black than by a neon hue.
+    """
     roll = float(rng.random())
-    if roll < 0.30:  # black / silver / ash: a near-neutral at either end
-        light = float(rng.choice([rng.uniform(0.20, 0.36), rng.uniform(0.78, 0.94)]))
-        return palette.oklch_to_hex((light, float(rng.uniform(0.005, 0.028)), float(rng.random())))
-    if roll < 0.72:  # brown / auburn / blonde: a warm hue, moderate chroma
+    if roll < 0.34:  # black / silver / ash: a near-neutral at either end
+        light = float(rng.choice([rng.uniform(0.18, 0.36), rng.uniform(0.76, 0.93)]))
+        return palette.oklch_to_hex((light, float(rng.uniform(0.003, 0.022)), float(rng.random())))
+    if roll < 0.94:  # brown / auburn / blonde: a warm hue, moderate chroma
         hue = float(rng.uniform(0.035, 0.135))
-        light = float(rng.uniform(0.34, 0.86))
-        chroma = float(rng.uniform(0.030, 0.095)) * (1.25 if light > 0.7 else 1.0)
-        return palette.oklch_to_hex((light, min(chroma, 0.11), hue))
-    hue = float(rng.random())
-    light = float(rng.uniform(0.52, 0.76))
-    return palette.oklch_to_hex((light, float(rng.uniform(0.10, 0.19)), hue))
+        light = float(rng.uniform(0.32, 0.86))
+        chroma = float(rng.uniform(0.024, 0.078)) * (1.15 if light > 0.7 else 1.0)
+        return palette.oklch_to_hex((light, min(chroma, 0.095), hue))
+    # Deep cool hair: blue-black, plum-black, cool ash.  Low chroma and low
+    # lightness, so it reads as a natural variant rather than a dye.
+    hue = float(rng.uniform(0.55, 0.88))
+    light = float(rng.uniform(0.18, 0.40))
+    return palette.oklch_to_hex((light, float(rng.uniform(0.018, 0.055)), hue))
 
 
 def _iris(rng, hair_hex: str) -> str:
-    """Iris: usually a relative of the hair, sometimes a deliberate contrast."""
+    """Iris: a natural eye palette.
+
+    Brown, hazel, green, blue and grey are distinct *ranges*, not offsets on the
+    hair hue.  The chroma stays low enough that a blue eye reads as grey-blue in
+    a face rather than as a cyan jewel; the fibre pass in ``eyes`` supplies the
+    saturation that a flat fill cannot.
+    """
     hh = float(palette.srgb_to_oklch(palette.hex_to_srgb(hair_hex))[2])
-    offset = float(rng.choice([0.0, 0.02, -0.02, 0.06, -0.06, 0.5, 0.46]))
-    return palette.oklch_to_hex(
-        (float(rng.uniform(0.46, 0.74)), float(rng.uniform(0.085, 0.20)), (hh + offset) % 1.0)
-    )
+    roll = float(rng.random())
+    if roll < 0.46:  # brown / amber
+        return palette.oklch_to_hex((float(rng.uniform(0.36, 0.58)),
+                                     float(rng.uniform(0.028, 0.070)),
+                                     float(rng.uniform(0.060, 0.110))))
+    if roll < 0.64:  # hazel: a brown-green, usually with a warm centre
+        return palette.oklch_to_hex((float(rng.uniform(0.44, 0.62)),
+                                     float(rng.uniform(0.030, 0.072)),
+                                     float(rng.uniform(0.100, 0.155))))
+    if roll < 0.78:  # green / grey-green
+        return palette.oklch_to_hex((float(rng.uniform(0.46, 0.65)),
+                                     float(rng.uniform(0.028, 0.068)),
+                                     float(rng.uniform(0.280, 0.360))))
+    if roll < 0.93:  # blue / slate
+        return palette.oklch_to_hex((float(rng.uniform(0.48, 0.70)),
+                                     float(rng.uniform(0.025, 0.065)),
+                                     float(rng.uniform(0.575, 0.660))))
+    return palette.oklch_to_hex((float(rng.uniform(0.55, 0.73)),
+                                 float(rng.uniform(0.003, 0.018)),
+                                 hh))
 
 
 def _cloth(rng, hair_hex: str) -> str:
@@ -134,20 +184,21 @@ def _cloth(rng, hair_hex: str) -> str:
     hh = float(palette.srgb_to_oklch(palette.hex_to_srgb(hair_hex))[2])
     offset = float(rng.choice([0.03, -0.03, 0.08, -0.08, 0.5, -0.46, 0.0]))
     return palette.oklch_to_hex(
-        (float(rng.uniform(0.28, 0.70)), float(rng.uniform(0.020, 0.115)), (hh + offset) % 1.0)
+        (float(rng.uniform(0.28, 0.70)), float(rng.uniform(0.018, 0.095)), (hh + offset) % 1.0)
     )
 
 
 def random_genes(seed=0) -> dict:
     """A complete, valid portrait genome -- the only source of randomness there is."""
     rng = _rng(seed)
+    climate = str(rng.choice(demography.CLIMATES))
     hair = _hair(rng)
     g = {
         "style": str(rng.choice(style_mod.names())),
         "hair_style": str(rng.choice(HAIR_STYLES)),
         "expression": str(rng.choice(tuple(e for e in EXPRESSIONS if e != "wink"))
                           if rng.random() < 0.85 else "wink"),
-        "skin": _skin(rng),
+        "skin": _skin(rng, climate),
         "hair": hair,
         "iris": _iris(rng, hair),
         "cloth": _cloth(rng, hair),
@@ -161,6 +212,13 @@ def random_genes(seed=0) -> dict:
             g[key] = quantise(rng.uniform(-0.55, 0.55))
         else:
             g[key] = quantise(rng.normal(0.0, 0.42))
+    # Climate is drawn first because the skin range is climate-adapted; the genes
+    # themselves are still appended after every legacy gene, so the string order
+    # and the round-trip contract do not move.
+    g["sex"] = str(rng.choice(demography.SEXES, p=(0.46, 0.46, 0.08)))
+    g["age"] = str(rng.choice(demography.AGES, p=(0.10, 0.26, 0.40, 0.16, 0.08)))
+    g["climate"] = climate
+    g["culture"] = str(rng.choice(demography.CULTURES))
     return g
 
 
@@ -186,22 +244,35 @@ def decode(text: str) -> dict:
         key = key.strip()
         if key not in GENES:
             raise ValueError(f"unknown gene {key!r}")
-        if key in CATEGORICAL:
+        if key in CATEGORICAL or key in DEMOGRAPHIC:
             out[key] = value.strip()
         elif key in COLOUR_GENES:
             palette.hex_to_srgb(value.strip())  # validate
             out[key] = value.strip()
         else:
             out[key] = quantise(float(value))
-    missing = [k for k in GENES if k not in out]
+    missing = [k for k in CATEGORICAL + COLOUR_GENES + SHAPE_GENES if k not in out]
     if missing:
         raise ValueError(f"missing genes: {', '.join(missing)}")
+    # Old strings predate the demographic layer.  Defaulting them keeps saved
+    # dynasties readable; every legacy gene is still mandatory, so a truncated
+    # string is still an error rather than a silently different face.
+    for key, value in demography.DEFAULTS.items():
+        out.setdefault(key, value)
     if out["style"] not in style_mod.names():
         raise ValueError(f"unknown style {out['style']!r}")
     if out["hair_style"] not in HAIR_STYLES:
         raise ValueError(f"unknown hair style {out['hair_style']!r}")
     if out["expression"] not in EXPRESSIONS:
         raise ValueError(f"unknown expression {out['expression']!r}")
+    if out["sex"] not in demography.SEXES:
+        raise ValueError(f"unknown sex {out['sex']!r}")
+    if out["age"] not in demography.AGES:
+        raise ValueError(f"unknown age {out['age']!r}")
+    if out["climate"] not in demography.CLIMATES:
+        raise ValueError(f"unknown climate {out['climate']!r}")
+    if out["culture"] not in demography.CULTURES:
+        raise ValueError(f"unknown culture {out['culture']!r}")
     return out
 
 
@@ -225,6 +296,12 @@ def breed(a: dict, b: dict, seed=0, mutation: float = 0.10) -> dict:
         if key in COLOUR_GENES:
             child[key] = _cross_colour(a[key], b[key], rng)
         elif key in CATEGORICAL:
+            child[key] = a[key] if rng.random() < 0.5 else b[key]
+        elif key == "age":
+            # A child is a child regardless of the parents' current stage.  This is
+            # the one gene that is a *portrait state* as much as a heritable trait.
+            child[key] = "child" if rng.random() < 0.75 else "youth"
+        elif key in ("sex", "climate", "culture"):
             child[key] = a[key] if rng.random() < 0.5 else b[key]
         elif key == "turn":
             child[key] = quantise(float(np.clip(rng.normal(0.0, 0.30), -0.55, 0.55)))
@@ -252,6 +329,14 @@ def mutate(genes: dict, seed=0, amount: float = 0.30, rate: float = 0.35) -> dic
             pool = style_mod.names() if key == "style" else (
                 HAIR_STYLES if key == "hair_style" else EXPRESSIONS)
             out[key] = str(rng.choice(pool))
+        elif key == "age":
+            out[key] = str(rng.choice(demography.AGES))
+        elif key == "sex":
+            out[key] = str(rng.choice(demography.SEXES))
+        elif key == "climate":
+            out[key] = str(rng.choice(demography.CLIMATES))
+        elif key == "culture":
+            out[key] = str(rng.choice(demography.CULTURES))
         elif key == "turn":
             out[key] = quantise(float(np.clip(genes[key] + rng.normal(0.0, 0.2 * amount), -0.55, 0.55)))
         else:
@@ -277,7 +362,10 @@ def _clamp_params(p: dict) -> dict:
     p["head_w"] = max(float(p["head_w"]), reach)
     p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"])), reach - 0.02)
     p["top_w"] = min(float(p["top_w"]), float(p["cheek_w"]))
-    p["jaw_w"] = min(max(float(p["jaw_w"]), 0.16), float(p["cheek_w"]) - 0.02)
+    # Taper is what turns an oval into a face.  A jaw almost as wide as the
+    # cheekbones reads as a mask no amount of detail can rescue, so leave room for
+    # an actual jaw angle.
+    p["jaw_w"] = min(max(float(p["jaw_w"]), 0.16), float(p["cheek_w"]) - 0.045)
     p["jaw_y"] = min(float(p["jaw_y"]), -0.20)
     p["chin_w"] = min(max(float(p["chin_w"]), 0.05), float(p["jaw_w"]) - 0.03)
     p["chin_y"] = -0.500
@@ -296,10 +384,14 @@ def _clamp_params(p: dict) -> dict:
     p["brow_w"] = min(float(p["brow_w"]), 2.0 * (float(p["head_w"]) - float(p["brow_dx"]) + 0.06))
     p["brow_w"] = max(float(p["brow_w"]), 0.09)
 
-    # The face's vertical relationships, as gaps between features.
+    # The face's vertical relationships, as gaps between features.  The mouth gap
+    # also has a floor above the chin: a style with a low nose and a long mouth gap
+    # can otherwise put the lower lip on the jaw.
     p["brow_gap"] = float(np.clip(p["brow_gap"], 0.018, 0.085))
     p["nose_gap"] = float(np.clip(p["nose_gap"], 0.008, 0.050))
-    p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, 0.135))
+    nose_y = float(p["eye_y"]) - float(p["eye_down"]) - float(p["nose_gap"])
+    mouth_room = nose_y - (float(p["chin_y"]) + 0.065)
+    p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, min(0.135, max(0.030, mouth_room))))
     p["blush_gap"] = float(np.clip(p["blush_gap"], 0.028, 0.115))
     p["nose_w"] = min(float(p["nose_w"]), 0.10)
     p["mouth_w"] = min(float(p["mouth_w"]), float(p["jaw_w"]) * 0.78)
@@ -329,6 +421,7 @@ def apply_to(st: style_mod.Style, genes: dict) -> style_mod.Style:
         amount = float(genes[gene])
         for param, scale in mods:
             p[param] = float(p[param]) + amount * scale
+    demography.modify(p, genes)
     return style_mod.Style(st.name, _clamp_params(p))
 
 
@@ -338,6 +431,10 @@ def describe(genes: dict) -> str:
     return (
         f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
         f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
+        f" \u00b7 {genes.get('sex', demography.DEFAULTS['sex'])}"
+        f" {genes.get('age', demography.DEFAULTS['age'])}"
+        f" \u00b7 {genes.get('climate', demography.DEFAULTS['climate'])}"
+        f" \u00b7 {genes.get('culture', demography.DEFAULTS['culture'])}"
         f" \u00b7 {genes['expression']}"
     )
 
