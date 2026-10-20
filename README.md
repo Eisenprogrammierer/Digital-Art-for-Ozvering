@@ -31,7 +31,7 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/anim.png`, `out/figures.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/grounds.png`, `out/grounds-atlas.png`, `out/site.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
+`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/grounds.png`, `out/grounds-atlas.png`, `out/site.png`, `out/iso.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
@@ -44,7 +44,9 @@ biome-border tiles the grid they sit in and how many of the sixty-four each map
 wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for a ground material the
 whole row of the table that made it, the biomes that wear it and its seam, for a site
-the ground's period, mix and relief and the biome mapping it wore, for the atlases the
+the ground's period, mix and relief, the river's fraction and depth, the wet shore and
+the biome mapping it wore, for a board its camera, its terraces and the hex its hero
+stands on, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, for an
@@ -89,6 +91,7 @@ python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, react
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py grounds    --seed 7 --size 256              # six ground materials for map tiles, + atlas
 python cli.py site       --seed 7 --size 56               # one site twice: biome colour vs ground worn
+python cli.py iso        --seed 7 --cols 11 --rows 8 --size 46  # a board from the south, with a hero
 python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
@@ -98,8 +101,9 @@ python tests/test_core.py                       # 68 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 100 tests
+python tests/test_maps.py                       # 104 tests
 python tests/test_textures.py                   # 65 tests
+python tests/test_cli.py                        # 3 tests -- the wiring, not the pictures
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 26 tests
@@ -108,7 +112,7 @@ python tests/test_gallery.py                    # 20 tests
 
 Every one of those runs on every push as well -- every suite in `tests/` (the workflow
 globs the directory, so a new one cannot be forgotten), the demo built twice and
-compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13, in
+compared byte for byte, and `credits --check` -- on Python 3.10, 3.13 and 3.14, in
 `.github/workflows/tests.yml`.
 
 ## Core toolkit (`core/`)
@@ -1804,7 +1808,8 @@ kept strictly apart:
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
 | `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layers -- the coast and the biome border both, drawn from the same tileset rather than walked. It takes an optional `ground` hook: a per-pixel shade and height added to the one Lambert pass, which is how a site wears a material without a second light. |
-| `site` | The camera come down: the same lattice, terrain and border tiles at a hex size where the ground is the subject, with every land hex wearing its biome's material -- sampled in world coordinates, scaled with the hex, and lit once with the hex relief. Water keeps its ramp, pixel for pixel. |
+| `site` | The camera come down: the same lattice, terrain and border tiles at a hex size where the ground is the subject, with every land hex wearing its biome's material -- sampled in world coordinates, scaled with the hex, and lit once with the hex relief. A river is a carved channel rather than a stroke, a cliff is a crease, and the land side of a coast is wet. Water keeps its ramp, pixel for pixel. |
+| `iso` | The camera at eye level and a little to the south: the same hexes drawn as terraced prisms in orthographic axonometry, their tops still wearing the ground sampled in world coordinates, their south faces the earth a cliff exposes, and a figure from `gen.figures` standing in the middle of a hex. Water keeps its depth ramp and gains a foam line on its side of the coast. |
 
 ### Why axial coordinates, and what they buy
 
@@ -2645,6 +2650,70 @@ strategic map's 4.0). The six-triangle crease of a hex is a hint of a slope at f
 pixels and a folded sheet at fifty-six; the subject of a site is the ground, not the
 interpolant.
 
+At this range a river can no longer be the strategic map's stroke: a blue line lying on
+the ground is a map symbol, and the one thing a close-up cannot afford is a map symbol
+pretending to be a place. `site_image` carves the course into the same height field the
+light is cast on -- a shallow groove with soft banks -- and paints the water in the
+groove, below the lip. The hydrology is still `gen.maps.rivers`; only the drawing has
+changed. The same close-up gets the map's cliff crease (a step is a step even when the
+slope leading to it is smooth), and a narrow wet band on the land side of the coast:
+ground the tide has only just left.
+
+### A board seen from the south
+
+A site is still a map read from above. A *board* is what a player looks at: the camera at
+eye level at the edge of the world, looking across it. `gen/maps/iso.py` draws that view,
+and the projection is the whole of it:
+
+```
+screen_x = x
+screen_y = -y * squash - height * rise
+```
+
+Orthographic and axonometric -- no vanishing point, because a perspective would make two
+equal hexes unequal, and a strategy board is a place where equal hexes are the point.
+`squash` is the cosine of the camera's pitch; `rise` is how far one unit of terrain height
+lifts the board, as a fraction of the hex size, because a fraction of a hex is what a
+raster can use and a raw elevation is not. The map's land rises only about 0.2 above the
+sea level it was cut at, so the board exaggerates height on purpose: that is a choice
+about what a hill is *for*, not a claim about the camera.
+
+Two decisions keep the board from being a pile of stamps. **The material is still sampled
+in world coordinates.** A top-down map can be one raster pass and a board cannot -- a hex
+has sides, and a side is a fact about that hex -- so the hexes are drawn one at a time,
+far to near, but every top asks the same material table the same question at the same
+place. The pattern does not restart on a hex edge; the edge is where the lattice is drawn
+anyway. **Height is terraced.** A continuous elevation field gave every edge a face a few
+pixels high, and a board where every hex is a plate on a plate is a layer cake. Quantising
+the land into a handful of levels means neighbours are usually on the same level and have
+no face at all, and the faces that remain are steps the eye can name. `levels` is the
+count; one level is the unit a cliff is measured in.
+
+Only the faces that turn towards the camera are drawn -- the two southern ones -- and off
+the south edge of the board a face drops to sea level, so the board is a slab with a cut
+edge and not a sheet of paper with a picture on it. The face is where `dirt` finally has
+a job: it is the one material no biome wears, and a cliff is what it is for. The ground's
+own tone is sampled along the face, so the strata belong to the map's seed and not to a
+second noise field; the colour is earth rather than the biome's, because what a cliff
+*exposes* is not what grows on it.
+
+The hero is a figure sprite from `gen.figures`, standing on the middle of a hex. He is
+drawn after the row he stands in and before the rows in front of him, which is the whole
+of the depth rule: a hill nearer the camera may hide him, a hill behind him may not. The
+sprite is a **side view**, and on a board with no yaw that is the honest view: a
+three-quarter figure would promise a camera the projection does not have. The same
+constraint is what a billboard in a game with a turning camera would have to answer with
+front, back and side views -- a set of sprites this repository does not have yet, and the
+reason the board is the view it is.
+
+The board is not a renderer for a free camera, and it is not meant to be. It is the same
+`gen.maps.terrain` geography and the same `gen.figures` sprite placed by a fixed
+orthographic camera; `gen/maps/campaign.py` is still the view-independent world data any
+engine would load. What the board adds is the test of whether the 2-D assets read from
+below as well as from above. They do, with two honest costs: the tops are flat plates
+because a tile is a tile, and the cliffs are a storey high because a board exaggerates
+height.
+
 ### An atlas of materials is not an atlas of sprites
 
 A game does not load ten floor textures, it loads one, so a texture set needs what a
@@ -2746,8 +2815,8 @@ the interface to it: `out/index.html`, written by `demo` as its last step, or on
 own with
 
 ```bash
-python cli.py gallery --manifest out            # linked: 31 KB, opens beside the pictures
-python cli.py gallery --manifest out --embed    # inlined: 8.8 MB, travels as one file
+python cli.py gallery --manifest out            # linked: 33 KB, opens beside the pictures
+python cli.py gallery --manifest out --embed    # inlined: 9.5 MB, travels as one file
 ```
 
 ### A page, not a window
@@ -2816,10 +2885,10 @@ is a catalogue of the build, not only of its illustrations.
 
 ### Two files or one
 
-By default the page links the pictures beside it: 31 KB of HTML over 6.5 MB of pictures,
+By default the page links the pictures beside it: 33 KB of HTML over 7.3 MB of pictures,
 which is the version to regenerate while working, because the browser is reading the
 files that were just written. `--embed` base64s each picture into the page, which is
-8.8 MB of HTML and one file with no folder to lose -- the version to send to someone
+9.5 MB of HTML and one file with no folder to lose -- the version to send to someone
 who does not have the build. Both are pure functions of the directory: build twice,
 get the same bytes, which is what the 20 tests in `tests/test_gallery.py` assert along
 with the claims a view can get wrong -- that every sidecar becomes exactly one card,
@@ -3014,7 +3083,16 @@ Generators to sit on top of the core, in the order they become useful:
   coordinates, scaled with the hex, and its height is added to the hex relief before
   the one Lambert pass, so the sea is unchanged to the pixel -- tested, because that
   is the claim that says a site is the same map and not a second picture. The
-  dependency runs one way: `gen.textures` still knows nothing about maps)*.
+  dependency runs one way: `gen.textures` still knows nothing about maps.  The close-up
+  then grew the things a stroke cannot be at fifty-six pixels: the river is carved into
+  the height field and its water lies in the groove, the cliff is the strategic map's
+  quantile crease, and the land side of the coast is wet)*; ~~the board a player
+  actually looks at, with a figure on it~~ *(done: `gen/maps/iso.py` -- orthographic
+  axonometry from the south, terraced hex prisms with world-sampled tops, south faces
+  wearing the dirt no biome wears, a foam line on the water side of the coast, and a
+  `gen.figures` sprite placed on a hex and depth-sorted by row. The board is a fixed
+  camera, not a renderer: the projection is one line and the sprite is a side view,
+  which is the only view a board with no yaw can promise)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a
@@ -3062,9 +3140,10 @@ Generators to sit on top of the core, in the order they become useful:
   the fast nine-cell search is wrong for jittered points and being one cell out is a
   kink in a crack -- so a slab that leaves the right edge is the same slab coming back
   on the left.  `FOR_BIOME` ties the six to the map's nine land biomes without either
-  package importing the other, and dirt is deliberately worn by none: it is the ground
-  under a road.  The measurement the module is built on is that the closest pair in
-  colour, grass and rock, is the farthest apart in relief)*.
+  package importing the other, and dirt is deliberately worn by no biome: it is the
+  ground under a road, and the earth an isometric cliff exposes.  The measurement the
+  module is built on is that the closest pair in colour, grass and rock, is the
+  farthest apart in relief)*.
 - **text** -- ~~a face that is code rather than a file: an alphabet of skeletons, a
   pen that gives it weight, contrast, serifs and slant, and the metrics an engine
   needs to lay a line out~~ *(done: `gen/text/` -- 214 characters: printable ASCII,

@@ -46,9 +46,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
-from gen.maps import (autotile, campaign, coast, grid as gridlib, paint,  # noqa: E402
-                      labels as label_lib, politics, region, rivers, roads,
-                      site as site_render, terrain)
+from gen.maps import (autotile, campaign, coast, grid as gridlib,  # noqa: E402
+                      iso as iso_render, labels as label_lib, paint, politics,
+                      region, rivers, roads, site as site_render, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -1816,6 +1816,97 @@ def test_the_material_belongs_to_the_map_and_not_to_the_canvas():
     assert wide.shape[0] - narrow.shape[0] == 40
     assert wide.shape[1] - narrow.shape[1] == 40
     assert np.array_equal(wide[20:-20, 20:-20], narrow)
+
+
+def test_a_site_river_is_water_in_a_channel_and_not_on_the_sea():
+    """The close-up's river is a place: a carved groove with water in it.
+
+    The water is drawn on the land and only on the land, so the sea must not move by
+    one pixel between a site with a river and one without.  That is the same claim the
+    ground hook makes, asked of the second thing that is allowed to change the height
+    field; the carve is why the two pictures differ at all, and the mask is why the
+    difference stops at the coast.
+    """
+    seed, cols, rows, size = 39, 8, 6, 32.0
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    courses, _threshold = paint.river_courses(g, f, 0.90)
+    assert courses, "the seed chosen for this test has no river"
+    dry = site_render.site_image(seed=seed, cols=cols, rows=rows, size=size,
+                                 river=0.0, river_fraction=0.90).to_uint8()
+    wet = site_render.site_image(seed=seed, cols=cols, rows=rows, size=size,
+                                 river=0.92, river_fraction=0.90).to_uint8()
+    assert dry.shape == wet.shape
+    changed = np.any(dry != wet, axis=-1)
+    assert changed.any(), "the river was not drawn"
+    cell = g.cell(*Canvas(dry.shape[1], dry.shape[0], scale=1.0).grid())
+    r = np.clip(cell.rc[..., 0], 0, rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, cols - 1)
+    water = f["water"][r, c] | ~cell.ok
+    assert not changed[water].any(), "the river changed the sea"
+
+
+# ------------------------------------------------------------------- the board
+def _iso(seed=7, cols=6, rows=5, size=32.0, **kw):
+    return iso_render.iso_image(seed=seed, cols=cols, rows=rows, size=size,
+                                sea_fraction=kw.pop("sea_fraction", 0.20),
+                                edge=kw.pop("edge", 0.0), **kw)
+
+
+def test_a_board_is_the_same_board_at_any_margin():
+    """The margin is a page, not a camera: widening it crops nothing and moves nothing.
+
+    The projection is derived from the map's own bounds and then offset by the margin,
+    so the board lands ten pixels right and ten down in a board with ten more pixels of
+    margin.  If the material were indexed by canvas pixels instead of world coordinates,
+    the ground would crawl under the board when the page grew -- the same failure the
+    site test catches, one camera further down the road.
+    """
+    narrow = _iso(margin=8.0).to_uint8()
+    wide = _iso(margin=18.0).to_uint8()
+    assert wide.shape[0] - narrow.shape[0] == 20
+    assert wide.shape[1] - narrow.shape[1] == 20
+    assert np.array_equal(wide[10:-10, 10:-10], narrow)
+
+
+def test_the_board_stands_up_and_the_hero_stands_on_land():
+    """Height is a side: the same geography with and without a vertical scale.
+
+    ``rise=0`` is a map seen from the south; a positive rise is a board.  The one must
+    be shorter than the other, and the hero must be on a land hex -- a figure standing
+    in the sea is the failure mode of "nearest cell to the middle".
+    """
+    flat = _iso(rise=0.0)
+    tall = _iso(rise=3.0)
+    assert tall.h > flat.h, (flat.h, tall.h)
+    g = gridlib.HexGrid(6, 5, 32.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.20, edge=0.0)
+    hero = iso_render.hero_cell(g, f)
+    assert hero is not None
+    assert not f["water"][hero]
+    all_sea = dict(f, water=np.ones_like(f["water"], dtype=bool))
+    assert iso_render.hero_cell(g, all_sea) is None
+
+
+def test_the_terraces_are_a_number_of_steps():
+    """A continuous field gives every edge a face; a few levels give a landscape.
+
+    The claim is arithmetic rather than pictorial: five terraces means at most five
+    heights above the sea, one terrace means none, and zero means the field the map
+    itself has.  The picture is then a consequence of the number, not a second guess
+    at it -- and the same call twice is the same board.
+    """
+    g = gridlib.HexGrid(6, 5, 32.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.20, edge=0.0)
+    land = ~f["water"]
+    assert land.any()
+    stepped = iso_render.terraces(f, 5)
+    assert len(np.unique(stepped[land])) <= 5
+    assert np.all(iso_render.terraces(f, 1)[land] == 0.0)
+    assert np.array_equal(iso_render.terraces(f, 0), np.maximum(f["height"] - f["sea"], 0.0))
+    assert not np.array_equal(stepped, iso_render.terraces(f, 0))
+    assert np.array_equal(_iso(levels=5, rise=3.0).to_uint8(),
+                          _iso(levels=5, rise=3.0).to_uint8())
 
 
 if __name__ == "__main__":

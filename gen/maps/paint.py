@@ -252,8 +252,11 @@ def cliff_alpha(canvas: Canvas, grid: HexGrid, f: dict, cell, strength: float = 
     across = np.where(nr >= 0, f["height"][np.clip(nr, 0, grid.rows - 1),
                                             np.clip(nc, 0, grid.cols - 1)], own)
     drop = np.abs(own - across)
-    lo = float(np.quantile(drop, lo_q))
-    hi = float(np.quantile(drop, hi_q))
+    # The distribution is the *map's*, not the canvas's: the margin is a page, and a
+    # quantile that counted the pixels outside the map would move when the page did.
+    inside = drop[cell.ok]
+    lo = float(np.quantile(inside, lo_q)) if inside.size else 0.0
+    hi = float(np.quantile(inside, hi_q)) if inside.size else 0.0
     weight = np.clip((drop - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     band = render.coverage(cell.edge_distance() - 0.5 * width * grid.size, canvas.dx)
     return band * weight * float(strength) * cell.ok.astype(np.float64)

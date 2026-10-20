@@ -23,6 +23,8 @@ Usage
     python cli.py ui         --seed 7 --count 3 --scale 2
     python cli.py text       --size 20 --out out/text.png
     python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
+    python cli.py site       --out out/site.png --seed 7 --size 56     # one site, two views
+    python cli.py iso        --out out/iso.png  --seed 7 --cols 11 --rows 8  # a board + a hero
     python cli.py coast      --out out/coast-tiles.png --size 20  # & borders.png, in use
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
@@ -59,6 +61,7 @@ from gen.icons import paint as icon_paint  # noqa: E402
 from gen.maps import autotile as map_autotile  # noqa: E402
 from gen.maps import campaign as map_campaign  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
+from gen.maps import iso as map_iso  # noqa: E402
 from gen.maps import labels as map_labels  # noqa: E402
 from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import politics as map_politics  # noqa: E402
@@ -115,6 +118,14 @@ def _ints(text) -> tuple:
     if not values:
         raise ValueError(f"expected one or more sizes, got {text!r}")
     return values
+
+
+def _rc(text) -> tuple:
+    """``"3,4"`` into a ``(row, col)``, for a hex named on the command line."""
+    parts = tuple(int(v) for v in str(text).replace(",", " ").split())
+    if len(parts) != 2:
+        raise ValueError(f"a hex looks like row,col, not {text!r}")
+    return parts
 
 
 def _font(size: int = 13):
@@ -1817,13 +1828,17 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
     ``flat`` asks for the left panel alone, which is what a caller comparing a site with
     ``out/maps.png`` wants; the demo ships both because the pair is the argument.
     """
+    # The map's own river quantile leaves a 48-cell site with no river at all; a site
+    # is a *place*, and the demo opens the fraction a little so the picture has the
+    # stream the module can draw.  The sidecar records it, so the number is not hidden.
+    river = dict(river_fraction=0.90)
     flat_panel = map_site.site_image(seed=seed, cols=cols, rows=rows, size=size,
-                                     grounds=False)
+                                     grounds=False, **river)
     panels = [("flat", flat_panel,
                "the biome's colour, as the strategic map draws it")]
     if not flat:
         panels.append(("worn", map_site.site_image(seed=seed, cols=cols, rows=rows,
-                                                   size=size),
+                                                   size=size, **river),
                        "the same hexes, each wearing its biome's ground"))
 
     gap, head, foot, margin = 26, 96, 50, 30
@@ -1840,7 +1855,7 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
            dark=(28, 28, 34, 255))
     _label(img, (margin, 50),
            f"the same {cols} x {rows} hexes at {size} px, seed {seed}; the material is "
-           "sampled in world coordinates and lit once with the hex relief",
+           "sampled in world coordinates, the river is a groove, the coast is wet",
            font=_font(13), plate=None, dark=(78, 78, 88, 255))
     for i, (tag, _panel, note) in enumerate(panels):
         x = margin + i * (pw + gap) + 3
@@ -1851,8 +1866,77 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
              cols=cols, rows=rows, size=size,
              span=map_site.SPAN, mix=map_site.MIX, relief=map_site.RELIEF,
              terrain_relief=map_site.TERRAIN_RELIEF,
+             cliff=0.55, shore=0.052, river=0.92,
+             river_fraction=river["river_fraction"],
+             river_width=0.17, river_depth=0.06,
              for_biome=dict(sorted(tex_ground.FOR_BIOME.items())),
              panels=[tag for tag, _panel, _note in panels])
+    return _report(out)
+
+
+def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
+              size: int = 46, sea: float = 0.16, rise: float = 2.5,
+              levels: int = 7, hero=None, hero_seed: int | None = None,
+              cycle: str = "idle") -> Path:
+    """One board from the south: the same hexes as the site, standing up with a hero.
+
+    The geography is :mod:`gen.maps.terrain`'s, asked for a *land* board: the strategic
+    map's default sink puts a ring of sea round every rectangle, which is right for a
+    map and wrong for the middle of a campaign.  ``sea=0.16, edge=0`` gives a continent
+    with a lake in it, which is what a board is for.
+
+    The hero is a figure sprite, not a new kind of drawing: ``gen.figures`` already
+    knows how a person stands, and the board only has to say where the ground is.  He
+    gets his own seed so a sheet of boards can keep one hero while the maps change.
+    """
+    grid = map_grid.HexGrid(cols, rows, size)
+    f = map_terrain.fields(grid, seed=seed, sea_fraction=sea, edge=0.0)
+    if hero is None:
+        hero = map_iso.hero_cell(grid, f)
+    hero_seed = int(seed) if hero_seed is None else int(hero_seed)
+
+    board = map_iso.iso_image(seed=seed, cols=cols, rows=rows, size=size,
+                              sea_fraction=sea, edge=0.0, rise=rise,
+                              levels=levels, hero=hero, hero_seed=hero_seed,
+                              cycle=cycle)
+    head, foot, margin = 96, 62, 34
+    page = Canvas(board.w + 2 * margin, board.h + head + foot + margin,
+                  scale=1.0, y_up=False, background=(0.90, 0.90, 0.93))
+    # The board is an object on a table, and the shadow is what says so; it belongs
+    # to the page and not to the board, because a transparent margin should stay
+    # transparent in a game.
+    shadow = render.drop_shadow(board.a, scale=1.0, offset=(3.0, -7.0),
+                                sigma=5.0, opacity=0.30)
+    page.over_srgb((0.05, 0.05, 0.07), shadow, margin, head)
+    page.blit(board.rgb, board.a, margin, head)
+    page.save(out)
+
+    img = png.to_image(page)
+    _label(img, (margin, 18), "An isometric board -- the same hexes, seen from the south",
+           font=_font(21), plate=None, dark=(28, 28, 34, 255))
+    _label(img, (margin, 50),
+           f"{cols} x {rows} hexes at {size} px, seed {seed}; orthographic axonometry, "
+           f"{levels} terraces, the tops wear the site's ground",
+           font=_font(13), plate=None, dark=(78, 78, 88, 255))
+    if hero is None:
+        ground = "no land to stand on -- the board is all sea"
+    else:
+        ground = (f"the hero stands on row {hero[0]}, column {hero[1]} "
+                  f"(figure seed {hero_seed}, {cycle})")
+    _label(img, (margin, head + board.h + 8), ground, font=_font(13))
+    _label(img, (margin, head + board.h + 30),
+           "a side view is what a board with no yaw can promise; the faces are the "
+           "earth a cliff exposes", font=_font(12), plate=None, dark=(78, 78, 88, 255))
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.maps.iso",
+             cols=cols, rows=rows, size=size,
+             squash=map_iso.SQUASH, rise=rise, levels=levels,
+             sea_fraction=sea, edge=0.0,
+             hero=None if hero is None else {
+                 "row": int(hero[0]), "col": int(hero[1]),
+                 "seed": hero_seed, "cycle": cycle},
+             for_biome=dict(sorted(tex_ground.FOR_BIOME.items())))
     return _report(out)
 
 
@@ -1934,6 +2018,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
     demo_grounds(out / "grounds.png", seed=seed)
     demo_site(out / "site.png", seed=seed)
+    demo_iso(out / "iso.png", seed=seed)
     demo_text(out / "text.png")
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
@@ -2086,6 +2171,24 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--flat", action="store_true",
                     help="the biome colour only, without the ground")
 
+    iso = sub.add_parser("iso", help="an isometric board: terraced hexes and a hero")
+    iso.add_argument("--out", default="out/iso.png", type=Path)
+    iso.add_argument("--seed", type=int, default=7)
+    iso.add_argument("--size", type=int, default=46, help="pixels per hex")
+    iso.add_argument("--cols", type=int, default=11)
+    iso.add_argument("--rows", type=int, default=8)
+    iso.add_argument("--sea", type=float, default=0.16,
+                     help="fraction of the board that is water")
+    iso.add_argument("--rise", type=float, default=2.5,
+                     help="height scale, in hex sizes per unit of elevation")
+    iso.add_argument("--levels", type=int, default=7,
+                     help="terraces the land is quantised into")
+    iso.add_argument("--hero", default=None, metavar="ROW,COL",
+                     help="stand the figure on this hex (default: the middle plain)")
+    iso.add_argument("--hero-seed", type=int, default=None,
+                     help="the figure's own seed (default: the map's)")
+    iso.add_argument("--cycle", default="idle", choices=figurelib.cycles())
+
     tx = sub.add_parser("text", help="the generated typeface: specimen sheet and font metrics")
     tx.add_argument("--out", default="out/text.png", type=Path)
     tx.add_argument("--size", type=int, default=20, help="pixels per em for the specimen rows")
@@ -2228,6 +2331,11 @@ def main(argv=None) -> int:
     elif args.cmd == "site":
         demo_site(args.out, seed=args.seed, size=args.size, cols=args.cols,
                   rows=args.rows, flat=args.flat)
+    elif args.cmd == "iso":
+        demo_iso(args.out, seed=args.seed, cols=args.cols, rows=args.rows,
+                 size=args.size, sea=args.sea, rise=args.rise, levels=args.levels,
+                 hero=None if args.hero is None else _rc(args.hero),
+                 hero_seed=args.hero_seed, cycle=args.cycle)
     elif args.cmd == "credits":
         if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))

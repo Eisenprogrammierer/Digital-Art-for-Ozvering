@@ -31,6 +31,11 @@
     The camera come down: the same lattice and the same borders, with every hex
     wearing its biome's ground material -- sampled in world coordinates and lit once
     with the hex relief, so a site is a material and not a tint.
+``iso``
+    The camera at eye level and a little to the south: the same hexes drawn as
+    terraced prisms in orthographic axonometry, their tops still wearing the ground
+    sampled in world coordinates, their south faces the earth a cliff exposes, and a
+    figure from ``gen.figures`` standing in the middle of a hex.
 
 A map is a function of ``(seed, cols, rows)`` and nothing else: ``size`` decides
 only how many pixels it is drawn in, so the same seed is the same continent at
@@ -43,10 +48,11 @@ Typical use::
     image = map_image(seed=7, cols=26, rows=17, size=14.0, provinces=8)
     image.save("out/map.png")
 """
-from . import autotile, coast, grid, labels, paint, region, rivers, site, terrain
+from . import autotile, coast, grid, iso, labels, paint, region, rivers, site, terrain
 
-__all__ = ["autotile", "coast", "grid", "labels", "paint", "region", "rivers",
-           "site", "terrain", "HexGrid", "map_image"]
+__all__ = ["autotile", "coast", "grid", "iso", "labels", "paint", "region", "rivers",
+           "site", "terrain", "HexGrid", "iso_image", "map_image"]
 
 HexGrid = grid.HexGrid
 map_image = paint.map_image
+iso_image = iso.iso_image
