@@ -42,7 +42,8 @@ provinces and the sea provinces with the realms that hold them plus the province
 names it set into the picture and the size of each, for the coast and
 biome-border tiles the grid they sit in and how many of the sixty-four each map
 wears of each, for every tiling
-texture its seam error and how many tiles its tiling used, for the atlases the
+texture its seam error and how many tiles its tiling used, for a ground material the
+row of the table that made it, the biomes that wear it and its seam, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, for an
@@ -85,6 +86,7 @@ python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --pro
 python cli.py maps       --seed 7 --no-names              # ...without the province names
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
+python cli.py grounds    --seed 7 --size 256              # six ground materials for map tiles, + atlas
 python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
@@ -95,7 +97,7 @@ python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 97 tests
-python tests/test_textures.py                   # 50 tests
+python tests/test_textures.py                   # 62 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 26 tests
@@ -2267,7 +2269,9 @@ The modules in this package exist because that question has four different answe
 and each one is a different *kind* of guarantee -- one that is geometric, one that is
 searched for, one that is never chosen at all, and one that is never created in the
 first place. Then there is a fifth module that asks a different question about the same
-edge: not *does the pattern line up*, but *does it know which way it is pointing*.
+edge: not *does the pattern line up*, but *does it know which way it is pointing*. And
+a sixth that asks what the tile is *made of* -- which turns out to be a question about
+relief, and whose answer is a table of numbers rather than a function.
 
 | Module | What it provides |
 | --- | --- |
@@ -2276,6 +2280,7 @@ edge: not *does the pattern line up*, but *does it know which way it is pointing
 | `wang` | Wang tiles: four corner colours per tile, a tiling searched for on a torus or read off a quantised height field, and the bilinear blend of those corners into ground. |
 | `reaction` | Gray-Scott reaction-diffusion, simulated on a torus, for patterns that are grown rather than drawn. |
 | `boards` | A plank floor: the one material here with a direction, where a board that runs off one edge and comes back on the other has to be the same board, and where the grain is long along it. |
+| `ground` | Six materials for map tiles — grass, dirt, sand, rock, snow, shore — as one painter over a table of numbers, with the layers it mixes (mottle, ripple, facets, grit) and the periodic Voronoi the facets are cut from. |
 | `atlas` | Ship the set: tiles packed into one sheet with a rectangle table, and with margins that are each tile wrapped onto itself rather than a gap — plus `mips`, a chain of sheets packed one per level, because a margin is two *texels* at every level and a level is a repack rather than a resample. |
 
 ### Seamless is a number, not a compliment
@@ -2490,6 +2495,114 @@ painter walked across it. And the grain is rolled along per board out of one per
 field: a *roll* of a field that wraps is continuous, which is the same property that
 made the noise worth having in the first place, so no two boards are cut from the same
 piece while every board's grain still crosses the seam without a step in it.
+
+### Six materials, one painter, a table of numbers
+
+A map draws ground as a flat biome colour, and at a hex or two that is right: the
+question a map answers is *what is this hex*, not *what does it feel like*. The moment
+the camera comes down -- a battle map, a site screen, a tactical view -- the colour stops
+being enough, because what the eye reads as a material is not its hue but the way the
+light breaks across it. Sand and dry grass are both a pale olive in a satellite
+photograph; what separates them is that sand has ripples and grass has tufts, and both of
+those are *relief*. So `gen/textures/ground.py` builds a ground as a height field with a
+colour on it, and its six materials are one painter over one table:
+
+```python
+Ground("rock", base=(0.56, 0.008, 0.290), drop=0.19, turn=0.010,
+       lump=0.30, lump_scale=20.0, ribbon=0.00, ribbon_scale=3.0, ribbon_stretch=1.0,
+       facet=1.00, cells=3, bevel=0.06, dome=0.0, grit=0.10, relief=7.0)
+Ground("sand", base=(0.78, 0.062, 0.260), drop=0.07, turn=0.012,
+       lump=0.40, lump_scale=16.0, ribbon=1.00, ribbon_scale=10.0, ribbon_stretch=6.0,
+       facet=0.00, cells=1, bevel=0.00, dome=0.0, grit=0.10, relief=3.2)
+```
+
+Fifteen numbers a row, and the weights *are* the material. `lump` is isotropic mottling
+at a chosen feature size -- tufts, clods, drifts. `ribbon` is the same noise stretched
+along one axis, which is the parameter that was grown for the boards' grain and turns out
+to be the whole of sand: ripples are features that are long in one direction and short in
+the other. `facet` is a periodic Voronoi, for plates of stone and pebbles on a shore.
+`grit` is one random value per pixel, which is what a close-up material has and a
+painter's flat fill does not. Rock is almost all facets and almost no colour variation;
+snow is a big soft lump with the relief turned down so the light barely finds it; shore is
+the same facets as rock with more of them, a wider bevel and a dome.
+
+The point of the table is that a seventh material is a **row**, and not a function.
+`texture` takes a row as well as a name, so
+
+```python
+slate = rock._replace(key="slate", base=(0.36, 0.012, 0.300), drop=0.09)
+ground.texture(slate, seed=3, size=64)      # painted, lit, and held to the seam
+```
+
+is a material, with nothing registered and nothing special-cased. That is a claim a test
+has to keep honest, because the failure a table invites is the field that is written
+down, documented, put in the sidecar -- and not read. So one test perturbs each of the
+fifteen numbers on a material that uses it and asserts the finished tile changes; `key`
+is the only exception, because it is the row's name rather than a material.
+
+One number is a conversion rather than a measurement. `tile.periodic_noise` takes a
+Gaussian *sigma*, and a table written in sigmas is a table of blurs: the first sheet of
+grass had a six-pixel sigma and read as fog, because a field smoothed that hard is a
+mottle about eighteen pixels across. What a material is written in is the size the eye
+sees, so `_noise` divides by three, once, and the tests hold the conversion to its
+measurement -- the field decorrelates over between a third and three quarters of the
+feature size it was asked for. The rest of the sheet followed from that change alone.
+
+The facets are the one genuinely new piece of machinery here, and they are the reason
+the module is not just four noises. A Voronoi diagram drawn on a square and cropped in
+the middle of a cell **repeats**: the same pattern comes back tile after tile, and the eye
+finds that faster than it finds a line, which is a worse seam than the one it set out to
+avoid. So the diagram is computed on the torus -- a point is also its own image a whole
+tile away, and the displacement is the shortest of the three on each axis -- and a slab
+that leaves the right edge is the same slab coming back on the left, with the crack
+between them where the crack would be. The test does not check that against the points it
+was built from. It checks the geometry: either the two sides of the seam are the same
+cell, or the seam *is* a border and `edge` is small on both sides of it, and where a pixel
+has a neighbour in another cell, the distance to the nearest foreign pixel has to agree
+with `edge`. That is the property a crop-and-tile version fails and a correct one cannot.
+
+How the facets are found is worth a paragraph because the obvious version is a lie.
+Every cell is measured against every pixel -- `cells ** 2` passes, nine for rock and a
+hundred and forty-four for shore -- where the fast version is to look at the nine cells
+around the one a pixel falls in. That search is wrong for jittered points: a point
+jittered towards a corner can be nearer, across a border, than the pixel's own point is,
+so being one cell out is a kink in a crack that nobody can find later. At the sizes a
+tile is made in, the honest loop is also the fast one.
+
+What the facets are worth is three numbers, and they are the difference between
+flagstones and gravel. `edge` is half the gap to the second-nearest site, so it is zero
+on a crack and grows inward; clipped at a `bevel` it is a plate with a flat top -- rock.
+`dome` then decides what happens to the top: at 0 it stays flat until the bevel, and at 1
+it is `sin` of the same number, round all the way to the crack, which is a pebble. Same
+cells, same painter, three materials -- which is the same argument the whole module
+makes, one layer down.
+
+Two tables, and one test between them. `FOR_BIOME` says which material a map biome
+wears: plains, steppe, forest and marsh are all grass; hills and mountains are both rock;
+`dirt` is the one material **no biome wears**, because it is the ground under a road, a
+camp or a ploughed field, and a map that wants it knows why. The water biomes are absent
+because a ground texture is what a figure stands on. The map's table says what a hex *is*
+and this one says what it is made of, and they live in different packages on purpose --
+`gen.textures` does not import `gen.maps`, and the only place that knows both is the test
+that asserts every land biome has a material, no water biome does, and dirt is left over.
+The colours are tuned to the same palette without importing it: the bases sit where the
+map's biomes sit in OKLCH -- plains at 0.353 turns, desert 0.262, mountain 0.296, snow
+0.663 -- a little darker, because a hex a figure stands on is read from a metre away.
+
+And the module's thesis, made as a measurement. Of the fifteen pairs of materials, the
+closest in colour is **grass and rock**: a mid green and a mid grey, 0.08 apart in OKLab
+per pixel, close enough that a generator varying only colour would be entitled to call
+them variants. They are the farthest apart in what actually varies, which is relief --
+their height fields differ by more than three times in spread. The test finds the
+closest pair in colour on its own and asserts that pair is far apart in relief, so it
+would notice if the six ever drifted into six tints of one surface.
+
+The seams are 1.2 to 1.8 on the sheet and the test's bound is 2.0 rather than the 1.5
+the smooth tiles are held to, for the same reason a floor reads 1.4 on this number: a
+material with cracks in it can have a joint land exactly on the seam, and a joint is what
+the material is made of. The demo draws each tile four times, captions it with the biomes
+that wear it and the tile size, and records every row of the table, the seam error, the
+mapping the other way round, and the packed atlas of all six in the sidecar.
 
 ### An atlas of materials is not an atlas of sprites
 
@@ -2891,7 +3004,20 @@ Generators to sit on top of the core, in the order they become useful:
   laid out twice is laying the reduced tile out twice -- so the level below still
   tiles; an odd-sized tile cannot be halved exactly and the reduction says so instead
   of pretending, and the sidecar carries each level's own density, where the coarsest
-  sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*.
+  sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*;
+  ~~a ground material set for map tiles~~ *(done: `gen/textures/ground.py` -- grass,
+  dirt, sand, rock, snow and shore as one painter over a table of fifteen numbers a
+  row, mixing four layers: a mottle at a feature size, the same noise stretched into
+  ripples, periodic Voronoi facets for plates and pebbles, and one random value per
+  pixel of grit.  A seventh material is a row, `rock._replace(...)`, and a test
+  perturbs every number to prove none of them is decoration.  The facets are the new
+  machinery and they are cut on a *torus* -- every cell against every pixel, because
+  the fast nine-cell search is wrong for jittered points and being one cell out is a
+  kink in a crack -- so a slab that leaves the right edge is the same slab coming back
+  on the left.  `FOR_BIOME` ties the six to the map's nine land biomes without either
+  package importing the other, and dirt is deliberately worn by none: it is the ground
+  under a road.  The measurement the module is built on is that the closest pair in
+  colour, grass and rock, is the farthest apart in relief)*.
 - **text** -- ~~a face that is code rather than a file: an alphabet of skeletons, a
   pen that gives it weight, contrast, serifs and slant, and the metrics an engine
   needs to lay a line out~~ *(done: `gen/text/` -- 214 characters: printable ASCII,

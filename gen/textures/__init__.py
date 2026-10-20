@@ -33,6 +33,6 @@ Typical use::
     from gen.textures import truchet
     truchet.texture(seed=3, size=256, grains=4).save("out/truchet.png")
 """
-from . import atlas, boards, reaction, tile, truchet, wang
+from . import atlas, boards, ground, reaction, tile, truchet, wang
 
-__all__ = ["atlas", "boards", "reaction", "tile", "truchet", "wang"]
+__all__ = ["atlas", "boards", "ground", "reaction", "tile", "truchet", "wang"]

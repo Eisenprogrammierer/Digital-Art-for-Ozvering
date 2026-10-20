@@ -71,6 +71,7 @@ from gen.text import kern as kernlib  # noqa: E402
 from gen.text import typeset  # noqa: E402
 from gen.textures import atlas as tex_atlas  # noqa: E402
 from gen.textures import boards as tex_boards  # noqa: E402
+from gen.textures import ground as tex_ground  # noqa: E402
 from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
 from gen.textures import truchet as tex_truchet  # noqa: E402
@@ -1703,6 +1704,88 @@ def _repeat_canvas(canvas, n: int = 2):
     return out
 
 
+def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True) -> Path:
+    """Contact sheet of the six ground materials, each shown as a tiling of four.
+
+    The materials are a *set* rather than six pictures, so the sheet is the place to
+    check that they are six: laid side by side at the same size and the same seed, with
+    the seams on show, the differences are the ones the table says they are -- grass is
+    a soft mottle, sand is a ripple, rock is a plate, snow is a drift, and the two that
+    carry pebbles differ in how many and how big.
+
+    The captions carry the *map* as well as the material, because that is what this set
+    is for: ``FOR_BIOME`` says which biome wears which ground, and a caption that read
+    only "grass" would leave a reader to guess that plains, steppe, forest and marsh are
+    all the same material.  The sidecar carries the same mapping the other way round and
+    every number in the row that made the tile, so a seventh material can be argued about
+    in numbers rather than in adjectives.
+    """
+    half = max(int(size) // 2, 8)
+    panels = [(name, tex_ground.texture(name, seed=seed, size=half))
+              for name in tex_ground.names()]
+    gap, per_row, head, margin = 42, 3, 92, 40
+
+    sheet = render.sheet([_repeat_canvas(panel, 2) for _name, panel in panels],
+                         cols=per_row, gap=gap, background=(0.90, 0.90, 0.93))
+    page = Canvas(sheet.w + 2 * margin, sheet.h + head + margin, scale=1.0,
+                  y_up=False, background=(0.90, 0.90, 0.93))
+    page.blit(sheet.rgb, sheet.a, margin, head)
+    page.save(out)
+
+    img = png.to_image(page)
+    _label(img, (margin, 18), "Grounds -- six materials for map tiles",
+           font=_font(21), plate=None, dark=(28, 28, 34, 255))
+    _label(img, (margin, 50),
+           "each tile laid down twice each way; the seam error of every one is in the "
+           "sidecar", font=_font(13), plate=None, dark=(78, 78, 88, 255))
+    for i, (name, panel) in enumerate(panels):
+        r, col = divmod(i, per_row)
+        tx = margin + gap + col * (half * 2 + gap)
+        ty = head + gap + r * (half * 2 + gap) + half * 2 + 5
+        wears = sorted(k for k, v in tex_ground.FOR_BIOME.items() if v == name)
+        tail = ", ".join(wears) if wears else "no biome -- a road or a camp"
+        _label(img, (tx + 3, ty), f"{name}   tile {panel.w}   seed {seed}",
+               font=_font(13))
+        _label(img, (tx + 3, ty + 17), tail, font=_font(12), plate=None,
+               dark=(60, 60, 70, 255))
+    img.save(out, "PNG", optimize=True)
+
+    g = {row.key: row for row in tex_ground.GROUNDS}
+    _sidecar(out, seed, "procedural:gen.textures.ground",
+             tile=half,
+             for_biome=dict(sorted(tex_ground.FOR_BIOME.items())),
+             grounds=[
+                 {
+                     "name": name,
+                     "seed": seed,
+                     "size": panel.w,
+                     "base": palette.srgb_to_hex(palette.oklch_to_srgb(g[name].base)),
+                     "relief": g[name].relief,
+                     "cells": g[name].cells,
+                     "bevel": g[name].bevel,
+                     "dome": g[name].dome,
+                     "layers": {"lump": g[name].lump, "ribbon": g[name].ribbon,
+                                "facet": g[name].facet, "grit": g[name].grit},
+                     "biomes": sorted(k for k, v in tex_ground.FOR_BIOME.items()
+                                      if v == name),
+                     "seam_error": round(tilelib.seam_error(
+                         tilelib.luminance(panel.to_uint8())), 3),
+                 }
+                 for name, panel in panels
+             ])
+
+    # The same six as one packed sheet, with the bleed a wrapped tile needs: the
+    # margins are more of the tile rather than a transparent gap, because the pixel
+    # beside a tile's edge is its own opposite edge.
+    if atlas:
+        image, info = tex_atlas.build(panels)
+        path = out.with_name(f"{out.stem}-atlas.png")
+        image.save(path)
+        _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+        _report(path)
+    return _report(out)
+
+
 def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
                   ratio=(3, 2)) -> Path:
     """Contact sheet of factions, each with its shield and the banner it flies.
@@ -1779,6 +1862,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_maps(out / "maps.png", seed=seed, count=2)
     demo_coast(out / "coast-tiles.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
+    demo_grounds(out / "grounds.png", seed=seed)
     demo_text(out / "text.png")
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
@@ -1911,6 +1995,13 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--steps", type=int, default=5000, help="steps of reaction-diffusion, at most")
     t.add_argument("--mips", type=int, default=1,
                    help="levels of packed mip sheets (1 = the one atlas sheet)")
+
+    gr = sub.add_parser("grounds", help="ground materials for map tiles: grass, dirt, "
+                                       "sand, rock, snow, shore")
+    gr.add_argument("--out", default="out/grounds.png", type=Path)
+    gr.add_argument("--seed", type=int, default=7)
+    gr.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")
+    gr.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
 
     tx = sub.add_parser("text", help="the generated typeface: specimen sheet and font metrics")
     tx.add_argument("--out", default="out/text.png", type=Path)
@@ -2048,6 +2139,8 @@ def main(argv=None) -> int:
     elif args.cmd == "tiles":
         demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim,
                    steps=args.steps, atlas=not args.no_atlas, mips=args.mips)
+    elif args.cmd == "grounds":
+        demo_grounds(args.out, seed=args.seed, size=args.size, atlas=not args.no_atlas)
     elif args.cmd == "credits":
         if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))

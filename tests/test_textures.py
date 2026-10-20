@@ -24,7 +24,14 @@ The claims worth a test here are the ones the *word* seamless hides:
   cannot be trimmed, because a tile's edge is its seam and not a margin, and its
   margin cannot be a gap, because a tile is opaque and the margin is what a filtered
   sample beside it will read.  So the margin is the tile wrapped onto itself, and the
-  test checks that pixel for pixel.
+  test checks that pixel for pixel;
+* a ground material is a table of fifteen numbers a row, and that makes two claims
+  testable: every number changes the picture (the failure a table invites is a field
+  that is documented and unread), and the pair of materials closest in colour is far
+  apart in relief -- because a material is what the light finds.  The cells inside one
+  of them are a Voronoi diagram on a torus, checked as geometry -- where two pixels
+  disagree, ``edge`` says a border is between them -- rather than against the sites it
+  was built from, which is what a crop-and-tile version would pass.
 
 Run either way::
 
@@ -42,7 +49,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.textures import atlas, boards, reaction, tile, truchet, wang  # noqa: E402
+from gen.textures import atlas, boards, ground, reaction, tile, truchet, wang  # noqa: E402
 from core import palette  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 
@@ -646,6 +653,274 @@ def test_a_floor_that_is_not_a_floor_is_refused():
         pass
     else:
         raise AssertionError("a floor of no pixels should be refused")
+
+
+# ------------------------------------------------------------------- grounds
+def _ground_row(name):
+    return {g.key: g for g in ground.GROUNDS}[name]
+
+
+def _nearest_other_cell(fid, y, x, size):
+    """Distance on the torus from a pixel to the nearest pixel of a *different* cell."""
+    ys = np.abs(np.arange(size) - y)
+    ys = np.minimum(ys, size - ys)
+    xs = np.abs(np.arange(size) - x)
+    xs = np.minimum(xs, size - xs)
+    d = np.hypot(ys[:, None], xs[None, :])
+    return float(d[fid != fid[y, x]].min())
+
+
+def test_every_ground_tiles_at_every_size():
+    """The table is the claim: six materials, and *each* of them is seamless.
+
+    The number is measured on the finished raster rather than on the height field,
+    because the seam the eye finds is in the picture: the light, the colour and the grit
+    all have to wrap, and a height that wrapped on its own would earn a good number for a
+    tile that still showed a line where the colour changed character.  Two is the bound
+    rather than one: a material with cracks in it can have a joint land exactly on the
+    seam, and a joint is not a mistake -- the boards' grooves read 1.4 on this number.
+    """
+    assert len(ground.names()) == 6
+    assert len(set(ground.names())) == 6
+    for name in ground.names():
+        for size in (64, 128):
+            c = ground.texture(name, seed=7, size=size)
+            assert (c.w, c.h) == (size, size)
+            rgba = c.to_uint8()
+            assert rgba[..., 3].min() == 255, name      # opaque: a ground is not a decal
+            seam = tile.seam_error(tile.luminance(rgba))
+            assert seam <= 2.0, (name, size, seam)
+
+
+def test_a_ground_is_a_height_field_with_a_colour_on_it():
+    """What the module is: the material is relief first, colour second.
+
+    Not a slogan -- a testable split.  The tone is a number in ``0..1`` over the whole
+    material and the height is in texels, so the light has something to find; the
+    rendered tile then has variance of its own, which is the only thing that separates a
+    material from a fill.  Snow is the case that matters: it is nearly white, so all of
+    its material has to come from the height, and it still has to move.
+    """
+    for name in ground.names():
+        f = ground.fields(name, seed=7, size=128)
+        g, t, h = f["ground"], f["tone"], f["height"]
+        assert np.isfinite(t).all() and np.isfinite(h).all(), name
+        assert 0.0 <= float(t.min()) and float(t.max()) <= 1.0, name
+        # the relief is bounded by the row's own number, plus the grit's own half-texel
+        assert float(np.abs(h).max()) <= g.relief + g.grit + 1e-9, name
+        assert float(h.std()) > 0.30, (name, float(h.std()))
+        lum = tile.luminance(ground.texture(name, seed=7, size=64).to_uint8())
+        assert float(lum.std()) > 0.015, (name, float(lum.std()))
+
+
+def test_six_materials_are_six():
+    """Every pair differs by more than a JPEG artefact, measured in OKLab.
+
+    The number is the mean perceptual distance between the two finished tiles, pixel by
+    pixel, so it cannot be earned by one lucky colour: two materials that differed only
+    in their average score it, and so do two that differed only in their grain -- which
+    is the point, because the table is allowed to use both.
+    """
+    seen = list(ground.names())
+    tiles = {n: ground.texture(n, seed=7, size=64) for n in seen}
+    lab = {n: palette.srgb_to_oklab(tiles[n].rgb) for n in seen}
+    for i, a in enumerate(seen):
+        for b in seen[i + 1:]:
+            d = float(np.linalg.norm(lab[a] - lab[b], axis=-1).mean())
+            assert d > 0.05, (a, b, d)
+
+
+def test_the_closest_pair_in_colour_is_far_apart_in_relief():
+    """Grass and rock: a mid green and a mid grey, and nothing whatever alike.
+
+    This is the module's one argument, made as a measurement.  Some pair of the fifteen
+    has to be the closest in colour -- close enough that a generator that varied only
+    colour would be entitled to call them variants -- and the claim is that the set is
+    built so that this pair is far apart in the number that actually distinguishes a
+    material: what the light finds.  If the six ever drifted into six tints of one
+    surface, this is the test that would notice.
+    """
+    seen = list(ground.names())
+    tiles = {n: ground.texture(n, seed=7, size=64) for n in seen}
+    lab = {n: palette.srgb_to_oklab(tiles[n].rgb) for n in seen}
+    pairs = [(float(np.linalg.norm(lab[a] - lab[b], axis=-1).mean()), a, b)
+             for i, a in enumerate(seen) for b in seen[i + 1:]]
+    _d, a, b = min(pairs)
+    ha = ground.fields(a, seed=7, size=64)["height"]
+    hb = ground.fields(b, seed=7, size=64)["height"]
+    ratio = max(float(ha.std()), float(hb.std())) / min(float(ha.std()), float(hb.std()))
+    assert ratio > 2.0, (a, b, ratio)
+
+
+def test_no_number_in_the_table_is_decoration():
+    """A row is fifteen numbers and every one of them has to change the picture.
+
+    The failure a table invites is the field that is written down, documented, put in the
+    sidecar -- and not read.  So each number is perturbed on a kind that uses it and the
+    finished tile has to come out different.  ``key`` is the one exception, because it is
+    the row's name and not a material; everything else has to be wired to the painter.
+    """
+    changes = [
+        ("grass", {"base": (0.55, 0.140, 0.410)}),      # a different hue
+        ("grass", {"drop": 0.30}),
+        ("grass", {"turn": 0.15}),
+        ("grass", {"lump": 0.40}),
+        ("grass", {"lump_scale": 14.0}),
+        ("sand", {"ribbon": 0.40}),
+        ("sand", {"ribbon_scale": 4.0}),
+        ("sand", {"ribbon_stretch": 1.5}),
+        ("rock", {"facet": 0.50}),
+        ("rock", {"cells": 6}),
+        ("rock", {"bevel": 0.40}),
+        ("shore", {"dome": 0.00}),
+        ("grass", {"grit": 0.60}),
+        ("grass", {"relief": 1.00}),
+    ]
+    for name, change in changes:
+        row = _ground_row(name)
+        before = _canvas_bytes(ground.texture(row, seed=5, size=64))
+        after = _canvas_bytes(ground.texture(row._replace(**change), seed=5, size=64))
+        assert before != after, (name, change)
+
+
+def test_a_seventh_ground_is_a_row():
+    """The extension point is data: a slate is rock's row with two numbers changed.
+
+    Nothing is registered and nothing is special-cased -- ``texture`` takes the row
+    itself -- which is the difference between a set of six pictures and a table.  The
+    slate has to behave like a material: it tiles, it is darker than the stone it was
+    copied from, and it is a picture, not a promise.
+    """
+    rock = _ground_row("rock")
+    slate = rock._replace(key="slate", base=(0.36, 0.012, 0.300), drop=0.09)
+    a = ground.texture(rock, seed=3, size=64)
+    b = ground.texture(slate, seed=3, size=64)
+    assert _canvas_bytes(a) != _canvas_bytes(b)
+    assert _canvas_bytes(b) == _canvas_bytes(ground.texture(slate, seed=3, size=64))
+    assert tile.seam_error(tile.luminance(b.to_uint8())) <= 2.0
+    assert tile.luminance(b.to_uint8()).mean() < tile.luminance(a.to_uint8()).mean()
+
+
+def test_an_unknown_ground_is_refused_with_the_set_in_the_message():
+    """A typo has to fail loudly, and the error is the place to list the alternatives."""
+    try:
+        ground.texture("moss", seed=1, size=32)
+    except ValueError as e:
+        assert "moss" in str(e), str(e)
+        for name in ground.names():
+            assert name in str(e), str(e)
+    else:
+        raise AssertionError("an unknown material should not be painted")
+
+
+def test_the_material_set_covers_the_map_and_leaves_the_water_alone():
+    """The tie to ``gen.maps``: *what a hex is* and *what it is made of* are two tables.
+
+    The map has twelve biomes and three of them are water; a ground texture is what a
+    figure stands on.  So every land biome has to name a material, no water biome may,
+    and the one material with no biome at all -- dirt -- is deliberate: it is the ground
+    under a road, a camp or a ploughed field, and no biome is made of it.
+
+    The tables live in different packages on purpose, and this test is the only place
+    that knows both, so either can grow without dragging the other behind it.
+    """
+    from gen.maps import terrain
+
+    land = {b.key for b in terrain.BIOMES if not b.water}
+    water = {b.key for b in terrain.BIOMES if b.water}
+    assert set(ground.FOR_BIOME) == land, set(ground.FOR_BIOME) ^ land
+    assert not (set(ground.FOR_BIOME) & water)
+    assert set(ground.FOR_BIOME.values()) <= set(ground.names())
+    worn = set(ground.FOR_BIOME.values())
+    assert set(ground.names()) - worn == {"dirt"}, set(ground.names()) - worn
+
+
+def test_a_voronoi_is_the_geometry_it_says_it_is():
+    """``edge`` is checked against the picture rather than against the points.
+
+    A nearest-site diagram has two properties that need no sites to state.  Every pixel
+    belongs to one cell, so the only place a neighbour may disagree is within a pixel of
+    a border, where ``edge`` is small.  And a border lies between the two sites that own
+    it, so the nearest pixel of another cell is just past ``edge``.  The second is the one
+    that catches a search which looked at the wrong nine cells: a wrong assignment can
+    still be locally consistent, but then its ``edge`` stops predicting where the border
+    is -- and on a crack, that is a kink nobody can find later.
+
+    The prediction is one-sided on purpose.  ``edge`` is the distance to the bisector with
+    the *second-nearest* site, and near a vertex that bisector can be a sliver that does
+    not reach this cell at all -- so the number can be early, and it can never be late.
+    Early is also what a plateau wants: the bevel starts a pixel sooner and the slab is a
+    slab.
+    """
+    size, cells = 48, 4
+    fac = ground.facets(size=size, cells=cells, seed=3)
+    fid, edge = fac["id"], fac["edge"]
+    assert len(np.unique(fid)) == cells * cells
+    assert float(edge.min()) < 0.6
+    assert float(edge.max()) > size / cells * 0.4
+
+    for axis in (0, 1):
+        seam = fid != np.roll(fid, 1, axis=axis)
+        assert float(edge[seam].max()) <= 1.6, (axis, float(edge[seam].max()))
+
+    diffs = np.array([_nearest_other_cell(fid, y, x, size) - float(edge[y, x])
+                      for y in range(size) for x in range(size)])
+    assert float(diffs.min()) >= -0.25, float(diffs.min())
+    assert float(np.percentile(diffs, 95)) <= 1.8, float(np.percentile(diffs, 95))
+
+
+def test_a_cell_that_leaves_the_edge_comes_back():
+    """The torus, checked at the edge, where it is the only thing that matters.
+
+    A cell may cross the wrap or it may not, and those are the only two answers: either
+    the two sides of the seam are the same cell, or the seam *is* a border, in which case
+    ``edge`` is small on both sides of it -- and the border field itself has to wrap like
+    any other field.  What a Voronoi computed on a square cannot do is put two unrelated
+    cells on either side of a seam with no border between them, one row in from the edge,
+    which is exactly what makes the crop-and-tile version repeat.
+    """
+    for cells in (3, 7):
+        fac = ground.facets(size=64, cells=cells, seed=5)
+        fid, edge = fac["id"], fac["edge"]
+        for axis in (0, 1):
+            first = fid[0, :] if axis == 0 else fid[:, 0]
+            last = fid[-1, :] if axis == 0 else fid[:, -1]
+            e_first = edge[0, :] if axis == 0 else edge[:, 0]
+            e_last = edge[-1, :] if axis == 0 else edge[:, -1]
+            same = first == last
+            joint = (e_first <= 1.6) & (e_last <= 1.6)
+            assert np.all(same | joint), (cells, axis)
+        assert tile.seam_error(edge) <= 1.5, (cells, tile.seam_error(edge))
+
+
+def test_the_table_is_written_in_pixels_and_the_noise_agrees():
+    """``lump_scale`` says 6 and the noise has to be 6 pixels of feature, not of blur.
+
+    ``tile.periodic_noise`` takes a Gaussian *sigma*, and a table in sigmas is a table of
+    blurs -- grass at sigma 6 reads as fog, which is what the first version of this sheet
+    looked like.  So the conversion is one function, and this is the measurement it is
+    written from: the field decorrelates over about half its feature size, which puts a
+    lump at somewhere near the number the table asks for.
+    """
+    for feature in (6.0, 12.0):
+        f = ground._noise(128, 5, feature)
+        a = f - f.mean()
+        ac = np.fft.fftshift(np.fft.ifft2(np.abs(np.fft.fft2(a)) ** 2).real)
+        ac = ac / ac.max()
+        half = int(np.argmax(ac[64, 64:] < 0.5))
+        assert 0.35 * feature <= half <= 1.0 * feature, (feature, half)
+
+
+def test_one_seed_is_one_tile_and_two_seeds_are_two():
+    """Determinism, which for a material is a save file and not a nicety: a map that is
+    reopened has to have the same ground under it, and two maps must not be one map.
+    """
+    for name in ground.names():
+        a = _canvas_bytes(ground.texture(name, seed=4, size=64))
+        b = _canvas_bytes(ground.texture(name, seed=4, size=64))
+        c = _canvas_bytes(ground.texture(name, seed=5, size=64))
+        assert a == b, name
+        assert a != c, name
 
 
 # ---------------------------------------------------------------------- atlas
