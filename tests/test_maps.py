@@ -1846,6 +1846,34 @@ def test_a_site_river_is_water_in_a_channel_and_not_on_the_sea():
     assert not changed[water].any(), "the river changed the sea"
 
 
+def test_a_site_cliff_and_wet_shore_stay_on_the_land():
+    """The crease and the wet band are facts about the shore, not about the sea.
+
+    Both are drawn as overlays on the land mask, so a site with them and a site
+    without them must agree at every water pixel.  The test also asks that they
+    actually do something: an overlay that is masked to nothing is a no-op with a
+    sidecar.  ``grounds=False`` keeps the check about the overlays rather than about
+    the material, and keeps it quick.
+    """
+    seed, cols, rows, size = 7, 6, 5, 32.0
+    common = dict(seed=seed, cols=cols, rows=rows, size=size, grounds=False,
+                  river=0.0)
+    plain = site_render.site_image(cliff=0.0, shore=0.0, **common).to_uint8()
+    cliff = site_render.site_image(cliff=0.55, shore=0.0, **common).to_uint8()
+    shore = site_render.site_image(cliff=0.0, shore=0.052, **common).to_uint8()
+    assert cliff.shape == shore.shape == plain.shape
+    g = gridlib.HexGrid(cols, rows, size)
+    f = terrain.fields(g, seed=seed)
+    cell = g.cell(*Canvas(plain.shape[1], plain.shape[0], scale=1.0).grid())
+    r = np.clip(cell.rc[..., 0], 0, rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, cols - 1)
+    water = f["water"][r, c] | ~cell.ok
+    for name, changed in (("cliff", np.any(plain != cliff, axis=-1)),
+                          ("shore", np.any(plain != shore, axis=-1))):
+        assert changed.any(), f"the {name} overlay drew nothing"
+        assert not changed[water].any(), f"the {name} overlay changed the sea"
+
+
 # ------------------------------------------------------------------- the board
 def _iso(seed=7, cols=6, rows=5, size=32.0, **kw):
     return iso_render.iso_image(seed=seed, cols=cols, rows=rows, size=size,
@@ -1886,6 +1914,46 @@ def test_the_board_stands_up_and_the_hero_stands_on_land():
     assert not f["water"][hero]
     all_sea = dict(f, water=np.ones_like(f["water"], dtype=bool))
     assert iso_render.hero_cell(g, all_sea) is None
+
+
+def test_the_hero_can_face_four_ways_and_a_named_hex_must_be_land():
+    """The board has four directions and one rule about where a figure may stand.
+
+    Right and left are the sprite and its mirror; up and down are the back and front
+    views.  All four must reach the pixel, so the test compares the finished boards
+    and not the argument.  A hex named on the command line is a request, and a request
+    for the sea or for the edge of the world is refused with a message rather than an
+    ``IndexError`` from inside the projection.
+    """
+    g = gridlib.HexGrid(5, 4, 24.0)
+    f = terrain.fields(g, seed=7, sea_fraction=0.20, edge=0.0)
+    hero = iso_render.hero_cell(g, f)
+    assert hero is not None
+    boards = {}
+    for facing in ("right", "left", "up", "down"):
+        boards[facing] = iso_render.iso_image(
+            seed=7, cols=5, rows=4, size=24.0, sea_fraction=0.20, edge=0.0,
+            levels=5, hero=hero, facing=facing).to_uint8()
+    assert len({b.tobytes() for b in boards.values()}) == 4
+    assert not np.array_equal(boards["right"], boards["left"])
+    assert not np.array_equal(boards["up"], boards["down"])
+    water = tuple(np.argwhere(f["water"])[0])
+    for bad in (water, (99, 99)):
+        try:
+            iso_render.iso_image(seed=7, cols=5, rows=4, size=24.0,
+                                 sea_fraction=0.20, edge=0.0, hero=bad)
+        except ValueError as exc:
+            assert "water" in str(exc) or "off" in str(exc)
+        else:
+            raise AssertionError(f"the board accepted the hero at {bad}")
+    try:
+        iso_render.iso_image(seed=7, cols=5, rows=4, size=24.0,
+                             sea_fraction=0.20, edge=0.0, hero=hero,
+                             facing="sideways")
+    except ValueError as exc:
+        assert "faces" in str(exc)
+    else:
+        raise AssertionError("a made-up facing was accepted")
 
 
 def test_the_terraces_are_a_number_of_steps():

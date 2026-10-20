@@ -41,7 +41,7 @@ jobs:
         run: pip install -r requirements.txt pyflakes
 
       - name: lint
-        run: pyflakes cli.py core gen export tests
+        run: pyflakes cli.py core gen export studio tests
 
       - name: the suites
         run: |

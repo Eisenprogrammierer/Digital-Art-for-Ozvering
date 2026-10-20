@@ -300,6 +300,24 @@ def test_the_figure_never_touches_the_edge_of_its_cell():
             assert float(a[-1, :].max()) < 0.25, (name, i, "floor", float(a[-1, :].max()))
 
 
+def test_the_front_and_back_views_fit_their_cell_too():
+    """A wider body is still a cell: the margin is a promise for every facing.
+
+    The front and back views spread the arms and legs to two sides, so they have
+    more ink than the profile and a different reach.  It would be easy to add a
+    view and only test the old one; this walks a whole cycle in the two new views
+    and makes the same margin claim the side view makes.
+    """
+    for facing in ("up", "down"):
+        for i in range(12):
+            canvas = figure.render(seed=7, cycle="walk",
+                                   phase=PERIOD * i / 12, size=96, facing=facing)
+            a = canvas.a
+            sides = np.concatenate([a[0, :], a[:, 0], a[:, -1]])
+            assert float(sides.max()) < 0.02, (facing, i, "side", float(sides.max()))
+            assert float(a[-1, :].max()) < 0.25, (facing, i, "floor", float(a[-1, :].max()))
+
+
 def test_the_same_call_is_the_same_bytes():
     """A figure is a function of its arguments: the seed and the phase are all of it."""
     for name in cycle.CYCLES:
@@ -392,6 +410,36 @@ def test_every_cycle_draws_a_different_animation():
     renders = {name: figure.render(seed=7, cycle=name, phase=1.0, size=64).to_uint8().tobytes()
                for name in cycle.CYCLES}
     assert len(set(renders.values())) == len(cycle.CYCLES)
+
+
+def test_the_four_facings_are_four_pictures_and_left_is_the_mirror():
+    """A board asks for four directions; a side view can only answer two.
+
+    ``left`` is the right-facing sprite mirrored *after* drawing, so the test can
+    demand an exact array equality rather than a resemblance.  ``up`` and ``down``
+    are the front and back views: the same skeleton with its limbs given a side,
+    which is why they have more ink than the profile -- two arms and two legs are
+    visible instead of one arm and one leg over their partners.  Four distinct
+    pictures and one exact mirror is the whole claim; a front view that was a
+    renamed side view would fail the distinctness, and a left view drawn again
+    would fail the mirror.
+    """
+    right = figure.render(seed=7, cycle="idle", size=96, facing="right").to_uint8()
+    left = figure.render(seed=7, cycle="idle", size=96, facing="left").to_uint8()
+    assert np.array_equal(left, right[:, ::-1])
+    renders = {f: figure.render(seed=7, cycle="idle", size=96, facing=f).to_uint8()
+               for f in figure.FACINGS}
+    assert len({im.tobytes() for im in renders.values()}) == len(figure.FACINGS)
+    side_ink = int((renders["right"][..., 3] > 0).sum())
+    for facing in ("up", "down"):
+        assert int((renders[facing][..., 3] > 0).sum()) > side_ink
+    assert not np.array_equal(renders["up"], renders["down"])
+    try:
+        figure.render(seed=7, size=32, facing="sideways")
+    except ValueError as exc:
+        assert "facing" in str(exc) or "faces" in str(exc)
+    else:
+        raise AssertionError("a made-up facing was accepted")
 
 
 # ------------------------------------------------------------------ the sheet

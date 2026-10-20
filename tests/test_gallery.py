@@ -291,6 +291,26 @@ def test_data_files_are_a_line_and_not_a_card():
         assert page.count('<figure class="card"') == 1
 
 
+def test_stats_measures_the_page_and_the_pictures():
+    """The size of a build is a question for the build, not for a stale README.
+
+    The three numbers are checked against the same functions that write the page:
+    the linked bytes are ``build(embed=False)``, the embedded bytes are
+    ``build(embed=True)``, and the picture bytes are the files both of them carry.
+    A card count from the manifest is the fourth number, and the only one a person
+    would otherwise count by hand.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _build(Path(tmp), n=2)
+        stats = gallery.stats(root)
+        assert stats["cards"] == 2
+        assert stats["pictures_bytes"] == sum(
+            p.stat().st_size for p in root.glob("*.png"))
+        assert stats["linked_bytes"] == len(gallery.build(root).encode("utf-8"))
+        assert stats["embed_bytes"] == len(gallery.build(root, embed=True).encode("utf-8"))
+        assert stats["embed_bytes"] > stats["linked_bytes"]
+
+
 def test_write_reports_where_the_page_went():
     with tempfile.TemporaryDirectory() as tmp:
         root = _build(Path(tmp), n=1)

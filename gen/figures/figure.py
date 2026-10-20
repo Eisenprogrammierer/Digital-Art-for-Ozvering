@@ -25,7 +25,16 @@ from core.render import LIGHT
 
 from . import body, cycle as cycle_lib, rig
 
-__all__ = ["render", "frames", "describe", "cycles", "background"]
+__all__ = ["FACINGS", "render", "frames", "describe", "cycles", "background"]
+
+#: The four directions a board asks a figure to face.  ``right`` is the side view
+#: the rig is drawn in; ``left`` is that view mirrored; ``down`` and ``up`` are the
+#: front and back views, because on a board "towards the camera" is south and
+#: "away" is north.  A game with a turning camera would need more than a billboard;
+#: a board with a fixed one needs exactly these four.
+FACINGS = ("right", "left", "up", "down")
+
+_VIEW = {"right": "side", "left": "side", "up": "back", "down": "front"}
 
 
 def background(canvas, seed=0) -> None:
@@ -38,8 +47,19 @@ def background(canvas, seed=0) -> None:
 
 
 def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
-           tincture=None, backdrop=None, light=LIGHT) -> Canvas:
-    """One frame of one figure.  Pure: the same call is the same bytes."""
+           tincture=None, backdrop=None, light=LIGHT,
+           facing: str = "right") -> Canvas:
+    """One frame of one figure.  Pure: the same call is the same bytes.
+
+    ``facing`` is one of :data:`FACINGS`.  A left-facing figure is the right-facing
+    one mirrored *after* it is drawn, which is exact and costs no second pose; a
+    front or back facing figure is drawn from the same skeleton with its limbs
+    given a side, because a head-on view has a left and a right where a profile has
+    a near and a far.  The side view's bytes are untouched: ``right`` is the
+    default and the call every earlier version made.
+    """
+    if facing not in FACINGS:
+        raise ValueError(f"a figure faces {', '.join(FACINGS)}; not {facing!r}")
     lengths = rig.proportions(seed)
     s = cycle_lib.spec(seed)
     angles = rig.pose(cycle_lib.angles(cycle, phase, s))
@@ -51,12 +71,18 @@ def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
     canvas = Canvas(int(size), int(size), scale=float(size))
     if backdrop is not None:
         background(canvas, seed if backdrop is True else backdrop)
-    body.paint(canvas, pts, st)
+    body.paint(canvas, pts, st, view=_VIEW[facing])
+    if facing == "left":
+        # A mirror is not a second drawing: flip the finished sprite, alpha and
+        # colour together, so the light and the ink are mirrored with it.
+        canvas.rgb = np.ascontiguousarray(canvas.rgb[:, ::-1])
+        canvas.a = np.ascontiguousarray(canvas.a[:, ::-1])
     return canvas
 
 
 def frames(seed=0, cycle: str = "walk", count: int = 8, size: int = 96,
-           tincture=None, backdrop=None, light=LIGHT) -> tuple:
+           tincture=None, backdrop=None, light=LIGHT,
+           facing: str = "right") -> tuple:
     """A whole cycle: the frames and the phases they were drawn at.
 
     The phases tile one turn from 0 inclusive to ``2*pi`` exclusive, so the loop
@@ -70,7 +96,8 @@ def frames(seed=0, cycle: str = "walk", count: int = 8, size: int = 96,
     period = cycle_lib.period(cycle)
     phases = [period * (i / count) for i in range(count)]
     frames_out = [render(seed, cycle, p, size=size, tincture=tincture,
-                         backdrop=backdrop, light=light) for p in phases]
+                         backdrop=backdrop, light=light, facing=facing)
+                  for p in phases]
     return frames_out, phases
 
 

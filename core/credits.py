@@ -156,6 +156,8 @@ def write(directory, path=None) -> Path:
     """Write the credits into a build directory.  Returns the file written."""
     directory = Path(directory)
     path = Path(path) if path is not None else directory / TEXT_NAME
+    if path.is_dir():
+        path = path / TEXT_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(credits(directory), encoding="utf-8")
     return path

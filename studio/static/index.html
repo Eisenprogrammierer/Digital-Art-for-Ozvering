@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ozart studio</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>ozart <span>/ studio</span></h1>
+    <p>Procedural 2-D assets, made one seed at a time. Nothing here is hand-drawn.</p>
+  </div>
+  <div class="header-note">
+    local workbench &middot; files land in <span id="root-note">out/studio</span><br>
+    every result is a function of the form
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <div class="generator">
+      <label class="field" for="generator">
+        <span class="top"><span class="name">What to make</span></span>
+        <select id="generator"></select>
+      </label>
+      <p class="blurb" id="blurb">Loading the catalog&hellip;</p>
+    </div>
+
+    <form id="form" autocomplete="off"></form>
+
+    <div class="actions">
+      <button class="primary" id="go" type="button">Generate</button>
+      <button class="ghost" id="random" type="button" title="A different seed, same form">New seed</button>
+    </div>
+    <p id="status" role="status"></p>
+  </aside>
+
+  <section class="stage">
+    <div class="preview-card">
+      <div class="preview-head">
+        <h2 id="preview-title">Nothing made yet</h2>
+        <span class="meta" id="preview-meta">choose a generator and press Generate</span>
+      </div>
+      <div class="preview" id="preview">
+        <p class="empty">The picture appears here.<br>
+          Pick an asset, set a seed, and press <strong>Generate</strong>.</p>
+      </div>
+    </div>
+
+    <div class="card" id="result" hidden>
+      <h3>This result</h3>
+      <div class="files" id="files"></div>
+      <p class="hintline" id="folder-line"></p>
+      <div class="command">
+        <code id="command"></code>
+        <button type="button" id="copy" title="Copy the command">Copy</button>
+      </div>
+      <details>
+        <summary>Sidecar (the numbers behind the picture)</summary>
+        <pre class="json" id="sidecar"></pre>
+      </details>
+    </div>
+
+    <div class="card">
+      <h3>How this works</h3>
+      <p class="hintline">
+        The studio is a form over <code>cli.py</code>. It runs the same command a
+        terminal would, writes the files under <code>out/studio/&lt;token&gt;/</code>,
+        and shows you the command so the result can leave the browser and become a
+        script. Same form, same seed, same bytes.
+      </p>
+      <p class="hintline">
+        Slow ones (maps, sites, boards, materials) can take a few seconds; the
+        status line says when it is working. Everything is generated locally; no
+        request leaves this machine.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  ozart &middot; Python + numpy + Pillow &middot; no external images, no web fonts,
+  no cookies &middot; music credits are in the build's <code>credits.txt</code>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -6,6 +6,9 @@ This repository currently holds **ozart**: a procedural 2-D asset generator. Ass
 are not drawn -- they are *computed* from geometry (signed distance fields), affine
 linear algebra, deterministic noise, and perceptual (OKLab) colour.
 
+> Практическое руководство: [docs/GUIDE.ru.md](docs/GUIDE.ru.md) ·
+> user guide: [docs/GUIDE.md](docs/GUIDE.md).
+
 ## Why procedural
 
 * **Copyright is unambiguous.** An asset is `f(seed, params) -> PNG`. No training
@@ -25,8 +28,14 @@ Python 3.10+, `numpy`, `Pillow` (see `requirements.txt`).
 
 ```bash
 pip install -r requirements.txt
+python cli.py studio --port 8000     # a local workbench in the browser
 python cli.py demo --out out --seed 7
 ```
+
+The studio is the friendly door: choose an asset, set a seed, press Generate, and
+download the PNG, its sidecar and the command that rebuilds it. The demo is the whole
+build. Both write real files; nothing is uploaded anywhere. The full walkthrough is
+in the [user guide](docs/GUIDE.md) ([по-русски](docs/GUIDE.ru.md)).
 
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
@@ -45,14 +54,15 @@ wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for a ground material the
 whole row of the table that made it, the biomes that wear it and its seam, for a site
 the ground's period, mix and relief, the river's fraction and depth, the wet shore and
-the biome mapping it wore, for a board its camera, its terraces and the hex its hero
-stands on, for the atlases the
+the biome mapping it wore, for a board its camera, its terraces, its hero size, lattice
+and foam, and the hex its hero stands on with the direction that hero faces, for the
+atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, for an
 animation the rectangle of every frame with the phase it was drawn at and the rate it
-plays at, for a figure's sheet the cycle, the table and the figure itself -- its
-proportions, its gait and the five colours it wears -- and for the
+plays at, for a figure's sheet the cycle, the facing, the table and the figure itself
+-- its proportions, its gait and the five colours it wears -- and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
 A map is written out twice, and deliberately: the sheet with its sidecar is the map
@@ -77,7 +87,7 @@ python cli.py palette --out out/palette.png --seed 3 --count 6
 python cli.py arms    --out out/arms.png --seed 7 --count 12
 python cli.py flags   --out out/flags.png --seed 7 --count 12 --ratio 3:2 [--hang bar]  # & staffs
 python cli.py anim    --out out/anim.png  --seed 7 --count 12 --fps 12   # one flag waving: frames + timeline
-python cli.py figures --out out/figures.png --seed 7 --cycle walk --count 8  # one figure walking: frames + timeline
+python cli.py figures --out out/figures.png --seed 7 --cycle walk --count 8 --facing right  # frames + timeline
 python cli.py factions --name "Kingdom of Alder"       # a name, its coat and its livery
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
@@ -90,24 +100,28 @@ python cli.py maps       --seed 7 --no-names              # ...without the provi
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py grounds    --seed 7 --size 256              # six ground materials for map tiles, + atlas
-python cli.py site       --seed 7 --size 56               # one site twice: biome colour vs ground worn
-python cli.py iso        --seed 7 --cols 11 --rows 8 --size 46  # a board from the south, with a hero
+python cli.py site       --seed 7 --size 56 --river-fraction 0.90  # biome colour vs ground worn
+python cli.py iso        --seed 7 --cols 11 --rows 8 --size 46 --facing left  # a board, with a hero
+python cli.py coast      --out out/coast-tiles.png --size 20  # 64 coast tiles & borders.png
 python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
 python cli.py credits    --manifest out --check # is this build shippable?  (exit 0/1)
 python cli.py gallery    --manifest out         # the build as one page (add --embed to send it)
-python tests/test_core.py                       # 68 tests, no pytest needed
+python cli.py gallery    --manifest out --stats # measured sizes instead of remembered ones
+python cli.py studio     --port 8000            # the browser workbench; no extra dependency
+python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 104 tests
+python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
-python tests/test_cli.py                        # 3 tests -- the wiring, not the pictures
+python tests/test_cli.py                        # 7 tests -- the wiring, not the pictures
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
-python tests/test_figures.py                    # 26 tests
-python tests/test_gallery.py                    # 20 tests
+python tests/test_figures.py                    # 28 tests
+python tests/test_gallery.py                    # 21 tests
+python tests/test_studio.py                     # 6 tests -- the form over the CLI
 ```
 
 Every one of those runs on every push as well -- every suite in `tests/` (the workflow
@@ -1105,16 +1119,34 @@ a wind-up, a strike and a recovery **inside one turn**, which is how a game play
 once and then falls back into the idle. The windows overlap on purpose: a swing that
 teleports to its end is a swing nobody believes.
 
-### A figure is drawn in side view, so it has a near side and a far side
+### The rig is a profile, so the four facings are views of it
 
 There is no left and right in a profile, and calling the two limbs `l` and `r` would
-be a lie now and a bug later, when a front view -- which does have a left -- arrives
-and looks like a rename rather than a second view. So the bones are `near` and
-`far`. Depth in a flat drawing is two things and neither of them is a shadow map: the
-far limb is drawn *first*, so the near one crosses it, and it wears a shadow of its
-own material rather than its material. The draw order is the depth order and it is
-fixed: a far limb is never in front of a near one *whatever the pose*, because that
-is what "far" means.
+have been a lie the moment a front view -- which does have a left -- arrived. So the
+bones are `near` and `far`. Depth in a flat drawing is two things and neither of them
+is a shadow map: the far limb is drawn *first*, so the near one crosses it, and it
+wears a shadow of its own material rather than its material. The draw order is the
+depth order and it is fixed: a far limb is never in front of a near one *whatever the
+pose*, because that is what "far" means.
+
+A board asks for four directions, and the profile can only answer two of them
+honestly. `figure.FACINGS` is the whole set: `right` is the profile the rig draws,
+`left` is that finished sprite mirrored (alpha and colour together, so the light and
+the ink mirror with it), `down` is the front view and `up` is the back view. The last
+two are not a second rig. `body._facing` takes the same joints and gives each pair of
+limbs a **side** instead of a depth: hips and shoulders stand off a centre line, the
+gait's forward swing becomes the small vertical step a head-on view would see, and
+the torso is widened because a chest is wider facing you than in profile. The head is
+the one part that needs new geometry -- a front head has no nose and is a skin oval
+under a hair cap, a back head is all hair, and neither gets a face, because at 96 px
+an eye is still two pixels and a mouth is one. Four directions cost one head branch,
+one joint transform and a mirror; they do not cost a second body.
+
+The four directions are in the sidecar, on the figure sheet and on the board. The
+board's `--facing` defaults to `right`, which is the call every earlier version made,
+so the figure sheet's side-view bytes are unchanged. The board's caption now names
+the facing and its note describes four instead of one, so the board PNG is redrawn
+even at the default; the sprite on it is not.
 
 Nothing else about the drawing is new, and that is the point. A limb is a
 `shape.lock` -- the same tapered spine a portrait draws a hair clump with; the outline
@@ -1164,13 +1196,15 @@ a loop flag that is true because the cycle closes.
 
 ### What is not here
 
-One view, facing `+x`. No weapons or props (a sword is a second skeleton's worth of
-decisions about where a hand is), no cloth or ragdoll physics, and no blending between
-cycles: the cycles are separate functions, so a game cuts from `walk` to `attack`
-rather than cross-fading, and the wind-up inside `attack` is what makes the cut read.
-A front view, a back view and a left-facing mirror are the next thing this package
-would grow -- the mirror is free, the other two are not, because the near and far
-limbs stop being a depth cue and become an anatomy.
+Four facings, but no yaw between them. `up` and `down` are a back and a front, not a
+turn: a figure walking north on the board wears the back view for the whole row, and a
+camera that could orbit would want more than four billboards. No weapons or props (a
+sword is a second skeleton's worth of decisions about where a hand is), no cloth or
+ragdoll physics, and no blending between cycles: the cycles are separate functions, so
+a game cuts from `walk` to `attack` rather than cross-fading, and the wind-up inside
+`attack` is what makes the cut read. The front and back views share the side rig's
+proportions and palette, which is what makes a four-direction hero one character
+rather than four strangers.
 
 ## UI chrome (`gen/ui/`)
 
@@ -2700,11 +2734,14 @@ second noise field; the colour is earth rather than the biome's, because what a 
 The hero is a figure sprite from `gen.figures`, standing on the middle of a hex. He is
 drawn after the row he stands in and before the rows in front of him, which is the whole
 of the depth rule: a hill nearer the camera may hide him, a hill behind him may not. The
-sprite is a **side view**, and on a board with no yaw that is the honest view: a
-three-quarter figure would promise a camera the projection does not have. The same
-constraint is what a billboard in a game with a turning camera would have to answer with
-front, back and side views -- a set of sprites this repository does not have yet, and the
-reason the board is the view it is.
+sprite is a **billboard**, and the board asks it for one of four facings: `right` and
+`left` across the screen, `down` towards the camera (south) and `up` away from it
+(north). The default is `right`, the profile the rig has always drawn; the other three
+are the figure package's mirror, front and back views, not a second hero. On a board
+with no yaw a three-quarter figure would promise a camera the projection does not have,
+so four cardinal facings are the honest set -- and they are enough for a figure to walk
+the way the board says it walked. `--facing` is in the sidecar, and a named hero hex is
+checked against the map: the sea is refused with a message, not an `IndexError`.
 
 The board is not a renderer for a free camera, and it is not meant to be. It is the same
 `gen.maps.terrain` geography and the same `gen.figures` sprite placed by a fixed
@@ -2807,6 +2844,42 @@ tests, not by looking at output -- one asserting that a red-only field stays red
 one asserting that the two kinds differ -- and that is the argument for the tests in
 this package being about *properties* rather than about pixels.
 
+## The studio (`studio/`)
+
+The gallery describes a build; the studio is where a build gets made one asset at a
+time. It is a local browser page over the command line:
+
+```bash
+python cli.py studio --port 8000
+# open http://127.0.0.1:8000/ (the command does it for you)
+```
+
+Choose an asset (figures, portraits, heraldry, maps, sites, boards, materials, icons,
+UI, text, palette), set a seed and the options, press **Generate**. The picture appears
+with every file the command wrote, the sidecar as JSON, a zip of the result and the
+exact command that reproduces it. Renders land in `out/studio/<timestamp-token>/`, so
+two pictures with the same name do not overwrite each other. `--root` changes the
+directory; `--no-browser` keeps the terminal quiet; `--port 0` asks the OS for a free
+port.
+
+The design is the same argument as the gallery, taken one step further: the form is
+generated from `studio/catalog.py`, and every field names a `cli.py` flag. The server
+runs the real command in a subprocess, so the browser cannot drift from the CLI -- if a
+flag changes, the form changes with it. A render is serialized by a lock (two heavy
+boards at once would only fight for the same cores), the server binds to `127.0.0.1` by
+default, and it serves only the three static files, the catalog and files under the
+token directory it just wrote. There is no upload, no shell and no arbitrary path.
+
+The catalog groups are **Characters**, **Heraldry**, **World**, **Materials**,
+**Interface** and **Core**. A new generator is one entry: `id`, `base` command, output
+name, fields (`int`, `float`, `choice`, `bool`, `text`), optional `slow` and `timeout`.
+The CLI remains the source of truth for choices; the catalog imports the same tables
+(`figure.FACINGS`, `portrait_style.names()`, and so on) where it can. A test starts the
+server on port 0, renders a small figure sheet and follows the facing from the form to
+the sidecar and the PNG. The full walkthrough, including the exact output layout and
+troubleshooting, is in [docs/GUIDE.md](docs/GUIDE.md)
+([по-русски](docs/GUIDE.ru.md)).
+
 ## The build as a page (`export/gallery.py`)
 
 Every sheet and every SVG, a sidecar beside each, and no way to see what a build
@@ -2815,8 +2888,9 @@ the interface to it: `out/index.html`, written by `demo` as its last step, or on
 own with
 
 ```bash
-python cli.py gallery --manifest out            # linked: 33 KB, opens beside the pictures
-python cli.py gallery --manifest out --embed    # inlined: 9.5 MB, travels as one file
+python cli.py gallery --manifest out            # linked: opens beside the pictures
+python cli.py gallery --manifest out --embed    # inlined: travels as one file
+python cli.py gallery --manifest out --stats    # the linked/embedded/picture sizes
 ```
 
 ### A page, not a window
@@ -2885,23 +2959,30 @@ is a catalogue of the build, not only of its illustrations.
 
 ### Two files or one
 
-By default the page links the pictures beside it: 33 KB of HTML over 7.3 MB of pictures,
-which is the version to regenerate while working, because the browser is reading the
-files that were just written. `--embed` base64s each picture into the page, which is
-9.5 MB of HTML and one file with no folder to lose -- the version to send to someone
-who does not have the build. Both are pure functions of the directory: build twice,
-get the same bytes, which is what the 20 tests in `tests/test_gallery.py` assert along
-with the claims a view can get wrong -- that every sidecar becomes exactly one card,
-that an embedded picture decodes back to the file's bytes, that a 400-entry list is
-one line, and that `<script>` in a sidecar is text.
+By default the page links the pictures beside it: about 33 KB of HTML over about 7.4 MB
+of pictures (PNG and SVG together), which is the version to regenerate while working,
+because the browser is reading the files that were just written. `--embed` base64s each
+picture into the page, which is about 9.5 MB of HTML and one file with no folder to
+lose -- the version to send to someone who does not have the build. The exact numbers
+are measured, not remembered: `python cli.py gallery --manifest out --stats` prints the
+card count, the picture bytes and both page sizes from the build itself, which is why
+the README no longer carries three counts that a new sheet would quietly falsify. Both
+pages are pure functions of the directory: build twice, get the same bytes, which is
+what the 21 tests in `tests/test_gallery.py` assert along with the claims a view can
+get wrong -- that every sidecar becomes exactly one card, that an embedded picture
+decodes back to the file's bytes, that a 400-entry list is one line, and that
+`<script>` in a sidecar is text.
 
 ### What is not here
 
-No editing, no regeneration, no live preview. The page describes a build; the build
-is still `cli.py demo` and the seed. A viewer that could also *make* things would need
-a second copy of every default, and the first copy is already in the modules. If the
-loop wants closing, the honest next step is a build watcher that re-runs `demo` and
-reloads the tab, not a second interface with its own idea of what a parameter is.
+No editing and no live preview. The page describes a build; the build is still
+`cli.py demo` and the seed, and the page is a pure function of the directory. The
+*making* interface is the studio (`cli.py studio`, documented in the
+[user guide](docs/GUIDE.md)): a form over the same commands that writes one asset at a
+time and prints the command it ran. It is deliberately not a second implementation and
+not a second copy of the defaults -- a field is a flag, and the form is generated from
+the catalog. What remains open is a build watcher that re-runs `demo` and reloads the
+tab; the gallery should not grow an event loop to do it.
 
 ## Roadmap
 
@@ -2991,8 +3072,12 @@ Generators to sit on top of the core, in the order they become useful:
   are one art set -- while the line and the shading bevel are in **pixels**, because
   a line belongs to the raster; and a figure is silhouette, costume and five colours
   rather than a face, for the reason the icon gives about a sword at 32 px)*;
-  ~~the other views~~ *(open: a mirror is free, a front and a back view are not -- the
-  near and far limbs stop being a depth cue and become an anatomy)*.
+  ~~the other views~~ *(done: `figure.FACINGS` is `right`, `left`, `up`, `down` -- the
+  profile, its exact mirror, the back and the front.  The last two do not grow a second
+  rig: `body._facing` gives the same joints a left and a right instead of a near and a
+  far, widens the chest, and keeps the gait's forward swing as a vertical step; the head
+  gets a front/back branch with no nose and no face.  The board takes a `--facing` and
+  records it; the default `right` is byte-identical to every earlier figure)*.
 - **ui** -- ~~9-slice frames and panels, ornamental borders from a Fourier series
   of a radius function~~, ~~asymmetric insets for title bars~~ and ~~wood/stone
   material bodies via fBm + domain warping~~ *(done: `gen/ui/`, with the series
@@ -3091,8 +3176,9 @@ Generators to sit on top of the core, in the order they become useful:
   axonometry from the south, terraced hex prisms with world-sampled tops, south faces
   wearing the dirt no biome wears, a foam line on the water side of the coast, and a
   `gen.figures` sprite placed on a hex and depth-sorted by row. The board is a fixed
-  camera, not a renderer: the projection is one line and the sprite is a side view,
-  which is the only view a board with no yaw can promise)*.
+  camera, not a renderer: the projection is one line, and the sprite is a billboard
+  with four cardinal facings -- profile, mirror, front and back -- which is what a
+  board with no yaw can honestly promise)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a
@@ -3208,9 +3294,15 @@ Generators to sit on top of the core, in the order they become useful:
   `out/index.html` -- a page rather than a window, because the interface of a
   generator set is the build and the build already describes itself in sidecars; the
   cards are the manifest, the gate's verdict is on the page in the gate's own words,
-  and the credits travel with it)*; ~~live regeneration from the view~~ *(open, and
-  it is a build watcher rather than a second interface: a page that could also make
-  things would need a second copy of every default)*.
+  and the credits travel with it)*; ~~a workbench that can also make things~~ *(done:
+  `studio/` -- a local `http.server` page whose form is generated from a catalog of
+  CLI subcommands and fields, whose render runs `python cli.py <command> --out
+  out/studio/<token>/...`, and whose result is the real files plus the command that
+  reproduces them.  There is no second generator and no second default: a field is a
+  flag.  The server binds to localhost, serializes heavy renders, and only serves
+  files from its own token directory.  The guide is `docs/GUIDE.md`)*; ~~live
+  regeneration from the view~~ *(open, and it is a build watcher that re-runs `demo`
+  and reloads the page, not a second interface with its own idea of a parameter)*.
 
 ## Licensing notes
 

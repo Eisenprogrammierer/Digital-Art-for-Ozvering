@@ -16,13 +16,17 @@
     outline, one art set.  The far side is offset and wears a shadow of its own
     material, which is the whole of depth in a flat drawing.
 ``figure``
-    The seed and the canvas: ``render(seed, cycle, phase, size)``,
+    The seed and the canvas: ``render(seed, cycle, phase, size, facing)``,
     ``frames(...)`` for a whole cycle, and ``describe(seed)`` for the table that
-    says what the picture is made of.
+    says what the picture is made of.  ``FACINGS`` is ``right``, ``left``, ``up``
+    and ``down``.
 
-A figure is drawn in **side view**, so its two limbs are *near* and *far* rather
-than left and right, and it is drawn in **world units** -- one unit across the
-sprite box -- so the same figure is 32 px or 256 px without being resampled.
+The rig is drawn in **side view**, so its two limbs are *near* and *far* rather
+than left and right.  The front and back facings keep the same rig and ask
+``body`` to put the joints on two sides instead of two depths; ``left`` is the
+finished right sprite mirrored.  A figure is drawn in **world units** -- one unit
+across the sprite box -- so the same figure is 32 px or 256 px without being
+resampled.
 
 Typical use::
 

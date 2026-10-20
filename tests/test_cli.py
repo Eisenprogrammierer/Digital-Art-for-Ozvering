@@ -35,13 +35,15 @@ def test_the_site_command_writes_a_picture_and_its_sidecar():
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "site.png"
         assert _run("site", "--out", out, "--seed", 7, "--size", 24,
-                    "--cols", 4, "--rows", 3, "--flat") == 0
+                    "--cols", 4, "--rows", 3, "--flat",
+                    "--river-fraction", "0.88") == 0
         assert out.is_file() and out.stat().st_size > 0
         meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
         assert meta["source"] == "procedural:gen.maps.site"
         assert meta["seed"] == 7
         assert meta["cols"] == 4 and meta["rows"] == 3
         assert meta["panels"] == ["flat"]
+        assert meta["river_fraction"] == 0.88
 
 
 def test_the_iso_command_puts_the_hero_on_the_hex_it_was_given():
@@ -50,13 +52,94 @@ def test_the_iso_command_puts_the_hero_on_the_hex_it_was_given():
         out = Path(tmp) / "iso.png"
         assert _run("iso", "--out", out, "--seed", 7, "--size", 28,
                     "--cols", 5, "--rows", 4, "--hero", "1,2",
-                    "--levels", "5") == 0
+                    "--levels", "5", "--facing", "left") == 0
         assert out.is_file() and out.stat().st_size > 0
         meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
         assert meta["source"] == "procedural:gen.maps.iso"
         assert meta["levels"] == 5
+        assert meta["facing"] == "left"
         assert meta["hero"]["row"] == 1 and meta["hero"]["col"] == 2
         assert meta["hero"]["seed"] == 7
+        assert meta["hero"]["facing"] == "left"
+        for key in ("hero_size", "lattice", "foam", "span", "mix"):
+            assert key in meta, key
+
+
+def test_the_iso_command_refuses_a_hero_in_the_water():
+    """A hex named on argv is checked against the map; the sea is not a typo.
+
+    The error is a one-line ``SystemExit`` with the reason, not an ``IndexError``
+    from the projection and not a picture of a figure standing on the lake.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "iso.png"
+        try:
+            _run("iso", "--out", out, "--seed", 7, "--size", 28,
+                 "--cols", 5, "--rows", 4, "--hero", "1,0")
+        except SystemExit as exc:
+            assert "water" in str(exc)
+        else:
+            raise AssertionError("the board accepted a hero in the water")
+        assert not out.exists()
+
+
+def test_the_blazon_command_writes_a_sidecar_the_gate_can_read():
+    """A coat is an asset, so its sidecar needs the same envelope as every other.
+
+    ``blazon`` prints the text and draws the shield; without a ``source`` and a
+    ``license`` the file would make the licensing gate reject a build that only
+    contains a coat the generator made.  This is the one command whose sidecar was
+    hand-written rather than passed through ``_sidecar``.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "blazon.png"
+        assert _run("blazon", "--seed", 5, "--out", out) == 0
+        assert out.is_file()
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["source"] == "procedural:gen.heraldry.blazon.random_arms"
+        assert meta["license"] == "MIT"
+        assert meta["seed"] == 5
+
+
+def test_the_studio_command_passes_its_options_through():
+    """The studio is the one command that blocks; its wiring is still a wire.
+
+    The server is tested on its own (``tests/test_studio.py``); this test replaces
+    ``serve`` for the duration of the call, so it can check that the parser's four
+    options reach it without opening a socket or a browser.
+    """
+    import studio.server as studio_server
+
+    calls = {}
+    original = studio_server.serve
+
+    def fake_serve(**kwargs):
+        calls.update(kwargs)
+
+    studio_server.serve = fake_serve
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            assert _run("studio", "--host", "127.0.0.1", "--port", "8123",
+                        "--root", tmp, "--no-browser") == 0
+            assert calls["host"] == "127.0.0.1"
+            assert calls["port"] == 8123
+            assert Path(calls["root"]) == Path(tmp)
+            assert calls["open_browser"] is False
+    finally:
+        studio_server.serve = original
+
+
+def test_the_figures_command_passes_the_facing_through():
+    """Facing is a new axis and the parser is the only place it can get lost."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "figures.png"
+        assert _run("figures", "--out", out, "--seed", 7, "--size", 32,
+                    "--count", 2, "--cols", 2, "--cycle", "idle",
+                    "--facing", "down") == 0
+        assert out.is_file() and out.stat().st_size > 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["facing"] == "down"
+        assert meta["tiles"] == 2
 
 
 def test_the_grounds_command_passes_the_mip_count_through():

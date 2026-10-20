@@ -35,7 +35,7 @@ from pathlib import Path
 
 from core import credits as creditslib
 
-__all__ = ["PAGE_NAME", "CSS", "read", "build", "write"]
+__all__ = ["PAGE_NAME", "CSS", "read", "build", "write", "stats"]
 
 #: The file a build carries its gallery in.  Not a picture and not a sidecar: it is
 #: the index of the others, and the licensing gate does not ask it for provenance.
@@ -342,3 +342,24 @@ def write(directory, path=None, **kw) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(build(directory, **kw), encoding="utf-8")
     return path
+
+
+def stats(directory) -> dict:
+    """The page's size and the build's pictures, measured rather than remembered.
+
+    The README used to carry three byte counts, and every increment with a new
+    picture made them a small lie.  A number that a command can print does not
+    belong in prose: this returns the linked page, the embedded page, the pictures
+    both of them carry and the cards they become, so a release note can ask for it
+    and a test can hold it to the same build.
+    """
+    directory = Path(directory)
+    records = read(directory)
+    pictures = sum(p.stat().st_size for p in directory.iterdir()
+                   if p.is_file() and p.suffix in MIME)
+    return {
+        "cards": len(records),
+        "pictures_bytes": int(pictures),
+        "linked_bytes": len(build(directory, embed=False).encode("utf-8")),
+        "embed_bytes": len(build(directory, embed=True).encode("utf-8")),
+    }

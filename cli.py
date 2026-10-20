@@ -25,6 +25,7 @@ Usage
     python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --provinces 8 --factions 4
     python cli.py site       --out out/site.png --seed 7 --size 56     # one site, two views
     python cli.py iso        --out out/iso.png  --seed 7 --cols 11 --rows 8  # a board + a hero
+    python cli.py studio     --port 8000                  # the same generators, in a browser
     python cli.py coast      --out out/coast-tiles.png --size 20  # & borders.png, in use
     python cli.py credits    --out out --manifest out
     python cli.py credits    --manifest out --png out/credits.png
@@ -853,7 +854,8 @@ def demo_anim(out: Path, seed: int = 7, count: int = 12, size: int = 200,
 
 
 def demo_figures(out: Path, seed: int = 7, count: int = 8, size: int = 96,
-                 cols: int = 8, fps: float = 12.0, cycle: str = "walk") -> Path:
+                 cols: int = 8, fps: float = 12.0, cycle: str = "walk",
+                 facing: str = "right") -> Path:
     """Sprite sheet of one figure's gait: the frames, the table and the timeline.
 
     A figure is not a set of drawings of a person.  It is *one* body -- proportions,
@@ -870,12 +872,15 @@ def demo_figures(out: Path, seed: int = 7, count: int = 8, size: int = 96,
     """
     if cycle not in figurelib.cycles():
         raise SystemExit(f"no such cycle: {cycle!r} (have {', '.join(figurelib.cycles())})")
-    frames, phases = figurelib.frames(seed=seed, cycle=cycle, count=count, size=size)
+    if facing not in figurelib.FACINGS:
+        raise SystemExit(f"a figure faces {', '.join(figurelib.FACINGS)}; not {facing!r}")
+    frames, phases = figurelib.frames(seed=seed, cycle=cycle, count=count, size=size,
+                                      facing=facing)
     sheet, info = sheetlib.build(frames, cols=cols, padding=2, fps=fps, loop=True,
                                  params=phases, background=None)
     sheet.save(out)
     _sidecar(out, seed, "procedural:gen.figures.figure.frames", cycle=cycle,
-             tiles=int(count), figure=figurelib.describe(seed), **info)
+             facing=facing, tiles=int(count), figure=figurelib.describe(seed), **info)
     return _report(out)
 
 
@@ -904,7 +909,12 @@ def demo_blazon(seed: int = 5, spec_path: Path | None = None, out: Path | None =
         _report(out)
         meta = out.with_suffix(".json")
         meta.write_text(
-            json.dumps({"seed": seed, "spec": spec}, indent=2, ensure_ascii=False) + "\n",
+            json.dumps({
+                "seed": seed,
+                "source": "procedural:gen.heraldry.blazon.random_arms",
+                "license": "MIT",
+                "spec": spec,
+            }, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         _report(meta)
@@ -1817,7 +1827,8 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True,
 
 
 def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
-              rows: int = 6, flat: bool = False) -> Path:
+              rows: int = 6, flat: bool = False,
+              river_fraction: float | None = None) -> Path:
     """One site twice: the biome's colour, and the ground the hex wears.
 
     The two panels are the same geography and the same seed, so the difference is the
@@ -1831,7 +1842,9 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
     # The map's own river quantile leaves a 48-cell site with no river at all; a site
     # is a *place*, and the demo opens the fraction a little so the picture has the
     # stream the module can draw.  The sidecar records it, so the number is not hidden.
-    river = dict(river_fraction=0.90)
+    # A caller can ask for another fraction without abandoning the demo's framing.
+    river = dict(river_fraction=0.90 if river_fraction is None
+                 else float(river_fraction))
     flat_panel = map_site.site_image(seed=seed, cols=cols, rows=rows, size=size,
                                      grounds=False, **river)
     panels = [("flat", flat_panel,
@@ -1877,7 +1890,7 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
 def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
               size: int = 46, sea: float = 0.16, rise: float = 2.5,
               levels: int = 7, hero=None, hero_seed: int | None = None,
-              cycle: str = "idle") -> Path:
+              cycle: str = "idle", facing: str = "right") -> Path:
     """One board from the south: the same hexes as the site, standing up with a hero.
 
     The geography is :mod:`gen.maps.terrain`'s, asked for a *land* board: the strategic
@@ -1887,7 +1900,9 @@ def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
 
     The hero is a figure sprite, not a new kind of drawing: ``gen.figures`` already
     knows how a person stands, and the board only has to say where the ground is.  He
-    gets his own seed so a sheet of boards can keep one hero while the maps change.
+    gets his own seed so a sheet of boards can keep one hero while the maps change,
+    and a facing -- right or left across the board, down towards the camera or up away
+    from it -- so the same body can walk in all four directions.
     """
     grid = map_grid.HexGrid(cols, rows, size)
     f = map_terrain.fields(grid, seed=seed, sea_fraction=sea, edge=0.0)
@@ -1898,7 +1913,7 @@ def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
     board = map_iso.iso_image(seed=seed, cols=cols, rows=rows, size=size,
                               sea_fraction=sea, edge=0.0, rise=rise,
                               levels=levels, hero=hero, hero_seed=hero_seed,
-                              cycle=cycle)
+                              cycle=cycle, facing=facing)
     head, foot, margin = 96, 62, 34
     page = Canvas(board.w + 2 * margin, board.h + head + foot + margin,
                   scale=1.0, y_up=False, background=(0.90, 0.90, 0.93))
@@ -1922,20 +1937,24 @@ def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
         ground = "no land to stand on -- the board is all sea"
     else:
         ground = (f"the hero stands on row {hero[0]}, column {hero[1]} "
-                  f"(figure seed {hero_seed}, {cycle})")
+                  f"(figure seed {hero_seed}, {cycle}, facing {facing})")
     _label(img, (margin, head + board.h + 8), ground, font=_font(13))
     _label(img, (margin, head + board.h + 30),
-           "a side view is what a board with no yaw can promise; the faces are the "
-           "earth a cliff exposes", font=_font(12), plate=None, dark=(78, 78, 88, 255))
+           "four cardinal facings are what a board with no yaw can promise; the "
+           "faces are the earth a cliff exposes", font=_font(12), plate=None,
+           dark=(78, 78, 88, 255))
     img.save(out, "PNG", optimize=True)
 
     _sidecar(out, seed, "procedural:gen.maps.iso",
              cols=cols, rows=rows, size=size,
              squash=map_iso.SQUASH, rise=rise, levels=levels,
              sea_fraction=sea, edge=0.0,
+             span=map_site.SPAN, mix=map_site.MIX,
+             hero_size=map_iso.HERO_SIZE, lattice=map_iso.LATTICE,
+             foam=map_iso.FOAM, facing=facing,
              hero=None if hero is None else {
                  "row": int(hero[0]), "col": int(hero[1]),
-                 "seed": hero_seed, "cycle": cycle},
+                 "seed": hero_seed, "cycle": cycle, "facing": facing},
              for_biome=dict(sorted(tex_ground.FOR_BIOME.items())))
     return _report(out)
 
@@ -2038,11 +2057,22 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--out", default="out", type=Path)
     d.add_argument("--seed", type=int, default=7)
 
+    su = sub.add_parser("studio", help="a local browser workbench for making assets")
+    su.add_argument("--host", default="127.0.0.1",
+                    help="interface to bind; the default is this machine only")
+    su.add_argument("--port", type=int, default=8000, help="0 asks the OS for a free port")
+    su.add_argument("--root", default=Path("out/studio"), type=Path,
+                    help="where renders are written")
+    su.add_argument("--no-browser", action="store_true",
+                    help="do not open a browser window")
+
     w = sub.add_parser("gallery", help="the build as one page: every sheet, its numbers, its command")
     w.add_argument("--manifest", default=Path("out"), type=Path)
     w.add_argument("--out", default=None, type=Path, help="default: <manifest>/index.html")
     w.add_argument("--embed", action="store_true",
                    help="inline the pictures, so the page travels as one file")
+    w.add_argument("--stats", action="store_true",
+                   help="print the page and picture sizes instead of writing the page")
     w.add_argument("--title", default="ozart build")
 
     f = sub.add_parser("figures", help="sprite sheet of one figure's cycle")
@@ -2053,6 +2083,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--size", type=int, default=96)
     f.add_argument("--cols", type=int, default=8)
     f.add_argument("--fps", type=float, default=12.0)
+    f.add_argument("--facing", default="right", choices=figurelib.FACINGS,
+                   help="right/left across the screen, down towards the camera, up away")
 
     i = sub.add_parser("icons", help="icon set, seeds, size sweep and a packed atlas")
     i.add_argument("--out", default="out/icons.png", type=Path)
@@ -2170,6 +2202,8 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--rows", type=int, default=6)
     st.add_argument("--flat", action="store_true",
                     help="the biome colour only, without the ground")
+    st.add_argument("--river-fraction", type=float, default=None,
+                    help="the drainage quantile a river needs (default: 0.90 for the demo)")
 
     iso = sub.add_parser("iso", help="an isometric board: terraced hexes and a hero")
     iso.add_argument("--out", default="out/iso.png", type=Path)
@@ -2188,6 +2222,8 @@ def build_parser() -> argparse.ArgumentParser:
     iso.add_argument("--hero-seed", type=int, default=None,
                      help="the figure's own seed (default: the map's)")
     iso.add_argument("--cycle", default="idle", choices=figurelib.cycles())
+    iso.add_argument("--facing", default="right", choices=figurelib.FACINGS,
+                     help="right/left across the screen, down towards the camera, up away")
 
     tx = sub.add_parser("text", help="the generated typeface: specimen sheet and font metrics")
     tx.add_argument("--out", default="out/text.png", type=Path)
@@ -2284,12 +2320,20 @@ def main(argv=None) -> int:
     elif args.cmd == "anim":
         demo_anim(args.out, seed=args.seed, count=args.count, size=args.size,
                   cols=args.cols, fps=args.fps, padding=args.padding)
+    elif args.cmd == "studio":
+        from studio.server import serve
+        serve(host=args.host, port=args.port, root=args.root,
+              open_browser=not args.no_browser)
     elif args.cmd == "gallery":
+        if args.stats:
+            print(json.dumps(gallerylib.stats(args.manifest), indent=2, sort_keys=True))
+            return 0
         out = args.out if args.out is not None else args.manifest / gallerylib.PAGE_NAME
         _report(gallerylib.write(args.manifest, out, title=args.title, embed=args.embed))
     elif args.cmd == "figures":
         demo_figures(args.out, seed=args.seed, cycle=args.cycle, count=args.count,
-                     size=args.size, cols=args.cols, fps=args.fps)
+                     size=args.size, cols=args.cols, fps=args.fps,
+                     facing=args.facing)
     elif args.cmd == "blazon":
         demo_blazon(seed=args.seed, spec_path=args.spec, out=args.out, shield=args.shield)
     elif args.cmd == "portrait":
@@ -2330,12 +2374,19 @@ def main(argv=None) -> int:
                      atlas=not args.no_atlas, mips=args.mips)
     elif args.cmd == "site":
         demo_site(args.out, seed=args.seed, size=args.size, cols=args.cols,
-                  rows=args.rows, flat=args.flat)
+                  rows=args.rows, flat=args.flat,
+                  river_fraction=args.river_fraction)
     elif args.cmd == "iso":
-        demo_iso(args.out, seed=args.seed, cols=args.cols, rows=args.rows,
-                 size=args.size, sea=args.sea, rise=args.rise, levels=args.levels,
-                 hero=None if args.hero is None else _rc(args.hero),
-                 hero_seed=args.hero_seed, cycle=args.cycle)
+        try:
+            demo_iso(args.out, seed=args.seed, cols=args.cols, rows=args.rows,
+                     size=args.size, sea=args.sea, rise=args.rise, levels=args.levels,
+                     hero=None if args.hero is None else _rc(args.hero),
+                     hero_seed=args.hero_seed, cycle=args.cycle,
+                     facing=args.facing)
+        except ValueError as exc:
+            # A named hex can be off the board or in the water.  That is a user
+            # mistake with a one-line answer, not a traceback.
+            raise SystemExit(f"iso: {exc}") from None
     elif args.cmd == "credits":
         if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))

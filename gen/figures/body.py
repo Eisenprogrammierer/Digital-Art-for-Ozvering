@@ -110,15 +110,84 @@ def _mid(a, b, t: float = 0.5) -> tuple:
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
 
-def parts(pts: dict, st: dict) -> dict:
+#: How far a hip and a shoulder stand off the centre line in a front or back view,
+#: as fractions of the figure's height.  The side view has no such distance: its
+#: near and far limbs are the same limb at two depths.  A front view has a left and
+#: a right, and these are the smallest numbers that read as shoulders and hips at
+#: 32 px without turning the figure into a starfish.
+FACE_HIP = 0.070
+FACE_SHOULDER = 0.095
+
+
+def _facing(pts: dict, view: str) -> dict:
+    """Arrange the side rig's joints as a front or a back view.
+
+    The rig is a side view on purpose: the near and far limbs are a depth cue, not
+    a left and a right.  A board, however, asks for four directions, and the two
+    the side view cannot answer are *towards* and *away* from the camera.  The
+    skeleton is the same person either way, so the view is a change of the joint
+    positions and not a second rig: the torso is centred, each pair of limbs is
+    given a side, and the gait's forward swing becomes the small vertical step it
+    would be seen as head-on.  The head is the one part that needs new geometry,
+    and :func:`parts` draws it.
+    """
+    cx = pts["pelvis"][0]
+    out = dict(pts)
+    for name in ("pelvis", "chest", "neck", "head"):
+        _x, y = pts[name]
+        out[name] = (cx, y)
+    for side, sign in (("near", 1.0), ("far", -1.0)):
+        # Facing away swaps the viewer's left and right: the figure's near side is
+        # on the viewer's left when the figure has turned its back.
+        if view == "back":
+            sign = -sign
+        hx = cx + sign * FACE_HIP * HEIGHT
+        _x, hy = pts["hip_" + side]
+        out["hip_" + side] = (hx, hy)
+        _x, ky = pts["knee_" + side]
+        kx = hx + sign * 0.008 * HEIGHT
+        out["knee_" + side] = (kx, ky)
+        _x, ay = pts["foot_" + side]
+        ax = kx + sign * 0.006 * HEIGHT
+        out["foot_" + side] = (ax, ay)
+        _x, ty = pts["toe_" + side]
+        out["toe_" + side] = (ax + sign * 0.020 * HEIGHT, ty)
+        sx = cx + sign * FACE_SHOULDER * HEIGHT
+        _x, sy = pts["shoulder_" + side]
+        out["shoulder_" + side] = (sx, sy)
+        _x, ey = pts["elbow_" + side]
+        ex = sx + sign * 0.010 * HEIGHT
+        out["elbow_" + side] = (ex, ey)
+        _x, hy2 = pts["hand_" + side]
+        out["hand_" + side] = (ex + sign * 0.004 * HEIGHT, hy2)
+    return out
+
+
+def parts(pts: dict, st: dict, view: str = "side") -> dict:
     """The shapes of one pose, in world units: ``{name: Shape}``.
 
     Every part is a spine with a width, so a pose is drawn by handing this function
     a different set of joint positions and nothing else changes -- which is the
     whole reason the rig, the cycle and the drawing are three modules.
+
+    ``view`` is ``side``, ``front`` or ``back``.  A side view is the rig's own; a
+    front or back view first moves the joints with :func:`_facing`, widens the
+    torso a little because a chest seen head-on is wider than one seen in profile,
+    and draws a head with no nose.  The front and back heads differ only in what
+    the hair covers -- a hairline and a face, or a whole head of hair -- because a
+    figure at this size has no face to turn; the silhouette has to do the work.
     """
+    if view not in ("side", "front", "back"):
+        raise ValueError(f"a figure is seen from the side, front or back, not {view!r}")
+    if view != "side":
+        pts = _facing(pts, view)
     k = float(st["width"])
     w = {name: float(v) * HEIGHT * k for name, v in WIDTH.items()}
+    if view != "side":
+        w["chest"] *= 1.24
+        w["waist"] *= 1.08
+        w["skirt"] *= 1.12
+        w["head_x"] *= 1.06
     out = {}
 
     for side in ("near", "far"):
@@ -171,24 +240,54 @@ def parts(pts: dict, st: dict) -> dict:
     out["neck"] = shape.lock([_mid(chest, neck, 1.0), _mid(head, neck, 0.35)],
                              w0=w["neck"] * 1.05, w1=w["neck"] * 0.85)
     rx, ry = 0.5 * w["head_x"], 0.5 * w["head_y"]
-    skull = shape.ellipse(rx, ry, head[0], head[1]) \
-        | shape.lock([head, (head[0] + rx * 0.52, head[1] - ry * 0.62)],
-                     w0=ry * 0.88, w1=ry * 0.52) \
-        | shape.circle(0.13 * ry, head[0] + rx * 0.92, head[1] - ry * 0.02)
-    out["head"] = skull
-    # The hair is one closed loop over the crown and the nape whose lower edge
-    # crosses the forehead: the line it draws there *is* the hairline, so the fringe
-    # costs no second shape and the face is whatever the loop does not cover.
-    out["hair"] = shape.poly(shape.smooth_loop([
-        (head[0] + rx * 0.58, head[1] + ry * 0.50),
-        (head[0] - rx * 0.02, head[1] + ry * 1.15),
-        (head[0] - rx * 0.90, head[1] + ry * 0.70),
-        (head[0] - rx * 1.20, head[1] - ry * 0.05),
-        (head[0] - rx * 1.00, head[1] - ry * 0.80),
-        (head[0] - rx * 0.30, head[1] - ry * 1.00),
-        (head[0] - rx * 0.25, head[1] - ry * 0.55),
-        (head[0] - rx * 0.12, head[1] - ry * 0.02),
-    ], per_segment=6, resample=72))
+    if view == "side":
+        skull = shape.ellipse(rx, ry, head[0], head[1]) \
+            | shape.lock([head, (head[0] + rx * 0.52, head[1] - ry * 0.62)],
+                         w0=ry * 0.88, w1=ry * 0.52) \
+            | shape.circle(0.13 * ry, head[0] + rx * 0.92, head[1] - ry * 0.02)
+        out["head"] = skull
+        # The hair is one closed loop over the crown and the nape whose lower edge
+        # crosses the forehead: the line it draws there *is* the hairline, so the
+        # fringe costs no second shape and the face is whatever the loop does not
+        # cover.
+        out["hair"] = shape.poly(shape.smooth_loop([
+            (head[0] + rx * 0.58, head[1] + ry * 0.50),
+            (head[0] - rx * 0.02, head[1] + ry * 1.15),
+            (head[0] - rx * 0.90, head[1] + ry * 0.70),
+            (head[0] - rx * 1.20, head[1] - ry * 0.05),
+            (head[0] - rx * 1.00, head[1] - ry * 0.80),
+            (head[0] - rx * 0.30, head[1] - ry * 1.00),
+            (head[0] - rx * 0.25, head[1] - ry * 0.55),
+            (head[0] - rx * 0.12, head[1] - ry * 0.02),
+        ], per_segment=6, resample=72))
+        return out
+
+    # A head seen head-on has no nose: the profile's nose is the one feature that
+    # would turn a front view back into a side view.  The jaw is a second, lower
+    # ellipse, because a single oval reads as an egg at this size.
+    out["head"] = shape.ellipse(rx, ry, head[0], head[1]) \
+        | shape.ellipse(rx * 0.78, ry * 0.46, head[0], head[1] - ry * 0.48)
+    if view == "front":
+        # A cap with a fringe: the face is the skin the loop leaves uncovered.  The
+        # loop is the same idea as the side view's hairline, asked of a head that
+        # has two temples instead of a profile.
+        out["hair"] = shape.poly(shape.smooth_loop([
+            (head[0] - rx * 1.06, head[1] + ry * 0.08),
+            (head[0] - rx * 0.92, head[1] + ry * 0.78),
+            (head[0], head[1] + ry * 1.10),
+            (head[0] + rx * 0.92, head[1] + ry * 0.78),
+            (head[0] + rx * 1.06, head[1] + ry * 0.08),
+            (head[0] + rx * 0.72, head[1] + ry * 0.30),
+            (head[0], head[1] + ry * 0.18),
+            (head[0] - rx * 0.72, head[1] + ry * 0.30),
+        ], per_segment=6, resample=72))
+    else:
+        # The back of a head is the whole head of hair, with a small bun at the
+        # crown to say which side of the skull the hair is tied on.  No face: there
+        # is nothing to see from here, and a pair of eyes on the back would be a
+        # worse lie than a silhouette.
+        out["hair"] = shape.ellipse(rx * 1.07, ry * 1.05, head[0], head[1]) \
+            | shape.ellipse(rx * 0.30, ry * 0.30, head[0], head[1] + ry * 0.92)
     return out
 
 
@@ -202,13 +301,18 @@ def to_world(points_fig: dict, height: float = HEIGHT) -> dict:
     return {name: (x * height, (y - 0.5) * height) for name, (x, y) in points_fig.items()}
 
 
-def paint(canvas, pts: dict, st: dict, ground: float | None = None) -> None:
+def paint(canvas, pts: dict, st: dict, ground: float | None = None,
+          view: str = "side") -> None:
     """Fill, band and ink every part, far side first.
 
     The order is the depth order and it is fixed: a far limb is never in front of a
-    near one whatever the pose, because that is what "near" means.
+    near one whatever the pose, because that is what "near" means.  In a front or
+    back view there is no far limb -- both are at the same depth -- so both are
+    painted in their own colour and the draw order alone decides which overlaps
+    which.
     """
-    p = parts(pts, st)
+    p = parts(pts, st, view=view)
+    side = view == "side"
     light = st["light"]
     line = float(st["line_px"]) / max(float(canvas.scale), 1e-6)
     bevel = float(st["bevel_px"]) / max(float(canvas.scale), 1e-6)
@@ -236,9 +340,10 @@ def paint(canvas, pts: dict, st: dict, ground: float | None = None) -> None:
     brush.paint(canvas, shape.ellipse(0.24 * HEIGHT, ry, pts["pelvis"][0], cy),
                 (0.06, 0.06, 0.09), alpha=0.22, soft=2.0)
 
-    fill(p["leg_far"], st["hose"], depth=0.12, far=True)
-    fill(p["boot_far"], st["leather"], depth=0.12, far=True)
-    fill(p["sleeve_far"] | p["forearm_far"] | p["hand_far"], st["skin"], depth=0.12, far=True)
+    fill(p["leg_far"], st["hose"], depth=0.12 if side else 0.0, far=side)
+    fill(p["boot_far"], st["leather"], depth=0.12 if side else 0.0, far=side)
+    fill(p["sleeve_far"] | p["forearm_far"] | p["hand_far"], st["skin"],
+         depth=0.12 if side else 0.0, far=side)
 
     fill(p["tunic"] | p["skirt"], st["cloth"])
     fill(p["belt"], st["belt"])

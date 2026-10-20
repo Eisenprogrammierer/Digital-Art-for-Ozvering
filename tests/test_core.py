@@ -786,6 +786,21 @@ def test_a_clean_build_passes_the_gate():
         assert credits.check(str(d)) == [], "a str directory is not a Path"
 
 
+def test_the_credits_writer_accepts_a_build_directory():
+    """``--out out`` is the natural way to ask for ``out/credits.txt``.
+
+    The command used to take a file path while its help and the guide said "write
+    credits.txt here", so the guide's own example failed with ``IsADirectoryError``.
+    A directory is now a directory; a file path still names the file.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _build(tmp)
+        (d / credits.TEXT_NAME).unlink()
+        path = credits.write(d, d)
+        assert path == d / credits.TEXT_NAME
+        assert path.is_file() and "Attribution" in path.read_text(encoding="utf-8")
+
+
 def test_the_gate_reports_an_asset_nobody_recorded():
     """A picture with no sidecar is an asset whose provenance is unknown.
 

@@ -46,8 +46,9 @@ rather than the biome's, because what a cliff *exposes* is not what grows on it.
 The hero is a figure sprite from :mod:`gen.figures`, standing on the middle of a hex.
 It is drawn after the row it stands in and before the rows in front of it, which is
 the whole of the depth rule: a hill nearer the camera may hide it, a hill behind it
-may not.  The sprite is a side view, and on a board with no yaw that is the honest
-view -- a three-quarter figure would promise a camera the projection does not have.
+may not.  The sprite is a billboard with four cardinal facings -- profile, mirror,
+front and back -- which is what a board with no yaw can honestly promise; a
+three-quarter figure would promise a camera the projection does not have.
 """
 from __future__ import annotations
 
@@ -219,6 +220,7 @@ def iso_image(
     hero_seed: int | None = None,
     cycle: str = "idle",
     phase: float = 0.0,
+    facing: str = "right",
     lattice: float = LATTICE,
     foam: float = FOAM,
     levels: int = 7,
@@ -229,8 +231,11 @@ def iso_image(
     ``kw`` goes to :func:`gen.maps.terrain.fields`, so the geography is the same
     geography ``map`` and ``site`` draw at the same seed and shape.  ``hero`` is a
     ``(row, col)`` to stand the figure on; ``None`` asks :func:`hero_cell` for the
-    nearest plain to the middle.  ``hero_seed`` is the figure's own seed, so changing
-    the map without changing the hero is a different number and not a different call.
+    nearest plain to the middle, and a named hex must be on the map and on land.
+    ``hero_seed`` is the figure's own seed, so changing the map without changing the
+    hero is a different number and not a different call.  ``facing`` is ``right`` or
+    ``left`` across the screen, ``down`` towards the camera and ``up`` away from it;
+    :data:`gen.figures.figure.FACINGS` is the whole set.
 
     ``squash`` and ``rise`` are the camera: the first is dimensionless and the second
     is a fraction of the hex size per unit of height, which is why the same board can
@@ -258,8 +263,12 @@ def iso_image(
         hero = (int(hero[0]), int(hero[1]))
         if not (0 <= hero[0] < grid.rows and 0 <= hero[1] < grid.cols):
             raise ValueError(f"the hero's hex {hero} is off a {grid.rows}x{grid.cols} map")
+        if f["water"][hero]:
+            raise ValueError(f"the hero's hex {hero} is water; a figure needs land")
+    if facing not in figure.FACINGS:
+        raise ValueError(f"a hero faces {', '.join(figure.FACINGS)}; not {facing!r}")
     hero_seed = int(seed) if hero_seed is None else int(hero_seed)
-    sprite = (figure.render(seed=hero_seed, cycle=cycle, phase=phase,
+    sprite = (figure.render(seed=hero_seed, cycle=cycle, phase=phase, facing=facing,
                             size=max(int(round(hero_size * size)), 16))
               if hero is not None else None)
     sprite_box = None
