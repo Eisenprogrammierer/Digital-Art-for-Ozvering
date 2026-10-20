@@ -25,11 +25,12 @@ import numpy as np
 
 from core import palette
 
-from . import demography
+from . import demography, phenotype
 from . import style as style_mod
 
 __all__ = [
-    "GENES", "CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES", "DEMOGRAPHIC",
+    "GENES", "CATEGORICAL", "LEGACY_CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
+    "DEMOGRAPHIC", "MORPH", "PIGMENT", "PHENOTYPE_CATEGORIES",
     "random_genes", "quantise", "encode", "decode", "breed", "mutate",
     "apply_to", "describe", "EXPRESSIONS", "HAIR_STYLES",
 ]
@@ -39,7 +40,10 @@ EXPRESSIONS = ("neutral", "smile", "grin", "surprised", "sad", "angry", "smug", 
 #: Hairstyles the hair pass knows how to build.
 HAIR_STYLES = ("short", "bob", "long", "hime", "twin", "pony", "spiky", "wild")
 
-CATEGORICAL = ("style", "hair_style", "expression")
+#: The three original categories.  They stay first in the wire format even though
+#: the phenotype categories below are also categorical, because a saved genome is
+#: a stable contract first and a pretty string second.
+LEGACY_CATEGORICAL = ("style", "hair_style", "expression")
 COLOUR_GENES = ("skin", "hair", "iris", "cloth")
 SHAPE_GENES = (
     "turn", "head_w", "head_len", "jaw", "eye_w", "eye_h", "eye_gap", "eye_tilt",
@@ -47,11 +51,18 @@ SHAPE_GENES = (
     "lash", "hair_len", "bang_n",
 )
 #: Portrait state that is not a mood or a hairstyle.  Appended after the shape
-#: genes so an older DNA string can still be read: the demographic genes are
-#: optional on input and defaulted by :func:`decode`, while every legacy gene is
-#: still required.
+#: genes so an older DNA string can still be read: the demographic and phenotype
+#: genes are optional on input and defaulted by :func:`decode`, while every legacy
+#: gene is still required.
 DEMOGRAPHIC = ("sex", "age", "climate", "culture")
-GENES = CATEGORICAL + COLOUR_GENES + SHAPE_GENES + DEMOGRAPHIC
+PHENOTYPE_CATEGORIES = tuple(phenotype.CATEGORIES)
+MORPH = phenotype.MORPH
+PIGMENT = phenotype.PIGMENT
+CATEGORICAL = LEGACY_CATEGORICAL + PHENOTYPE_CATEGORIES
+#: Appended order is the compatibility contract: the first four groups are the
+#: old genome, and every new gene after them is optional when decoding.
+GENES = (LEGACY_CATEGORICAL + COLOUR_GENES + SHAPE_GENES + DEMOGRAPHIC
+         + PHENOTYPE_CATEGORIES + MORPH + PIGMENT)
 
 #: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
 _SHAPE_MODS = {
@@ -219,6 +230,10 @@ def random_genes(seed=0) -> dict:
     g["age"] = str(rng.choice(demography.AGES, p=(0.10, 0.26, 0.40, 0.16, 0.08)))
     g["climate"] = climate
     g["culture"] = str(rng.choice(demography.CULTURES))
+    # The phenotype layer is drawn last so the wire order is append-only.  Its
+    # categories and continuous axes are generated in one place, which is also the
+    # one place a new variant has to be added.
+    g.update(phenotype.random_values(rng))
     return g
 
 
@@ -251,13 +266,16 @@ def decode(text: str) -> dict:
             out[key] = value.strip()
         else:
             out[key] = quantise(float(value))
-    missing = [k for k in CATEGORICAL + COLOUR_GENES + SHAPE_GENES if k not in out]
+    missing = [k for k in LEGACY_CATEGORICAL + COLOUR_GENES + SHAPE_GENES if k not in out]
     if missing:
         raise ValueError(f"missing genes: {', '.join(missing)}")
-    # Old strings predate the demographic layer.  Defaulting them keeps saved
-    # dynasties readable; every legacy gene is still mandatory, so a truncated
-    # string is still an error rather than a silently different face.
+    # Old strings predate the demographic and phenotype layers.  Defaulting the
+    # missing tail keeps saved dynasties readable; every legacy gene is still
+    # mandatory, so a truncated string is still an error rather than a silently
+    # different face.
     for key, value in demography.DEFAULTS.items():
+        out.setdefault(key, value)
+    for key, value in phenotype.DEFAULTS.items():
         out.setdefault(key, value)
     if out["style"] not in style_mod.names():
         raise ValueError(f"unknown style {out['style']!r}")
@@ -273,6 +291,7 @@ def decode(text: str) -> dict:
         raise ValueError(f"unknown climate {out['climate']!r}")
     if out["culture"] not in demography.CULTURES:
         raise ValueError(f"unknown culture {out['culture']!r}")
+    phenotype.validate(out)
     return out
 
 
@@ -326,8 +345,14 @@ def mutate(genes: dict, seed=0, amount: float = 0.30, rate: float = 0.35) -> dic
                 (float(base[2]) + float(rng.normal(0.0, 0.05 * amount * 3))) % 1.0,
             ))
         elif key in CATEGORICAL:
-            pool = style_mod.names() if key == "style" else (
-                HAIR_STYLES if key == "hair_style" else EXPRESSIONS)
+            if key == "style":
+                pool = style_mod.names()
+            elif key == "hair_style":
+                pool = HAIR_STYLES
+            elif key == "expression":
+                pool = EXPRESSIONS
+            else:
+                pool = phenotype.CATEGORIES[key]
             out[key] = str(rng.choice(pool))
         elif key == "age":
             out[key] = str(rng.choice(demography.AGES))
@@ -360,47 +385,63 @@ def _clamp_params(p: dict) -> dict:
     # The head may not be narrower than the features it has to contain.
     reach = float(p["eye_dx"]) + float(p["eye_w"]) * 0.5 + 0.045
     p["head_w"] = max(float(p["head_w"]), reach)
-    p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"])), reach - 0.02)
+    p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"])), reach - 0.016)
     p["top_w"] = min(float(p["top_w"]), float(p["cheek_w"]))
     # Taper is what turns an oval into a face.  A jaw almost as wide as the
     # cheekbones reads as a mask no amount of detail can rescue, so leave room for
     # an actual jaw angle.
     p["jaw_w"] = min(max(float(p["jaw_w"]), 0.16), float(p["cheek_w"]) - 0.045)
-    p["jaw_y"] = min(float(p["jaw_y"]), -0.20)
+    p["jaw_y"] = min(max(float(p["jaw_y"]), -0.335), -0.20)
     p["chin_w"] = min(max(float(p["chin_w"]), 0.05), float(p["jaw_w"]) - 0.03)
-    p["chin_y"] = -0.500
-    p["top_y"] = min(float(p["top_y"]), 0.470)
+    # A face is allowed to be a little longer or shorter than the preset's exact
+    # one-head frame.  The bound keeps the chin inside the lower third without
+    # letting a single gene turn a headshot into a bust.
+    p["chin_y"] = float(np.clip(p["chin_y"], -0.535, -0.465))
+    p["top_y"] = float(np.clip(p["top_y"], 0.405, 0.470))
     p["wide_y"] = min(max(float(p["wide_y"]), -0.05), float(p["top_y"]) - 0.08)
     p["cheek_y"] = min(float(p["cheek_y"]), float(p["wide_y"]) - 0.05)
+    p["head_d"] = float(np.clip(p["head_d"], 0.85, 1.32))
 
     # Feature sizes, and the features fitting inside the face.
-    p["eye_w"] = max(float(p["eye_w"]), 0.10)
-    p["eye_up"] = max(float(p["eye_up"]), 0.035)
-    p["eye_down"] = max(float(p["eye_down"]), 0.028)
+    p["eye_w"] = min(max(float(p["eye_w"]), 0.10), 0.36)
+    p["eye_up"] = min(max(float(p["eye_up"]), 0.035), 0.18)
+    p["eye_down"] = min(max(float(p["eye_down"]), 0.028), 0.15)
     p["iris_r"] = min(float(p["iris_r"]), float(p["eye_w"]) * 0.55)
     p["pupil_r"] = min(float(p["pupil_r"]), float(p["iris_r"]) * 0.62)
     p["hl_r"] = min(float(p["hl_r"]), float(p["iris_r"]) * 0.62)
     p["brow_dx"] = max(float(p["brow_dx"]), float(p["eye_dx"]))
     p["brow_w"] = min(float(p["brow_w"]), 2.0 * (float(p["head_w"]) - float(p["brow_dx"]) + 0.06))
-    p["brow_w"] = max(float(p["brow_w"]), 0.09)
+    p["brow_w"] = min(max(float(p["brow_w"]), 0.09), 0.30)
 
     # The face's vertical relationships, as gaps between features.  The mouth gap
     # also has a floor above the chin: a style with a low nose and a long mouth gap
     # can otherwise put the lower lip on the jaw.
     p["brow_gap"] = float(np.clip(p["brow_gap"], 0.018, 0.085))
-    p["nose_gap"] = float(np.clip(p["nose_gap"], 0.008, 0.050))
+    p["nose_gap"] = float(np.clip(p["nose_gap"], 0.008, 0.052))
     nose_y = float(p["eye_y"]) - float(p["eye_down"]) - float(p["nose_gap"])
     mouth_room = nose_y - (float(p["chin_y"]) + 0.065)
-    p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, min(0.135, max(0.030, mouth_room))))
+    p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, min(0.140, max(0.030, mouth_room))))
     p["blush_gap"] = float(np.clip(p["blush_gap"], 0.028, 0.115))
-    p["nose_w"] = min(float(p["nose_w"]), 0.10)
-    p["mouth_w"] = min(float(p["mouth_w"]), float(p["jaw_w"]) * 0.78)
+    p["nose_w"] = float(np.clip(p["nose_w"], 0.030, 0.105))
+    p["mouth_w"] = float(np.clip(p["mouth_w"], 0.080, float(p["jaw_w"]) * 0.82))
+    p["lip_full"] = float(np.clip(p.get("lip_full", 0.0), -0.12, 0.85))
+    p["ear_size"] = float(np.clip(p.get("ear_size", 1.0), 0.65, 1.40))
+
+    # The hairline is an anchor on the skull, not a consequence of the eyes, but
+    # it still has to clear the brow.  The gap is stored so every derived style
+    # and the fringe root agree.
+    p["hairline_gap"] = float(np.clip(p.get("hairline_gap", 0.300), 0.245, 0.360))
+    p["hairline_gap"] = max(
+        p["hairline_gap"],
+        float(p["eye_up"]) + float(p["brow_gap"]) + 0.032,
+    )
 
     # The bust hangs below the chin and is wider than the neck.
-    p["neck_w"] = min(max(float(p["neck_w"]), 0.09), float(p["jaw_w"]) * 0.72)
+    p["neck_w"] = min(max(float(p["neck_w"]), 0.125), float(p["jaw_w"]) * 0.78)
     p["neck_y"] = min(float(p["neck_y"]), float(p["chin_y"]) - 0.14)
     p["shoulder_w"] = max(float(p["shoulder_w"]), float(p["neck_w"]) + 0.24)
     p["shoulder_y"] = min(float(p["shoulder_y"]), float(p["neck_y"]) - 0.30)
+    p["shoulder_slope"] = float(np.clip(p.get("shoulder_slope", 0.0), -1.0, 1.0))
     p["blush"] = float(np.clip(p["blush"], 0.0, 0.85))
     p["ink_w"] = float(np.clip(p["ink_w"], 0.008, 0.045))
     p["line"] = float(np.clip(p["line"], 0.5, 2.0))
@@ -422,15 +463,20 @@ def apply_to(st: style_mod.Style, genes: dict) -> style_mod.Style:
         for param, scale in mods:
             p[param] = float(p[param]) + amount * scale
     demography.modify(p, genes)
+    phenotype.modify(p, genes)
     return style_mod.Style(st.name, _clamp_params(p))
 
 
 def describe(genes: dict) -> str:
     """One human line summarising the genome, for contact-sheet captions."""
     skin = palette.srgb_to_hex(palette.hex_to_srgb(genes["skin"]))
+    face = genes.get("face_shape", phenotype.DEFAULTS["face_shape"])
+    eyes = genes.get("eye_shape", phenotype.DEFAULTS["eye_shape"])
+    nose = genes.get("nose_shape", phenotype.DEFAULTS["nose_shape"])
     return (
         f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
         f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
+        f" \u00b7 {face} face / {eyes} eyes / {nose} nose"
         f" \u00b7 {genes.get('sex', demography.DEFAULTS['sex'])}"
         f" {genes.get('age', demography.DEFAULTS['age'])}"
         f" \u00b7 {genes.get('climate', demography.DEFAULTS['climate'])}"

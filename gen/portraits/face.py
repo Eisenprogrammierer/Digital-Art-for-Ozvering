@@ -96,7 +96,7 @@ def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
             continue  # the receding ear is hidden by the jaw
         ex, ey = head.turn_point(side * st.head_w * 0.80, st.eye_y + 0.015, turn, st)
         ex, ey = float(ex), float(ey)
-        r = st.head_w * 0.17
+        r = st.head_w * 0.17 * float(getattr(st, "ear_size", 1.0))
         # A wash of shade gives the ear a plane; the inner curve is the helix.
         brush.paint(canvas, S.ellipse(r * 0.70, r * 1.08, ex, ey),
                     h.skin_shadow, clip=clip, alpha=0.10, soft=2.0)
@@ -250,25 +250,33 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
     else:
         lip = S.arc(left, right, curve, 0.5, 16)
         # The lower lip gets a volume of its own even on a line mouth: a single
-        # stroke is a scratch, a stroke over a soft body is a mouth.
-        body = S.arc(left, right, -abs(curve) - mw * 0.085, 0.5, 14)
-        brush.paint(canvas, S.lock(body, w0=0.17 * mw, w1=0.17 * mw,
-                                   bulge=0.12 * mw, per_segment=4),
+        # stroke is a scratch, a stroke over a soft body is a mouth.  Fullness is
+        # a phenotype axis, so the same line can be a thin mouth or a full one
+        # without a second mouth style.
+        full = float(getattr(st, "lip_full", 0.0))
+        body_w = (0.17 + 0.105 * full) * mw
+        body_bulge = (0.12 + 0.075 * full) * mw
+        body = S.arc(left, right, -abs(curve) - mw * (0.085 + 0.025 * full), 0.5, 14)
+        brush.paint(canvas, S.lock(body, w0=body_w, w1=body_w,
+                                   bulge=body_bulge, per_segment=4),
                     h.lip, clip=clip, alpha=0.48)
         brush.paint(canvas, S.lock(lip, w0=line_w * 0.16, w1=line_w * 0.16,
                                    bulge=line_w * 1.05, per_segment=4),
                     h.line, clip=clip)
         upper = S.arc(left, right, curve * 0.55, 0.5, 14)
-        brush.paint(canvas, S.lock(upper, w0=0.065 * mw, w1=0.065 * mw,
-                                   bulge=0.055 * mw, per_segment=4),
+        brush.paint(canvas, S.lock(upper, w0=(0.065 + 0.028 * full) * mw,
+                                   w1=(0.065 + 0.028 * full) * mw,
+                                   bulge=(0.055 + 0.020 * full) * mw, per_segment=4),
                     h.lip_deep, clip=clip, alpha=0.30)
         brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.045]),
                                    w0=0.085 * mw, w1=0.085 * mw,
-                                   bulge=0.06 * mw, per_segment=4),
+                                   bulge=(0.06 + 0.025 * full) * mw, per_segment=4),
                     h.lip_light, clip=clip, alpha=0.35)
-        brush.paint(canvas, S.ellipse(mw * 0.09, mw * 0.035,
+        brush.paint(canvas, S.ellipse(mw * (0.09 + 0.020 * full), mw * 0.035,
                                       left[0] * 0.55, my - mw * 0.015),
                     h.lip_gloss, clip=clip, alpha=0.30, soft=0.8)
+        # The two corner dimples are what keep a fuller mouth from reading as a
+        # painted oval: the line still has ends.
         for corner in (left, right):
             brush.paint(canvas, S.circle(mw * 0.022, float(corner[0]), float(corner[1])),
                         h.lip_deep, clip=clip, alpha=0.34, soft=0.6)

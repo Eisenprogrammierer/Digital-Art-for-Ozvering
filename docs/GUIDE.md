@@ -160,8 +160,8 @@ older than seven days and keeps at most the newest two hundred.
 | Group | Generator | Primary output | Notes |
 | --- | --- | --- | --- |
 | Characters | `figures` | `figures.png` | Sprite sheet; cycle, frames, facing. |
-| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, expression, sex, age, climate, culture. |
-| Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits; optional demographic pins. |
+| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, expression, demography and phenotype. |
+| Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits; optional demographic and phenotype pins. |
 | Characters | `lineage` | `lineage.png` | Two parents and their children. |
 | Heraldry | `arms` | `arms.png` | Coats of arms; count, cell size, forced shield. |
 | Heraldry | `blazon` | `blazon.png` | One coat, its EN/RU blazon and its tincture check. |
@@ -318,6 +318,10 @@ python cli.py portrait --out out/one.png --seed 5 --size 384
 python cli.py portrait --out out/elder.png --seed 5 --age elder --climate arid
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
 python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
+python cli.py portrait --out out/heart.png --seed 7 --face-shape heart \
+                        --eye-shape hooded --nose-shape roman --freckles bridge
+python cli.py portrait --out out/pigment.png --seed 7 \
+                        --gene skin_melanin=-0.4 --gene hair_warmth=0.6
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
 ```
 
@@ -326,9 +330,26 @@ presentation and a few proportions; `age` changes the life stage, greys the hair
 the colour script and adds age detail; `climate` is the environment a lineage adapted
 to, so it shifts skin and feature ranges rather than drawing a costume; `culture`
 chooses the dress tradition -- collar, trim and fastening -- and never the face.
-`portraits` accepts the same four flags to pin one gene across the sheet. A DNA
-string written before these genes existed still loads: missing demographic genes take
-their documented defaults, while a missing shape or colour gene is still an error.
+`portraits` accepts the same four flags to pin one gene across the sheet.
+
+The phenotype layer adds named families and continuous axes. The named families are
+`--face-shape` (oval, round, square, heart, long, diamond), `--jaw-shape`,
+`--eye-shape`, `--brow-shape`, `--nose-shape`, `--mouth-shape`,
+`--hairline-shape` and `--freckles`. The continuous axes cover forehead width and
+height, temple width, cheekbone width and drop, cheek fullness, jaw angle and width,
+chin length and width, head depth, eye spacing/height/hood, iris size, brow height
+and length, nose length/width/bridge, mouth height, lip fullness, ear size, neck
+width and length, hairline height, hair volume, fringe length and parting, sidelock
+weight and shoulder slope. Twelve pigment axes move skin melanin/warmth/rosiness/
+olive, hair melanin/warmth/redness/gloss, iris hue/chroma/value and lip pigment. Every
+axis has a documented `[-1, 1]` range and a neutral zero; the categories are chosen
+from their table.
+
+`--gene KEY=VALUE` pins any genome axis, including the older shape and colour genes;
+repeat it for more than one. A DNA string written before the phenotype genes existed
+still loads: missing demographic and phenotype genes take their documented defaults,
+while a missing shape or colour gene is still an error. The new genes are appended to
+the wire format, not inserted, so a saved dynasty keeps its order.
 
 ### Heraldry
 

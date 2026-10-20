@@ -75,14 +75,71 @@ _CULTURE_ACCENT = {
 _AGE_GREY = {"child": 0.0, "youth": 0.0, "adult": 0.0, "middle": 0.16, "elder": 0.62}
 
 
+def _g(genes: dict, key: str) -> float:
+    return float(genes.get(key, 0.0))
+
+
+def _shift(rgb, *, light: float = 0.0, chroma: float = 1.0,
+           hue: float = 0.0):
+    """Move a colour in OKLCH, with predictable clamps for pigment ranges."""
+    lch = palette.srgb_to_oklch(rgb)
+    L = float(np.clip(lch[0] + light, 0.16, 0.97))
+    C = float(np.clip(lch[1] * chroma, 0.002, 0.16))
+    H = float((lch[2] + hue) % 1.0)
+    return palette.oklch_to_srgb((L, C, H))
+
+
+def _pigment_skin(rgb, genes: dict):
+    """Express the skin colour gene through its melanin, warmth and undertone."""
+    melanin = _g(genes, "skin_melanin")
+    warmth = _g(genes, "skin_warmth")
+    rosy = _g(genes, "skin_rosiness")
+    olive = _g(genes, "skin_olive")
+    skin = _shift(
+        rgb,
+        light=-0.060 * melanin + 0.012 * rosy - 0.010 * max(olive, 0.0),
+        chroma=1.0 + 0.16 * abs(melanin) + 0.12 * abs(warmth) + 0.10 * abs(olive),
+        hue=0.010 * warmth - 0.009 * olive + 0.006 * rosy,
+    )
+    if rosy > 0.0:
+        skin = palette.mix(skin, palette.oklch_to_srgb((0.54, 0.135, 0.985)), 0.10 * rosy)
+    return skin
+
+
+def _pigment_hair(rgb, genes: dict):
+    melanin = _g(genes, "hair_melanin")
+    warmth = _g(genes, "hair_warmth")
+    red = _g(genes, "hair_redness")
+    hair = _shift(
+        rgb,
+        light=-0.085 * melanin,
+        chroma=1.0 + 0.14 * abs(melanin) + 0.10 * abs(warmth),
+        hue=0.012 * warmth,
+    )
+    if red > 0.0:
+        hair = palette.mix(hair, palette.oklch_to_srgb((0.43, 0.095, 0.042)), 0.20 * red)
+    elif red < 0.0:
+        hair = palette.mix(hair, palette.oklch_to_srgb((0.48, 0.018, 0.62)), -0.13 * red)
+    return hair
+
+
+def _pigment_iris(rgb, genes: dict):
+    hue = _g(genes, "iris_hue")
+    chroma = _g(genes, "iris_chroma")
+    value = _g(genes, "iris_value")
+    return _shift(rgb, light=0.055 * value, chroma=1.0 + 0.35 * chroma,
+                  hue=0.018 * hue)
+
+
 def from_genes(genes: dict) -> Hues:
-    """Derive the whole colour script from the four base colours in the genes."""
-    skin = palette.hex_to_srgb(genes["skin"])
-    raw_hair = palette.hex_to_srgb(genes["hair"])
-    iris = palette.hex_to_srgb(genes["iris"])
+    """Derive the whole colour script from the base colours and pigment genes."""
+    skin = _pigment_skin(palette.hex_to_srgb(genes["skin"]), genes)
+    raw_hair = _pigment_hair(palette.hex_to_srgb(genes["hair"]), genes)
+    iris = _pigment_iris(palette.hex_to_srgb(genes["iris"]), genes)
     cloth = palette.hex_to_srgb(genes["cloth"])
     age = demography.stage(genes)
     culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
+    gloss = _g(genes, "hair_gloss")
     hair = palette.mix(raw_hair, (0.78, 0.79, 0.82), _AGE_GREY.get(age, 0.0))
 
     iris_dark = cel.shadow(iris, depth=0.18, chroma=1.10, hue=-0.02)
@@ -97,7 +154,8 @@ def from_genes(genes: dict) -> Hues:
     lash = ink.shade_line(skin, mul=0.16, floor=0.070, chroma=1.30, hue=-0.014)
     line = ink.shade_line(skin, mul=0.30, floor=0.150, chroma=1.25, hue=-0.022)
 
-    lip = palette.mix(skin, palette.oklch_to_srgb((0.55, 0.15, 0.985)), 0.42)
+    lip_mix = float(np.clip(0.40 + 0.18 * _g(genes, "lip_pigment"), 0.14, 0.64))
+    lip = palette.mix(skin, palette.oklch_to_srgb((0.55, 0.15, 0.985)), lip_mix)
     lip_light = cel.highlight(lip, lift=0.10, chroma=0.8)
     lip_gloss = cel.highlight(lip, lift=0.22, chroma=0.62)
     lip_shadow = cel.shadow(lip, depth=0.08, chroma=1.10, hue=-0.006)
@@ -142,9 +200,11 @@ def from_genes(genes: dict) -> Hues:
         hair=hair,
         hair_shadow=cel.shadow(hair, depth=0.085, chroma=1.12),
         hair_deep=cel.shadow(hair, depth=0.165, chroma=1.22),
-        hair_hi=cel.highlight(hair, lift=0.200, chroma=0.62, hue=0.010),
+        hair_hi=cel.highlight(hair, lift=float(np.clip(0.180 + 0.070 * gloss, 0.10, 0.28)),
+                              chroma=0.62, hue=0.010),
         hair_root=cel.shadow(hair, depth=0.24, chroma=1.18),
-        hair_fine=cel.highlight(hair, lift=0.095, chroma=0.78),
+        hair_fine=cel.highlight(hair, lift=float(np.clip(0.080 + 0.040 * gloss, 0.04, 0.14)),
+                                chroma=0.78),
         line=line,
         line_hair=ink.shade_line(hair, mul=0.48, floor=0.070, chroma=1.15, hue=-0.018),
         line_soft=ink.shade_line(skin, mul=0.50, floor=0.300, chroma=1.10, hue=-0.018),

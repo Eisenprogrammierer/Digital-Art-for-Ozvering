@@ -83,6 +83,7 @@ from gen.textures import truchet as tex_truchet  # noqa: E402
 from gen.textures import wang as tex_wang  # noqa: E402
 from gen.portraits import demography as portrait_demography  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
+from gen.portraits import phenotype as portrait_phenotype  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
 from gen.ui import frame as ui_frame  # noqa: E402
@@ -937,19 +938,77 @@ def _apply_demography(genes: dict, sex: str | None = None, age: str | None = Non
     return genes
 
 
+def _parse_gene_pairs(pairs) -> dict:
+    """``--gene face_shape=heart --gene skin_melanin=-0.4`` into a dict.
+
+    This is the escape hatch that keeps the command line usable as the genome
+    grows: the curated flags cover the categories a designer reaches for, and
+    ``--gene`` reaches every numeric or categorical axis without another parser
+    entry.  Validation still goes through :func:`gen.portraits.dna.decode`, so a
+    typo is an error rather than a silently ignored override.
+    """
+    out = {}
+    for item in pairs or ():
+        key, sep, value = str(item).partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(f"a gene override looks like key=value, not {item!r}")
+        if key not in portrait_dna.GENES:
+            raise ValueError(f"unknown portrait gene {key!r}")
+        if key in portrait_dna.CATEGORICAL or key in portrait_dna.DEMOGRAPHIC:
+            out[key] = value.strip()
+        elif key in portrait_dna.COLOUR_GENES:
+            palette.hex_to_srgb(value.strip())
+            out[key] = value.strip()
+        else:
+            out[key] = portrait_dna.quantise(float(value))
+    return out
+
+
+def _apply_overrides(genes: dict, overrides: dict | None) -> dict:
+    """Pin any gene on a genome without replacing the rest of it."""
+    if overrides:
+        unknown = [key for key in overrides if key not in portrait_dna.GENES]
+        if unknown:
+            raise ValueError(f"unknown portrait genes: {', '.join(unknown)}")
+        genes.update(overrides)
+    return genes
+
+
+def _phenotype_overrides(args) -> dict:
+    """The curated phenotype flags plus every ``--gene`` pair, as one dict."""
+    out = {key: getattr(args, key) for key in portrait_phenotype.CATEGORIES
+           if getattr(args, key, None) is not None}
+    out.update(_parse_gene_pairs(getattr(args, "gene", None)))
+    return out
+
+
+def _add_phenotype_args(parser) -> None:
+    for key, choices in portrait_phenotype.CATEGORIES.items():
+        parser.add_argument("--" + key.replace("_", "-"), default=None,
+                            choices=list(choices), help=f"{key.replace('_', ' ')} family")
+    parser.add_argument("--gene", action="append", default=[], metavar="KEY=VALUE",
+                        help="pin any genome axis, e.g. skin_melanin=-0.4 or face_shape=heart; "
+                             "repeat for more than one")
+
+
 def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, cols: int = 4,
                    sex: str | None = None, age: str | None = None,
-                   climate: str | None = None, culture: str | None = None) -> Path:
+                   climate: str | None = None, culture: str | None = None,
+                   overrides: dict | None = None) -> Path:
     """Contact sheet of generated portraits, captioned with their genome.
 
     The sidecar ``.json`` is the point: every tile carries the one-line DNA
     string that would reproduce it exactly, so a sheet of avatars is also a
     browsable catalogue of the genomes that produced them.  The demographic
     flags pin one gene for the whole sheet; leave them out to sample the range.
+    ``overrides`` pins any phenotype or legacy gene on every tile.
     """
-    genomes = [_apply_demography(portrait_dna.random_genes(seed + i), sex=sex, age=age,
-                                 climate=climate, culture=culture)
+    genomes = [_apply_overrides(
+        _apply_demography(portrait_dna.random_genes(seed + i), sex=sex, age=age,
+                          climate=climate, culture=culture), overrides)
                for i in range(count)]
+    genomes = [portrait_dna.decode(portrait_dna.encode(g)) for g in genomes]
     tiles = [portraitlib.render(g, size=size) for g in genomes]
 
     gap = 24
@@ -1038,7 +1097,7 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
                  style: str | None = None, hair: str | None = None,
                  expression: str | None = None, sex: str | None = None,
                  age: str | None = None, climate: str | None = None,
-                 culture: str | None = None) -> Path:
+                 culture: str | None = None, overrides: dict | None = None) -> Path:
     """Render one portrait, from a seed or from a DNA string, and print its genome."""
     if dna is not None:
         genes = portrait_dna.decode(dna)
@@ -1055,7 +1114,8 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
     if expression:
         genes["expression"] = expression
     _apply_demography(genes, sex=sex, age=age, climate=climate, culture=culture)
-    genes = portrait_dna.decode(portrait_dna.encode(genes))  # re-clamp through the wire format
+    _apply_overrides(genes, overrides)
+    genes = portrait_dna.decode(portrait_dna.encode(genes))  # validate and re-clamp
 
     text = portrait_dna.encode(genes)
     print(f"seed {seed}")
@@ -2189,6 +2249,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--age", default=None, choices=list(portrait_demography.AGES))
     pr.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
     pr.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
+    _add_phenotype_args(pr)
 
     ps = sub.add_parser("portraits", help="contact sheet of generated portraits")
     ps.add_argument("--out", default="out/portraits.png", type=Path)
@@ -2200,6 +2261,7 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--age", default=None, choices=list(portrait_demography.AGES))
     ps.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
     ps.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
+    _add_phenotype_args(ps)
 
     ln = sub.add_parser("lineage", help="two parents and their bred children")
     ln.add_argument("--out", default="out/lineage.png", type=Path)
@@ -2372,10 +2434,12 @@ def main(argv=None) -> int:
     elif args.cmd == "portrait":
         portrait_one(args.out, seed=args.seed, dna=args.dna, size=args.size, style=args.style,
                      hair=args.hair, expression=args.expression, sex=args.sex, age=args.age,
-                     climate=args.climate, culture=args.culture)
+                     climate=args.climate, culture=args.culture,
+                     overrides=_phenotype_overrides(args))
     elif args.cmd == "portraits":
         demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
-                       sex=args.sex, age=args.age, climate=args.climate, culture=args.culture)
+                       sex=args.sex, age=args.age, climate=args.climate, culture=args.culture,
+                       overrides=_phenotype_overrides(args))
     elif args.cmd == "lineage":
         demo_lineage(args.out, seed=args.seed, size=args.size, children=args.children)
     elif args.cmd == "ui":

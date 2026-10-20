@@ -142,10 +142,15 @@ def warp(st, expr: dict):
                            -LIMITS["face_spread"], LIMITS["face_spread"]))
     if dy == 0.0 and spread == 0.0:
         return st
+    # The lower face articulates a little more than the midface: a expression that
+    # closes the eyes and the nose also shortens the chin-to-mouth distance.  The
+    # extra 15 % is small, but it also keeps the mouth from cancelling exactly when
+    # ``face_dy`` and ``face_spread`` pull it in opposite directions -- a mouth that
+    # does not move at all is a mask, whichever way the arithmetic got there.
     return st.with_(
         eye_y=st.eye_y + dy,
         brow_gap=st.brow_gap * (1.0 + spread),
         nose_gap=st.nose_gap * (1.0 + spread),
-        mouth_gap=st.mouth_gap * (1.0 + spread),
+        mouth_gap=st.mouth_gap * (1.0 + 1.15 * spread),
         blush_gap=st.blush_gap * (1.0 + spread),
     ).pinned(hairline_y=st.hairline_y)

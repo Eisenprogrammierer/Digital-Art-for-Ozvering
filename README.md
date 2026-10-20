@@ -114,11 +114,11 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 42 tests
+python tests/test_portraits.py                  # 46 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
-python tests/test_cli.py                        # 7 tests -- the wiring, not the pictures
+python tests/test_cli.py                        # 9 tests -- the wiring, not the pictures
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 28 tests
@@ -988,8 +988,15 @@ dna.describe(child)                # 'chibi · long hair #cba18f · iris … · 
 Colours blend in OKLab, shapes average and drift, categories are drawn from one
 parent or the other, and the result is still a genome. The demographic genes --
 `sex`, `age`, `climate`, `culture` -- are appended after the original shape genes,
-so an older DNA string still loads with documented defaults while every legacy gene
-stays mandatory. `age` is both a heritable state and a portrait state: a child of any
+followed by the phenotype layer: eight named families (`face_shape`, `jaw_shape`,
+`eye_shape`, `brow_shape`, `nose_shape`, `mouth_shape`, `hairline_shape`,
+`freckles`), continuous skull/face axes (forehead, cheekbone, jaw angle, chin,
+eye spacing, nose bridge, lip fullness, ear, neck, hair volume, fringe and
+shoulder slope) and twelve pigment axes for skin, hair, iris and lips. The layer
+is append-only, so an older DNA string still loads with documented defaults while
+every legacy gene stays mandatory. `--gene KEY=VALUE` pins any of the new axes
+without another command-line flag, and the categories have first-class flags and
+studio fields because those are the choices a designer makes by name. `age` is both a heritable state and a portrait state: a child of any
 two parents is born `child` or `youth`. `cli.py lineage` renders two
 parents and six children for exactly that reason: a strategy game can populate a
 dynasty by crossing genomes instead of by inventing a face per character, and the
@@ -1002,7 +1009,11 @@ that bred and mutated children are still readable, that the derived anatomy stay
 plausible across hundreds of genomes (the eyes fit in the skull, the jaw tapers,
 the features stay in order down the face with the hairline above the brows), and
 five composition invariants -- each of which broke once in review, which is why
-each has a test:
+each has a test. It also holds the expanded phenotype layer down: every category
+must have a distinct style signature inside the anatomy guard, every continuous
+axis must reach geometry or hair, and every pigment axis must move the colour
+script; the freckle patterns are checked in pixels. The composition invariants
+are:
 
 * the fringe never covers an eye;
 * the skull cap and the fringe overlap along the hairline, so no band of bare skull

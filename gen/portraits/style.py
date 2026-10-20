@@ -39,53 +39,56 @@ DEFAULTS = dict(
     # ``head_w``/``wide_y`` are the temple, ``cheek_w``/``cheek_y`` the cheekbone
     # below the eye line, which is where a face is widest; ``jaw_w`` is the jaw
     # angle and ``chin_w`` the width of the chin's rounded end.
-    head_w=0.415,
-    top_w=0.265,
-    top_y=0.445,
-    wide_y=0.100,
-    cheek_w=0.402,
-    cheek_y=-0.195,
-    jaw_w=0.338,       # half-width at the jaw angle
+    head_w=0.390,
+    top_w=0.305,
+    top_y=0.455,
+    wide_y=0.095,
+    cheek_w=0.360,
+    cheek_y=-0.190,
+    jaw_w=0.286,       # half-width at the jaw angle
     jaw_y=-0.305,
-    chin_w=0.140,
+    chin_w=0.118,
     chin_y=-0.500,
     # The head as a *solid*: ``head_d`` is its half-depth at the deepest, as a
     # multiple of its own half-width, and that one number is the whole of what a
     # style adds to the turn model.  One is a head as deep as it is wide -- round,
     # and their turned outlines do not change width; more is a deeper skull, which
     # widens its outline towards profile and slides its features further.
-    head_d=1.05,
+    head_d=1.07,
     # -- eyes (both, in head units) --------------------------------------
-    eye_dx=0.205,      # half the centre-to-centre distance
-    eye_y=-0.065,
-    eye_w=0.230,       # width of the eye opening
-    eye_up=0.098,      # upper lid apex above the corner chord
-    eye_down=0.072,
-    eye_tilt=6.0,      # degrees, outer corner raised
-    iris_r=0.082,      # iris half-width
+    eye_dx=0.190,      # half the centre-to-centre distance
+    eye_y=-0.060,
+    eye_w=0.184,       # width of the eye opening
+    eye_up=0.078,      # upper lid apex above the corner chord
+    eye_down=0.055,
+    eye_tilt=5.0,      # degrees, outer corner raised
+    iris_r=0.065,      # iris half-width
     iris_squash=1.22,  # iris height / width
-    pupil_r=0.031,
-    hl_r=0.028,        # big highlight radius
-    lash=0.030,        # upper lash thickness at its heaviest
-    lid_w=0.011,       # lower lid line
+    pupil_r=0.025,
+    hl_r=0.018,        # big highlight radius
+    lash=0.024,        # upper lash thickness at its heaviest
+    lid_w=0.010,       # lower lid line
     crease_w=0.011,
     lid_shadow=0.42,   # how far the lid shadow reaches down the eye
     # -- the rest of the face, measured down from the eyes ---------------
-    brow_gap=0.048,    # upper lid -> brow
-    brow_dx=0.212,
-    brow_w=0.195,
-    brow_thick=0.036,
-    brow_arch=0.030,
+    brow_gap=0.051,    # upper lid -> brow
+    brow_dx=0.194,
+    brow_w=0.180,
+    brow_thick=0.033,
+    brow_arch=0.025,
     brow_tilt=4.0,     # degrees, outer end raised
-    nose_gap=0.030,    # lower lid -> nose
-    nose_w=0.068,
-    nose_h=0.060,
+    nose_gap=0.038,    # lower lid -> nose
+    nose_w=0.085,
+    nose_h=0.064,
     nose_style="wedge",   # "dot" | "wedge" | "line"
-    mouth_gap=0.125,   # nose -> mouth
-    mouth_w=0.155,
-    mouth_curve=0.016,
+    mouth_gap=0.128,   # nose -> mouth
+    mouth_w=0.195,
+    mouth_curve=0.018,
     mouth_style="line",   # "line" | "full"
+    lip_full=0.10,     # extra lower-lip volume, in mouth widths
+    ear_size=1.0,
     blush_gap=0.060,   # lower lid -> blush
+    hairline_gap=0.300,  # eye -> hairline
     # -- finish -----------------------------------------------------------
     line=1.0,          # global line-weight multiplier
     ink_w=0.020,       # outer contour weight
@@ -98,10 +101,11 @@ DEFAULTS = dict(
     # emerge from the notch with its own visible length, or the head sits on a
     # stalk.  ``shoulder_w`` is wide enough to leave the frame -- a bust whose
     # corner is visible reads as a pill no matter how the slope is shaped.
-    neck_w=0.155,
-    neck_y=-0.790,     # where the neck meets the shoulders
-    shoulder_w=1.240,
+    neck_w=0.190,
+    neck_y=-0.720,     # where the neck meets the shoulders
+    shoulder_w=1.250,
     shoulder_y=-1.760,  # the shoulder polygon's lower edge, well below the frame
+    shoulder_slope=0.0,
 )
 
 #: Presets.  Read them as a table of proportions, not as arbitrary numbers:
@@ -109,50 +113,50 @@ DEFAULTS = dict(
 #: chibi ~2, shoujo ~3, shounen ~3.5, seinen ~4.5 (a real face is 5).
 STYLES = {
     "chibi": dict(
-        head_w=0.480, top_w=0.370, top_y=0.450, wide_y=0.095,
-        cheek_w=0.455, cheek_y=-0.170, jaw_w=0.402, jaw_y=-0.262, chin_w=0.238,
+        head_w=0.450, top_w=0.390, top_y=0.450, wide_y=0.095,
+        cheek_w=0.410, cheek_y=-0.170, jaw_w=0.348, jaw_y=-0.262, chin_w=0.198,
         head_d=0.98,
-        eye_dx=0.205, eye_y=-0.105, eye_w=0.335, eye_up=0.168, eye_down=0.128,
-        eye_tilt=4.0, iris_r=0.136, iris_squash=1.06, pupil_r=0.056, hl_r=0.046,
-        lash=0.036, lid_w=0.014, crease_w=0.014, lid_shadow=0.50,
-        brow_gap=0.035, brow_dx=0.208, brow_w=0.200, brow_thick=0.034,
+        eye_dx=0.188, eye_y=-0.105, eye_w=0.270, eye_up=0.137, eye_down=0.102,
+        eye_tilt=4.0, iris_r=0.108, iris_squash=1.06, pupil_r=0.044, hl_r=0.032,
+        lash=0.031, lid_w=0.014, crease_w=0.014, lid_shadow=0.50,
+        brow_gap=0.035, brow_dx=0.190, brow_w=0.180, brow_thick=0.034,
         brow_arch=0.020, brow_tilt=2.0,
-        nose_gap=0.030, nose_w=0.050, nose_h=0.034, nose_style="dot",
-        mouth_gap=0.125, mouth_w=0.138, mouth_curve=0.014,
-        blush_gap=0.068,
+        nose_gap=0.035, nose_w=0.072, nose_h=0.042, nose_style="dot",
+        mouth_gap=0.126, mouth_w=0.170, mouth_curve=0.014,
+        blush_gap=0.068, lip_full=0.12,
         line=1.22, ink_w=0.025, blush=0.48, lid_shadow_alpha=0.34, chin_shadow=0.045,
-        neck_w=0.150, neck_y=-0.760, shoulder_w=1.280, shoulder_y=-1.820,
+        neck_w=0.180, neck_y=-0.710, shoulder_w=1.280, shoulder_y=-1.790,
     ),
     "shoujo": dict(
-        head_w=0.393, top_w=0.255, top_y=0.448, wide_y=0.105,
-        cheek_w=0.388, cheek_y=-0.200, jaw_w=0.312, jaw_y=-0.310, chin_w=0.118,
-        head_d=1.02,
-        eye_dx=0.192, eye_y=-0.075, eye_w=0.224, eye_up=0.104, eye_down=0.086,
-        eye_tilt=8.0, iris_r=0.085, iris_squash=1.30, pupil_r=0.033, hl_r=0.030,
-        lash=0.029, lid_w=0.009, crease_w=0.012, lid_shadow=0.36,
-        brow_gap=0.050, brow_dx=0.198, brow_w=0.190, brow_thick=0.024,
-        brow_arch=0.034, brow_tilt=6.0,
-        nose_gap=0.030, nose_w=0.052, nose_h=0.040, nose_style="wedge",
-        mouth_gap=0.120, mouth_w=0.130, mouth_curve=0.018,
-        blush_gap=0.062,
+        head_w=0.368, top_w=0.294, top_y=0.452, wide_y=0.100,
+        cheek_w=0.344, cheek_y=-0.192, jaw_w=0.268, jaw_y=-0.305, chin_w=0.098,
+        head_d=1.04,
+        eye_dx=0.178, eye_y=-0.070, eye_w=0.172, eye_up=0.080, eye_down=0.062,
+        eye_tilt=7.0, iris_r=0.062, iris_squash=1.30, pupil_r=0.024, hl_r=0.017,
+        lash=0.026, lid_w=0.009, crease_w=0.012, lid_shadow=0.36,
+        brow_gap=0.052, brow_dx=0.186, brow_w=0.168, brow_thick=0.024,
+        brow_arch=0.028, brow_tilt=6.0,
+        nose_gap=0.038, nose_w=0.078, nose_h=0.050, nose_style="wedge",
+        mouth_gap=0.124, mouth_w=0.180, mouth_curve=0.018,
+        blush_gap=0.062, lip_full=0.10,
         line=0.92, ink_w=0.016, blush=0.42, lid_shadow_alpha=0.34, chin_shadow=0.050,
-        neck_w=0.140, neck_y=-0.795, shoulder_w=1.200, shoulder_y=-1.840,
+        neck_w=0.172, neck_y=-0.722, shoulder_w=1.200, shoulder_y=-1.800,
     ),
     "shounen": dict(),  # the defaults, stated for symmetry
     "seinen": dict(
-        head_w=0.402, top_w=0.250, top_y=0.448, wide_y=0.110,
-        cheek_w=0.412, cheek_y=-0.190, jaw_w=0.372, jaw_y=-0.300, chin_w=0.176,
+        head_w=0.388, top_w=0.300, top_y=0.452, wide_y=0.100,
+        cheek_w=0.372, cheek_y=-0.190, jaw_w=0.318, jaw_y=-0.305, chin_w=0.142,
         head_d=1.18,
-        eye_dx=0.198, eye_y=-0.040, eye_w=0.196, eye_up=0.078, eye_down=0.058,
-        eye_tilt=5.0, iris_r=0.070, iris_squash=1.18, pupil_r=0.028, hl_r=0.019,
-        lash=0.024, lid_w=0.010, crease_w=0.013, lid_shadow=0.46,
-        brow_gap=0.045, brow_dx=0.204, brow_w=0.188, brow_thick=0.032,
+        eye_dx=0.187, eye_y=-0.040, eye_w=0.160, eye_up=0.064, eye_down=0.045,
+        eye_tilt=5.0, iris_r=0.058, iris_squash=1.18, pupil_r=0.022, hl_r=0.015,
+        lash=0.022, lid_w=0.010, crease_w=0.013, lid_shadow=0.46,
+        brow_gap=0.049, brow_dx=0.194, brow_w=0.174, brow_thick=0.032,
         brow_arch=0.020, brow_tilt=3.0,
-        nose_gap=0.030, nose_w=0.072, nose_h=0.068, nose_style="wedge",
-        mouth_gap=0.128, mouth_w=0.158, mouth_curve=0.012,
-        blush_gap=0.055,
+        nose_gap=0.039, nose_w=0.090, nose_h=0.076, nose_style="wedge",
+        mouth_gap=0.130, mouth_w=0.200, mouth_curve=0.012,
+        blush_gap=0.055, lip_full=0.08,
         line=0.95, ink_w=0.019, blush=0.14, lid_shadow_alpha=0.48, chin_shadow=0.070,
-        neck_w=0.165, neck_y=-0.785, shoulder_w=1.300, shoulder_y=-1.860,
+        neck_w=0.200, neck_y=-0.718, shoulder_w=1.300, shoulder_y=-1.820,
     ),
 }
 
@@ -183,7 +187,7 @@ class Style:
         p["nose_y"] = float(p["eye_y"]) - float(p["eye_down"]) - float(p["nose_gap"])
         p["mouth_y"] = float(p["nose_y"]) - float(p["mouth_gap"])
         p["blush_y"] = float(p["eye_y"]) - float(p["eye_down"]) - float(p["blush_gap"])
-        p["hairline_y"] = float(p["eye_y"]) + 0.30
+        p["hairline_y"] = float(p["eye_y"]) + float(p["hairline_gap"])
 
     def __getattr__(self, key):
         try:

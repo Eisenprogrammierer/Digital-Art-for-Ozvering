@@ -41,31 +41,38 @@ __all__ = ["HAIR_STYLES", "Hair", "build", "paint_back", "paint_front", "mass",
 #: Per-hairstyle parameters.  ``drop`` values are in head units, measured down
 #: from the root; a drop of 1.0 hangs a full head height below the crown.
 HAIR_STYLES = {
-    "short":  dict(vol=0.100, bangs=9, bw=0.230, blen=0.55, sides=1, sw=0.220, sdrop=0.300,
+    "short":  dict(vol=0.078, bangs=9, bw=0.230, blen=0.55, sides=1, sw=0.220, sdrop=0.300,
                    back=8, kw=0.330, kdrop=0.520, crest=0, spike=0, cap_r=2.40, flare=1.02),
-    "bob":    dict(vol=0.115, bangs=9, bw=0.235, blen=0.75, sides=2, sw=0.300, sdrop=0.620,
+    "bob":    dict(vol=0.092, bangs=9, bw=0.235, blen=0.75, sides=2, sw=0.300, sdrop=0.620,
                    back=9, kw=0.345, kdrop=0.740, crest=0, spike=0, cap_r=1.70, flare=1.18),
-    "long":   dict(vol=0.130, bangs=9, bw=0.250, blen=0.60, sides=2, sw=0.290, sdrop=1.300,
+    "long":   dict(vol=0.108, bangs=9, bw=0.250, blen=0.60, sides=2, sw=0.290, sdrop=1.300,
                    back=10, kw=0.360, kdrop=1.100, crest=0, spike=0, cap_r=1.25, flare=1.36),
-    "hime":   dict(vol=0.115, bangs=9, bw=0.240, blen=0.95, sides=2, sw=0.280, sdrop=1.150,
+    "hime":   dict(vol=0.092, bangs=9, bw=0.240, blen=0.95, sides=2, sw=0.280, sdrop=1.150,
                    back=10, kw=0.350, kdrop=1.000, crest=0, spike=0, cap_r=1.30, flare=1.30,
                    straight=True),
-    "twin":   dict(vol=0.115, bangs=9, bw=0.230, blen=0.65, sides=1, sw=0.270, sdrop=0.900,
+    "twin":   dict(vol=0.092, bangs=9, bw=0.230, blen=0.65, sides=1, sw=0.270, sdrop=0.900,
                    back=9, kw=0.340, kdrop=0.580, crest=0, spike=0, cap_r=1.60, flare=1.16,
                    twin=2),
-    "pony":   dict(vol=0.105, bangs=9, bw=0.230, blen=0.55, sides=1, sw=0.260, sdrop=0.450,
+    "pony":   dict(vol=0.088, bangs=9, bw=0.230, blen=0.55, sides=1, sw=0.260, sdrop=0.450,
                    back=8, kw=0.330, kdrop=0.500, crest=1, spike=0, cap_r=2.20, flare=1.06),
-    "spiky":  dict(vol=0.095, bangs=10, bw=0.200, blen=0.30, sides=1, sw=0.220, sdrop=0.320,
+    "spiky":  dict(vol=0.072, bangs=10, bw=0.200, blen=0.30, sides=1, sw=0.220, sdrop=0.320,
                    back=9, kw=0.320, kdrop=0.450, crest=0, spike=7, cap_r=2.00, flare=1.10,
                    sl=0.170),
-    "wild":   dict(vol=0.135, bangs=10, bw=0.200, blen=0.45, sides=2, sw=0.260, sdrop=0.520,
+    "wild":   dict(vol=0.102, bangs=10, bw=0.200, blen=0.45, sides=2, sw=0.260, sdrop=0.520,
                    back=10, kw=0.350, kdrop=0.640, crest=0, spike=6, cap_r=1.45, flare=1.22,
                    sl=0.160),
 }
 
 
 def _params(name: str, st, genes: dict) -> dict:
-    """Style parameters, stretched by the genome's ``hair_len`` and ``bang_n``."""
+    """Style parameters, stretched by the genome's hair axes.
+
+    The legacy ``hair_len`` and ``bang_n`` still do what they always did.  The
+    phenotype axes add volume, fringe length, a parting direction and sidelock
+    weight; every one is clamped here rather than in the caller, because these
+    numbers decide whether roots stay on the skull and the fringe stays off the
+    eyes.
+    """
     p = dict(HAIR_STYLES[name])
     length = float(genes.get("hair_len", 0.0))
     scale = float(np.clip(1.0 + 0.34 * length, 0.70, 1.60))
@@ -74,6 +81,16 @@ def _params(name: str, st, genes: dict) -> dict:
     density = float(genes.get("bang_n", 0.0))
     p["bangs"] = int(np.clip(round(float(p["bangs"]) + 2.0 * density), 4, 12))
     p["back"] = int(np.clip(round(float(p["back"]) + 2.0 * density), 4, 12))
+    p["vol"] = float(np.clip(float(p["vol"]) + 0.022 * float(genes.get("hair_volume", 0.0)),
+                             0.060, 0.158))
+    p["blen"] = float(np.clip(float(p["blen"]) * (1.0 + 0.20 * float(genes.get("fringe_length", 0.0))),
+                              0.18, 1.18))
+    part = float(genes.get("fringe_part", 0.0))
+    p["part"] = None if abs(part) < 1e-6 else float(np.clip(part * 0.46, -0.46, 0.46))
+    side = float(genes.get("side_lock", 0.0))
+    p["sw"] = float(np.clip(float(p["sw"]) * (1.0 + 0.14 * side), 0.12, 0.42))
+    p["sdrop"] = float(np.clip(float(p["sdrop"]) * (1.0 + 0.16 * side), 0.16, 1.70))
+    p["gloss"] = float(genes.get("hair_gloss", 0.0))
     return p
 
 
@@ -178,9 +195,9 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
     The length is not a style parameter, it is a measurement.  A fringe that hangs
     past the brow hides the face's expression, and one that stops short leaves a
     bare forehead the style's proportions never allowed for, so each clump is cut
-    to land between the brow and the upper lid and the *style's* own landmarks
-    decide where that is.  The style only biases the result (``blen``), says how
-    many clumps there are, and how far they sway.
+    to land above the brow and the *style's* own landmarks decide where that is.
+    The style only biases the result (``blen``), says how many clumps there are,
+    and how far they sway.
 
     The roots come back beside the clumps because the ink needs them: a clump's
     strand line has to fade out as it approaches *its own* root, and only the
@@ -191,11 +208,15 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
     fill = float(p.get("blen", 1.0))
     straight = bool(p.get("straight", False))
     brow = float(getattr(st, "brow_y", 0.10))
-    upper = float(st.eye_y) + float(st.eye_up) * 0.55
     # Which side the fringe sweeps away from.  A fringe with a parting is worth
     # more than any amount of extra clumps: an even curtain of hair across the
     # forehead is the single strongest "generated" tell a portrait can have.
-    part = 0.0 if straight else float(rng.uniform(-0.45, 0.45))
+    # A parting is a *gene* now: the phenotype gene wins when it is set, and a
+    # seeded fallback keeps an old genome's fringe from becoming a flat curtain.
+    part_gene = p.get("part")
+    part = float(rng.uniform(-0.45, 0.45)) if part_gene is None else float(part_gene)
+    if straight:
+        part = 0.0
     out, roots, strands = [], [], []
     for i in range(n):
         u = (i + 0.5) / n
@@ -212,9 +233,17 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
             edge = 1.0 - 0.42 * abs(u - 0.5) * 2.0
             jitter, tip_w = float(rng.uniform(0.80, 1.20)), bw * 0.18
         sweep = u - (0.5 + 0.5 * part)
-        short = max(root[1] - (brow + 0.030 + 0.075 * abs(sweep) * 2.0), 0.05)
-        long = max(root[1] - upper, short + 0.02)
+        # The fringe stops *above* the brow.  It may cover the forehead, and on a
+        # hime cut it may sit almost on the brow line, but hair hanging over the
+        # brows is what makes a face read as eyes floating under a helmet.  The
+        # old cut landed between the brow and the upper lid, which was intentional
+        # in an earlier style and wrong in every photograph.
+        short_y = brow + 0.032 + 0.070 * abs(sweep) * 2.0
+        short = max(root[1] - short_y, 0.05)
+        long = max(root[1] - (brow + 0.004), short + 0.018)
         length = (short + (long - short) * fill) * jitter * edge
+        # A long *fill* is allowed to sit on the brow but never below it.
+        length = min(length, max(root[1] - (brow + 0.004), 0.04))
         sway = (0.022 + 0.040 * abs(u - 0.5)) * float(rng.uniform(-1.0, 1.0))
         tip = np.array([root[0] * 1.12 + sway + sweep * 0.170 + side * 0.018,
                         root[1] - length])
@@ -252,7 +281,13 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
             root = _root(st, vol, th, turn, inset=inset)
             length = drop * float(rng.uniform(0.88, 1.08)) * (1.0 - 0.12 * k)
             bow = 0.014 if straight else 0.048
-            out_x = float(st.head_w) * 0.92 + vol * 0.25 - sw * 0.24 + 0.025 * k
+            # The curtain hangs beside the face, not over it.  A tip pulled in to
+            # the cheek looks like a lock pasted across the eye on a turned head;
+            # the 0.98 floor keeps the inner edge outside the eye even when the
+            # style's own width and the phenotype's side-lock gene are at their
+            # widest.
+            out_x = max(float(st.head_w) * 0.92 + vol * 0.25 - sw * 0.24 + 0.025 * k,
+                        float(st.head_w) * 0.98)
             tip = np.array([sign * out_x, root[1] - length])
             mid = np.array([sign * (out_x + bow), root[1] - length * 0.42])
             out.append(S.lock([root, mid, tip],
@@ -609,11 +644,13 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
             s.stroke(canvas, lw * 0.50, hues.line_hair, inset=lw * 0.20,
                      mask=amt, alpha=0.92, soft=0.4)
     _paint_strands(canvas, hues, h.front_strands, lw, clip=clip)
+    gloss = float(h.p.get("gloss", 0.0))
     for lock in h.shine:
         # The shine lives on the cap, not on the fringe; clipping it to the fringe
         # mask (as the strand pass is) erases it.  It brightens what is already
-        # painted instead of laying a row of light blobs on top.
-        brush.multiply(canvas, lock, 1.13, alpha=0.55)
+        # painted instead of laying a row of light blobs on top.  Hair gloss is a
+        # pigment axis, so the same geometry can be matte or lacquered.
+        brush.multiply(canvas, lock, 1.13 + 0.045 * gloss, alpha=0.55)
 
 
 def describe(h: Hair) -> str:

@@ -185,6 +185,45 @@ def test_the_portrait_command_passes_the_demographic_flags_through():
             assert f"{key}={value}" in meta["dna"], key
 
 
+def test_the_portrait_phenotype_flags_and_gene_overrides_reach_the_genome():
+    """The phenotype adds a family flag per category and one escape hatch.
+
+    Categories are the choices a designer makes by name, so each has a first-class
+    flag; the continuous axes are too many for flags and go through ``--gene``.  Both
+    paths must land in the sidecar, and the sheet command must pin them on every
+    tile rather than only the first.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "phenotype.png"
+        assert _run(
+            "portrait", "--out", out, "--seed", 7, "--size", 64,
+            "--face-shape", "heart", "--jaw-shape", "tapered",
+            "--eye-shape", "hooded", "--brow-shape", "angled",
+            "--nose-shape", "roman", "--mouth-shape", "full",
+            "--hairline-shape", "widow", "--freckles", "bridge",
+            "--gene", "skin_melanin=-0.4", "--gene", "lip_full=0.7",
+        ) == 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        expected = {
+            "face_shape": "heart", "jaw_shape": "tapered", "eye_shape": "hooded",
+            "brow_shape": "angled", "nose_shape": "roman", "mouth_shape": "full",
+            "hairline_shape": "widow", "freckles": "bridge",
+            "skin_melanin": -0.4, "lip_full": 0.7,
+        }
+        for key, value in expected.items():
+            assert meta["genes"][key] == value, key
+            assert f"{key}={value}" in meta["dna"], key
+
+        sheet = Path(tmp) / "sheet.png"
+        assert _run("portraits", "--out", sheet, "--seed", 7, "--count", 2,
+                    "--size", 64, "--cols", 2, "--face-shape", "diamond",
+                    "--gene", "skin_melanin=0.6") == 0
+        meta = json.loads(sheet.with_suffix(".json").read_text(encoding="utf-8"))
+        for cell in meta["portraits"]:
+            assert cell["genes"]["face_shape"] == "diamond"
+            assert cell["genes"]["skin_melanin"] == 0.6
+
+
 if __name__ == "__main__":
     import traceback
 

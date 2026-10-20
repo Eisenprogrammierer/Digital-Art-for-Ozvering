@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
 from gen.portraits import cel, demography, dna, expression, face, hair, head, hues, eyes  # noqa: E402
+from gen.portraits import phenotype  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as style_mod  # noqa: E402
 from gen.portraits.shape import Shape  # noqa: E402
@@ -103,8 +104,10 @@ def test_breeding_produces_a_valid_genome():
         assert _style(child) is not None
         # Shape genes are averaged (and clamped), so a child is never wilder than
         # the child's own wire format allows.
-        for key in dna.SHAPE_GENES:
+        for key in dna.SHAPE_GENES + dna.MORPH + dna.PIGMENT:
             assert -1.0 <= child[key] <= 1.0
+        for key in dna.PHENOTYPE_CATEGORIES:
+            assert child[key] in (a[key], b[key]), f"{key} was not inherited as a category"
 
 
 def test_mutation_keeps_the_genome_readable_and_coloured():
@@ -707,10 +710,22 @@ def test_highlight_lifts_lightness():
 
 
 def test_the_colour_script_derives_from_the_four_base_colours():
+    """The four base colours are the material; pigment genes express them.
+
+    With every pigment gene at neutral the colour script is exactly the four
+    genes, which is what makes an old genome render as it always did.  A drawn
+    genome then moves skin, hair and iris through its pigment genes -- and every
+    derived tone is still a valid colour.
+    """
     g = dna.random_genes(4)
+    neutral = dict(g, **{key: 0.0 for key in dna.PIGMENT})
+    h0 = hues.from_genes(neutral)
+    assert np.allclose(h0.skin, palette.hex_to_srgb(g["skin"]))
+    assert np.allclose(h0.hair, palette.hex_to_srgb(g["hair"]))
+    assert np.allclose(h0.iris, palette.hex_to_srgb(g["iris"]))
+
     h = hues.from_genes(g)
-    assert np.allclose(h.skin, palette.hex_to_srgb(g["skin"]))
-    assert np.allclose(h.hair, palette.hex_to_srgb(g["hair"]))
+    assert not np.allclose(h.skin, h0.skin) or not np.allclose(h.hair, h0.hair)         or not np.allclose(h.iris, h0.iris), "pigment genes did not reach the script"
     # A derived tone must be a colour, not a channel-out-of-range accident.
     for name in h.__slots__:
         c = getattr(h, name)
@@ -729,19 +744,23 @@ def test_describe_names_the_genome():
 
 
 # ------------------------------------------------------------- demography
-def test_old_genomes_default_the_demographic_genes():
-    """A saved dynasty predates sex, age, climate and culture; it must still load.
+def test_old_genomes_default_the_demographic_and_phenotype_genes():
+    """A saved dynasty predates sex, age, climate, culture and every new axis.
 
     The opposite is the important half: only the *new* genes are optional.  A
     truncated string still loses a leg, so the legacy genes stay mandatory.
     """
     g = dna.random_genes(21)
+    optional = set(dna.DEMOGRAPHIC) | set(dna.PHENOTYPE_CATEGORIES) | set(dna.MORPH) | set(dna.PIGMENT)
     old = ";".join(item for item in dna.encode(g).split(";")
-                   if item.partition("=")[0] not in dna.DEMOGRAPHIC)
+                   if item.partition("=")[0] not in optional)
     out = dna.decode(old)
-    for key, value in demography.DEFAULTS.items():
+    for key, value in {**demography.DEFAULTS, **dna.phenotype.DEFAULTS}.items():
         assert out[key] == value, f"{key} did not default"
-    assert dna.encode(out).endswith(";".join(f"{k}={out[k]}" for k in dna.DEMOGRAPHIC))
+    text = dna.encode(out)
+    assert [item.partition("=")[0] for item in text.split(";")] == list(dna.GENES)
+    for key in dna.LEGACY_CATEGORICAL + dna.COLOUR_GENES + dna.SHAPE_GENES:
+        assert out[key] == g[key], f"{key} changed while defaulting the new tail"
 
 
 def test_demography_changes_the_face_and_not_the_dna_contract():
@@ -767,7 +786,7 @@ def test_demography_changes_the_face_and_not_the_dna_contract():
 
 
 def test_age_greys_the_hair_colour_script_not_the_gene():
-    g = _genes(4, age="adult")
+    g = _genes(4, age="adult", **{key: 0.0 for key in dna.PIGMENT})
     adult = hues.from_genes(g)
     grey = hues.from_genes(dict(g, age="elder"))
     assert np.allclose(adult.hair, palette.hex_to_srgb(g["hair"]))
@@ -808,6 +827,110 @@ def test_breeding_gives_a_child_a_child_stage():
         assert child["sex"] in demography.SEXES
         assert child["climate"] in demography.CLIMATES
         assert child["culture"] in demography.CULTURES
+
+
+
+# ------------------------------------------------------- phenotype and pigment
+def _neutral_phenotype(genes: dict) -> dict:
+    out = dict(genes)
+    out.update({key: 0.0 for key in dna.MORPH})
+    out.update({key: 0.0 for key in dna.PIGMENT})
+    return out
+
+
+def _style_signature(st) -> tuple:
+    return tuple((key, round(float(value), 6)) for key, value in sorted(st.p.items())
+                 if not isinstance(value, str))
+
+
+def _assert_face_invariants(st, where: str) -> None:
+    assert np.all(np.isfinite([float(value) for value in st.p.values()
+                               if not isinstance(value, str)])), f"{where}: non-finite style"
+    assert st.brow_y > st.eye_y, f"{where}: brow below the eye"
+    assert st.hairline_y > st.brow_y, f"{where}: hairline below the brow"
+    assert st.nose_y < st.eye_y, f"{where}: nose above the eye"
+    assert st.mouth_y < st.nose_y, f"{where}: mouth above the nose"
+    assert st.chin_y < st.mouth_y, f"{where}: chin above the mouth"
+    assert st.chin_w < st.jaw_w < st.cheek_w, f"{where}: jaw does not taper"
+    assert st.eye_dx + st.eye_w * 0.5 + 0.045 <= st.head_w + 1e-9, \
+        f"{where}: an eye hangs off the skull"
+    assert st.neck_w < st.jaw_w, f"{where}: neck thicker than the jaw"
+
+
+def test_every_phenotype_category_has_its_own_geometry():
+    """A named family is a real axis, not a caption.
+
+    Each value must produce a distinct style signature, and every one of those
+    signatures must still satisfy the anatomy guard.  Freckles are a paint
+    pattern, so they are covered by the pixel test below instead.
+    """
+    base = _neutral_phenotype(_genes(31))
+    for key, choices in phenotype.CATEGORIES.items():
+        if key == "freckles":
+            continue
+        signatures = []
+        for value in choices:
+            st = _style(dict(base, **{key: value}))
+            _assert_face_invariants(st, f"{key}={value}")
+            signatures.append(_style_signature(st))
+        assert len(set(signatures)) == len(choices), f"{key} has duplicate variants"
+
+
+def test_every_morph_gene_reaches_geometry_or_hair():
+    """Each continuous axis must move something a viewer can see.
+
+    Four axes are hair parameters rather than style parameters; those are checked
+    through the built hairstyle and through a rendered pixel hash.  The rest must
+    change the style dictionary, and both extremes must stay inside the guard.
+    """
+    base = _neutral_phenotype(_genes(44))
+    base["style"] = "shounen"
+    base["hair_style"] = "wild"    # a parted fringe, so every hair axis is visible
+    neutral_style = _style(base)
+    neutral_sig = _style_signature(neutral_style)
+    hair_keys = {"hair_volume", "fringe_length", "fringe_part", "side_lock"}
+    for key in dna.MORPH:
+        for value in (-1.0, 1.0):
+            st = _style(dict(base, **{key: value}))
+            _assert_face_invariants(st, f"{key}={value}")
+        if key in hair_keys:
+            st0 = _style(base)
+            p0 = hair._params(base["hair_style"], st0, base)
+            st1 = _style(dict(base, **{key: 0.8}))
+            p1 = hair._params(base["hair_style"], st1, dict(base, **{key: 0.8}))
+            assert p0 != p1, f"{key} never reached the hairstyle"
+        else:
+            assert _style_signature(_style(dict(base, **{key: 0.8}))) != neutral_sig, \
+                f"{key} never reached the style"
+    # Hair axes must reach pixels, not just a parameter dict.
+    base_hash = _hash(portraitlib.render(base, size=48))
+    for key in hair_keys:
+        assert _hash(portraitlib.render(dict(base, **{key: 0.8}), size=48)) != base_hash, \
+            f"{key} never reached the pixels"
+
+
+def test_every_pigment_gene_moves_the_colour_script():
+    base = _genes(52)
+    neutral = dict(base, **{key: 0.0 for key in dna.PIGMENT})
+    h0 = hues.from_genes(neutral)
+    for key in dna.PIGMENT:
+        h1 = hues.from_genes(dict(neutral, **{key: 0.8}))
+        changed = any(not np.allclose(getattr(h0, slot), getattr(h1, slot))
+                      for slot in h0.__slots__)
+        assert changed, f"{key} never reached the colour script"
+    # The strong skin axis must also survive to the picture.
+    a = _hash(portraitlib.render(dict(neutral, skin_melanin=-1.0), size=64))
+    b = _hash(portraitlib.render(dict(neutral, skin_melanin=1.0), size=64))
+    assert a != b, "skin melanin did not reach the portrait"
+
+
+def test_freckle_patterns_reach_the_pixels():
+    base = _neutral_phenotype(_genes(63))
+    hashes = {name: _hash(portraitlib.render(dict(base, freckles=name), size=72))
+              for name in phenotype.FRECKLE_PATTERNS}
+    assert len(set(hashes.values())) == len(hashes), "freckle patterns are only labels"
+    again = _hash(portraitlib.render(dict(base, freckles="full"), size=72))
+    assert again == hashes["full"], "the freckle pattern is not deterministic"
 
 
 if __name__ == "__main__":

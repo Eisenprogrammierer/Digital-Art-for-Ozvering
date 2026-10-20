@@ -160,15 +160,21 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
 
 def _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed) -> None:
     climate = str(genes.get("climate", demography.DEFAULTS["climate"]))
+    pattern = str(genes.get("freckles", "sparse"))
     chance = {"arctic": 0.45, "temperate": 1.0, "arid": 0.95,
               "tropical": 0.40, "highland": 0.75}.get(climate, 0.7)
+    pattern_scale = {"none": 0.0, "sparse": 0.35, "bridge": 0.75,
+                     "cheeks": 0.90, "full": 1.40}.get(pattern, 0.35)
     age = demography.age_t(genes)
-    count = int(round(28 * chance * (0.65 + 0.5 * age)))
+    count = int(round(28 * chance * pattern_scale * (0.65 + 0.5 * age)))
     for _ in range(count):
         # Most freckles belong on the nose and the two cheek apples; a uniform
-        # scatter over the whole face reads as measles.
+        # scatter over the whole face reads as measles.  The categorical gene
+        # moves the centre of that distribution: bridge freckles cluster on the
+        # nose, cheek freckles on the apples, and a full pattern crosses both.
         side = -1.0 if rng.random() < 0.5 else 1.0
-        if rng.random() < 0.32:
+        nose_p = {"bridge": 0.78, "cheeks": 0.10, "full": 0.30}.get(pattern, 0.32)
+        if rng.random() < nose_p:
             x = float(rng.normal(0.0, st.nose_w * 0.55))
             y = float(st.nose_y + rng.normal(0.0, st.nose_h * 0.55))
         else:

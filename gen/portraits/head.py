@@ -56,7 +56,7 @@ TURN_MAX = 0.55
 def _half(st) -> list:
     """Control points of the character's left half, crown to chin.
 
-    Eight points, and the shape they trace is the whole difference between a head
+    Nine points, and the shape they trace is the whole difference between a head
     and an egg.  A face is widest at the *cheekbone*, just below the eye line, not
     at the temple; from there the profile barely changes for a third of the head,
     turns at the jaw angle, and only then tapers to the chin -- and the taper ends
@@ -69,8 +69,9 @@ def _half(st) -> list:
         (st.head_w, st.wide_y),
         (st.cheek_w, st.cheek_y),
         (st.jaw_w, st.jaw_y),
-        (st.chin_w * 1.60, st.chin_y + 0.085),
-        (st.chin_w * 1.15, st.chin_y + 0.035),
+        (st.chin_w * 1.52, st.chin_y + 0.072),
+        (st.chin_w * 1.08, st.chin_y + 0.024),
+        (st.chin_w * 0.46, st.chin_y + 0.003),
         (0.0, st.chin_y),
     ]
 
@@ -144,15 +145,21 @@ def hairline_y(st) -> float:
 
 
 def neck(st, turn: float = 0.0) -> Shape:
-    """The neck: a column from inside the skull down past the shoulder line.
+    """The neck: a tapered column from inside the skull to the shoulder notch.
 
     It is painted *before* the bust, so the collar covers its lower end: the
     visible neck is exactly the notch between the shoulders, and no rounded
-    bottom edge can appear on the chest.
+    bottom edge can appear on the chest.  The sides widen towards the trapezius
+    instead of running as a rectangle -- a rectangle at this width reads as a
+    head on a stalk, which is the one bust proportion every style has to avoid.
     """
     top = st.chin_y + 0.17
     bottom = st.neck_y - 0.14
-    return S.box(st.neck_w, (top - bottom) * 0.5, r=0.05, cy=(top + bottom) * 0.5)
+    tw = float(st.neck_w) * 0.82
+    bw = float(st.neck_w) * 1.16
+    pts = [(-tw, top), (-tw * 1.02, top - 0.075), (-bw, bottom),
+           (bw, bottom), (tw * 1.02, top - 0.075), (tw, top)]
+    return S.poly(S.smooth_loop(pts, per_segment=6, resample=30))
 
 
 def shoulders(st) -> Shape:
@@ -167,14 +174,20 @@ def shoulders(st) -> Shape:
     bottom = float(st.shoulder_y)
     w = float(st.shoulder_w)
     nw = max(float(st.neck_w) * 1.22, 0.16)
+    # ``shoulder_slope`` raises or lowers the outer end of the trapezius without
+    # widening the body: a high shoulder line is a square silhouette, a low one
+    # is a sloped neck into a narrow chest.  Positive drops the outer end.
+    slope = float(getattr(st, "shoulder_slope", 0.0))
+    outer = top - 0.22 + 0.035 * slope
+    crest = top - 0.010 * slope
     pts = [
         (-w, bottom),
-        (-w, top - 0.22),
-        (-w * 0.66, top),
+        (-w, outer),
+        (-w * 0.66, crest),
         (-nw, top + 0.075),
         (nw, top + 0.075),
-        (w * 0.66, top),
-        (w, top - 0.22),
+        (w * 0.66, crest),
+        (w, outer),
         (w, bottom),
     ]
     return S.poly(S.smooth_loop(pts, per_segment=8, resample=52))
