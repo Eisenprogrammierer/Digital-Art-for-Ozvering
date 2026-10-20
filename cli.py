@@ -407,6 +407,18 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
     add(typeset.draw(kerned, {**text_pen.get("text"), "kern": 1.0},
                      em=size * 1.9, pad=0.06, colour=ink), after=7)
     add(typeset.draw(kerned, {**text_pen.get("text"), "kern": 0.0},
+                     em=size * 1.9, pad=0.06, colour=quiet), after=14)
+
+    # the ligature specimen, on the same principle: the words are the ones a text
+    # actually has, and the line is set both ways so the join can be looked at.
+    add(Canvas(1, 1), after=10)
+    add(typeset.draw("Ligatures -- the same words, joined and apart",
+                     {**text_pen.get("sans"), "weight": 0.052},
+                     em=size * 0.62, pad=0.06, colour=quiet), after=6)
+    joined = "fi fl ff ffi ffl -- office, file, affix, fluffy, waffle"
+    add(typeset.draw(joined, {**text_pen.get("text"), "liga": 1.0},
+                     em=size * 1.9, pad=0.06, colour=ink), after=7)
+    add(typeset.draw(joined, {**text_pen.get("text"), "liga": 0.0},
                      em=size * 1.9, pad=0.06, colour=quiet), after=20)
 
     # the size sweep: the same sentence, drawn at the size it says it is.  The
@@ -471,6 +483,12 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
                       "profile_rows": kernlib.PROFILE_ROWS,
                       "reference": {name: round(kernlib.reference(text_pen.get(name)), 4)
                                     for name in faces}},
+             # A ligature is a glyph and not a character, so the sidecar lists the
+             # *sequences* a text is set with -- the join's own advance is in the table
+             # above like every other glyph's, and an engine that lays a line out needs
+             # the substitution and nothing else.
+             ligatures={"".join(parts): ch
+                        for ch, parts in text_skeleton.LIGATURES.items()},
              faces=metric)
     return _report(out)
 

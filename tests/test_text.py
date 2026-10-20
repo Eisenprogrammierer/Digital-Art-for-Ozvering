@@ -749,6 +749,188 @@ def test_a_kerned_line_is_narrower_by_its_kerns_and_still_inside_its_measure():
     assert kerned[2] <= typeset.measure(line, {**spec, "kern": 1.0}) + 1e-9
 
 
+# ------------------------------------------------------------------- ligatures
+def _pieces(canvas, cut: float = 0.5) -> int:
+    """How many separate pieces of ink a drawing has.
+
+    Four-connected, on the alpha, because "joined" is a fact about the ink and not about
+    the skeleton: two strokes that meet in the data can still leave a gap in the drawing,
+    and two that miss can still be welded by the pen's width.
+    """
+    mask = np.asarray(canvas.a) > cut
+    seen = np.zeros_like(mask)
+    count = 0
+    for y0 in range(mask.shape[0]):
+        for x0 in range(mask.shape[1]):
+            if not mask[y0, x0] or seen[y0, x0]:
+                continue
+            count += 1
+            stack = [(y0, x0)]
+            seen[y0, x0] = True
+            while stack:
+                y, x = stack.pop()
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < mask.shape[0] and 0 <= nx < mask.shape[1] \
+                            and mask[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+    return count
+
+
+def test_a_join_is_one_glyph_where_the_line_had_two():
+    """The substitution, on the words a text actually contains."""
+    spec = pen.get("text")
+    assert typeset.glyphs("office", spec) == ["o", "\ufb03", "c", "e"]
+    assert typeset.glyphs("file", spec) == ["\ufb01", "l", "e"]
+    assert typeset.glyphs("waffle", spec) == ["w", "a", "\ufb04", "e"]
+    assert typeset.glyphs("affix", spec) == ["a", "\ufb03", "x"]
+    assert typeset.place("fi", spec)[0][0] == "\ufb01"
+
+
+def test_the_longest_join_wins_and_the_rest_is_untouched():
+    """``ffi`` is one glyph and not ``ff`` followed by an ``i``."""
+    assert typeset.JOINS[0][0] == "ffi"      # longest first is what makes the rest work
+    assert typeset.glyphs("ffi") == ["\ufb03"]
+    assert typeset.glyphs("ffl") == ["\ufb04"]
+    assert typeset.glyphs("ff") == ["\ufb00"]
+    assert typeset.glyphs("fi fl") == ["\ufb01", " ", "\ufb02"]
+    # nothing else is joined: no capitals, no f followed by anything but f, i or l
+    assert typeset.glyphs("FI Fa fe") == list("FI Fa fe")
+    assert typeset.glyphs("f") == ["f"]
+
+
+def test_a_join_is_narrower_than_the_letters_it_replaces():
+    """What a join is for, metrically: the daylight the dot asked for is gone."""
+    spec = pen.get("text")
+    apart = typeset.measure("office", {**spec, "liga": 0.0})
+    joined = typeset.measure("office", {**spec, "liga": 1.0})
+    assert joined < apart - 0.05
+    assert pen.advance("\ufb01", spec) < pen.advance("f", spec) + pen.advance("i", spec)
+
+
+def test_the_letter_after_an_f_stands_at_the_f_s_design_width():
+    """The join is metrical: every foot in it stands on an edge of the f's own slot."""
+    slot = skeleton.advance("f")
+    for ch in skeleton.LIGATURES:
+        feet = sorted({round(float(x), 9) for stroke in skeleton.strokes(ch)
+                       for x, y in stroke if abs(float(y)) < 1e-12})
+        assert feet and abs(feet[0]) < 1e-9, (ch, feet)
+        for x in feet:
+            assert abs(x / slot - round(x / slot)) < 1e-9, (ch, x, slot)
+
+
+def test_a_join_does_not_touch_the_f():
+    """An f in a join is the *same* f, moved by a whole number of its own slots."""
+    plain = skeleton.strokes("f")
+    slot = skeleton.advance("f")
+    for ch, parts in skeleton.LIGATURES.items():
+        strokes = skeleton.strokes(ch)
+        for k, part in enumerate(parts):
+            if part != "f":
+                continue
+            for stroke in plain:
+                want = np.asarray([(float(x) + k * slot, float(y)) for x, y in stroke])
+                assert any(np.asarray(got).shape == want.shape and np.allclose(got, want)
+                           for got in strokes), (ch, k)
+
+
+def test_the_join_is_one_piece_of_ink_and_the_pair_is_three():
+    """The claim, as ink: the bar runs into the stem, and the pair has a dot besides."""
+    spec = pen.get("text")
+    assert _pieces(typeset.draw("\ufb01", spec, em=80)) == 1
+    assert _pieces(typeset.draw("fi", {**spec, "liga": 0.0}, em=80)) == 3
+
+
+def test_a_joined_stem_has_no_head_and_the_hook_stays_above_it():
+    """Two things keep a join from reading as an A, and both are measurable.
+
+    The stem must not grow a *head* -- a serif on the x-height reaches back across the
+    bar -- and the hook has to stay well above the stem's top, or the arch closes.
+    """
+    spec = pen.get("text")
+    # the joins whose last letter is an i: an l brings its own ascender, and its stem
+    # passes the bar as an *interior* point, so it has no head to lose
+    for ch in ("\ufb01", "\ufb03"):
+        pts = skeleton.strokes(ch)
+        stroke = pts[-1]
+        x, top = float(stroke[0][0]), float(stroke[1][1])
+        assert abs(top - skeleton.X_HEIGHT) < 1e-12, ch
+        # nothing to the right of the stem at the x-height: no head, just the pen
+        assert pen.glyph_field(ch, spec, np.array([x + 0.06]), np.array([top]))[0] > 0.0, ch
+        # and the hook is a shoulder's height above the stem, not on it
+        hook = pts[0][0]
+        assert top + 0.10 < float(hook[1]), ch
+
+
+def test_an_i_gives_up_its_dot_where_it_joins():
+    """A joined i is dotless, and its stem stays a stem: x-height, not the hook.
+
+    The dot is where the join happens -- an i's dot sits on the top of its stem, which
+    is the one place an f's arm can come down -- so the dot is what the join spends.
+    """
+    assert any(len(p) == 1 for p in skeleton.strokes("i")), "an i wears a dot"
+    for ch in skeleton.LIGATURES:
+        assert not any(len(p) == 1 for p in skeleton.strokes(ch)), ch
+    # and the stem turns into the crossbar rather than ending under it: the stroke's
+    # last point is on the bar, to the left of the stem, at the same height
+    stem = skeleton.strokes("\ufb01")[-1]
+    assert abs(float(stem[1][1]) - skeleton.X_HEIGHT) < 1e-12
+    assert abs(float(stem[-1][1]) - skeleton.X_HEIGHT) < 1e-12
+    assert float(stem[-1][0]) < float(stem[0][0])
+
+
+def test_ligatures_are_a_switch_and_not_a_strength():
+    """A join is one glyph or it is not: there is no half of it, so the value is rounded."""
+    spec = pen.get("text")
+    assert typeset.glyphs("fi", {**spec, "liga": 0.4}) == ["f", "i"]
+    assert typeset.glyphs("fi", {**spec, "liga": 0.5}) == ["\ufb01"]
+    assert typeset.glyphs("fi", {**spec, "liga": True}) == ["\ufb01"]
+    assert typeset.glyphs("fi", {**spec, "liga": False}) == ["f", "i"]
+    # and with the switch off, a line is its characters, so a caller can count them
+    assert [ch for ch, _ in typeset.place("office", {**spec, "liga": 0.0})] == list("office")
+
+
+def test_a_join_is_a_glyph_the_face_draws_but_not_a_character_it_lists():
+    """Nobody types a ligature; the face still has to be able to draw one."""
+    assert skeleton.has("\ufb01")
+    assert "\ufb01" not in skeleton.names()
+    assert len(skeleton.names()) == 214
+    assert all(len(parts) > 1 for parts in skeleton.LIGATURES.values())
+
+
+def test_the_metrics_of_a_line_are_the_metrics_of_the_glyphs_it_is_set_with():
+    """Joins do not get their own arithmetic: measure and place agree on them."""
+    spec = pen.get("text")
+    line = typeset.glyphs("office", spec)
+    want = pen.advance(line[0], spec) + sum(typeset.pair(a, b, spec)
+                                            for a, b in zip(line, line[1:]))
+    assert abs(typeset.measure("office", spec) - want) < 1e-9
+    spots = typeset.place("office", spec)
+    assert [ch for ch, _ in spots] == line
+    assert abs(spots[-1][1] - pen.offset(line[-1], spec)
+               - (want - pen.advance(line[-1], spec))) < 1e-9
+
+
+def test_kerning_runs_on_the_glyph_the_join_makes():
+    """A join is kerned like any other glyph -- against what is really beside it."""
+    spec = pen.get("text")
+    assert typeset.pair("\ufb01", "c", spec) != typeset.pair("i", "c", spec)
+    assert kern.kern("\ufb01", "c", spec) <= 0.0
+    assert kern.air("\ufb01", "c", spec) is not None
+
+
+def test_every_face_draws_the_join_and_gives_up_the_dot():
+    """One glyph, one ink: the three strokes hold together under every pen in the box."""
+    for face in pen.names():
+        spec = pen.get(face)
+        joined = _pieces(typeset.draw("\ufb01", spec, em=64))
+        apart = _pieces(typeset.draw("fi", {**spec, "liga": 0.0}, em=64))
+        assert 1 <= joined <= 2, (face, joined)
+        assert apart == 3, (face, apart)          # the f, the stem, and the dot
+        assert apart > joined, (face, joined, apart)   # the dot is the difference
+
+
 if __name__ == "__main__":
     import traceback
 

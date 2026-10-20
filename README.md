@@ -97,7 +97,7 @@ python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 97 tests
 python tests/test_textures.py                   # 50 tests
 python tests/test_icons.py                      # 33 tests
-python tests/test_text.py                       # 40 tests
+python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 26 tests
 python tests/test_gallery.py                    # 20 tests
 ```
@@ -1443,10 +1443,10 @@ to pixels, and a sidecar of metrics.
 
 | Module | What it provides |
 | --- | --- |
-| `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, 66 of Cyrillic and the 53 accented letters of ISO-8859-1 — 214 in all, in three tables: drawn, **aliased** (А is A) and **composed** (é is e and an acute). Also `advance` and `advance`'s refusal. |
+| `skeleton` | The alphabet as data: one polyline per stroke in **tenths of an em**, drawn on the four guides, with arcs given as ellipses rather than as polygons. 95 characters of printable ASCII, 66 of Cyrillic and the 53 accented letters of ISO-8859-1 — 214 in all, in three tables: drawn, **aliased** (А is A) and **composed** (é is e and an acute). Plus the five **joins** (ﬀ ﬁ ﬂ ﬃ ﬄ), which are glyphs and not characters: composed from the letters they replace, never drawn. Also `advance` and `advance`'s refusal. |
 | `pen` | What turns a skeleton into a letter: **weight**, **contrast** (a broad nib is thin on a horizontal), **serif**, **slant** and **width**, the serif rule, the marks and where they go (`MARK_GAP`, a mark fitted into its letter's own advance), and — measured off the result rather than declared beside it — `ink_box`, `advance` and `offset`. Five presets: `sans`, `text`, `display`, `italic`, `slab`. |
 | `kern` | Optical spacing from the pen's own profiles: how far a pair may close before it spends the daylight it is promised, how much white it carries over the face's **reference pair** (two `n`s, measured in the same pen), and the twelfth-of-an-em clamp that stops a rule from guessing. Cached by `(character, pen)`. |
-| `typeset` | `measure`, `place`, `ink_bounds`, `pair`, `paint`, `draw`, `block`: advances, **kerns** and tracking between letters, alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
+| `typeset` | `measure`, `place`, `ink_bounds`, `pair`, `paint`, `draw`, `block`: advances, **kerns** and tracking between letters, the **join substitution** (`glyphs`, with `spec["liga"]`), alignment on the *ink*, and the drawing, which is one distance field per glyph unioned over the line. |
 
 ### A letter is a skeleton, and the letter is what a pen does to it
 
@@ -1688,8 +1688,57 @@ checked by looking, which is also how the third constant was chosen.
 What the rule cannot see is that a bowl is not a stem. A round side leaves more white
 above and below the point where it comes nearest, so two `o`s at a stem's daylight still
 read a little loose, and the rule takes back only a third of that. That is the honest
-budget of a rule where a foundry has a table. Ligatures are the next thing, and they are
-not a distance at all: they are a letter that is two letters.
+budget of a rule where a foundry has a table. What the rule cannot do at all is the
+thing the next section is about, and it is not a distance: an overhang has to be priced
+against every letter that follows, because the rule cannot see which one it is.
+
+### A ligature is what a kern would do if the hook knew what was under it
+
+The `f` is the one lower-case letter whose ink reaches right at the top: its hook ends in
+mid-air, over the letter after it. Set `fi` with the rule above and the pair closes by
+0.06 em and no further — and not because the ink is in the way. The rule prices an
+**overhang** at every height, because a bar over a bowl constrains that bowl just as a
+stem beside it would, so the `f`'s hook is charged against the whole column of the `i`
+though the hook is a shoulder above it. That is the right answer for a kern, which cannot
+know what comes next. What a join adds is that knowledge: the hook is *above* the `i`, not
+beside it, and with it the stem stands 0.16 em further in than the kern dares.
+
+So a join here is the *same pair*, set by someone who can see the shapes. Five entries in
+`skeleton.LIGATURES` (ﬀ ﬁ ﬂ ﬃ ﬄ), each the sequence it replaces, so the composition cannot
+drift away from the alphabet the way a second copy of a letter would. Two moves make it:
+
+* the letter after an `f` stands at the **`f`'s own design width** — the edge of the slot
+  the `f` asks for and never fills. That is 0.36 em where the `f`'s advance is 0.46, and
+  it leaves the `f`'s crossbar a hair short of the stem — the same daylight the kern floor
+  spends;
+* an `i` gives up its **dot**, and its stem **turns into the crossbar** instead of ending
+  beside it. Both are forced, and the second one is the one that took three attempts. A
+  stroke that ends on the x-height earns a *head* serif there — the serif rule gives the
+  x-height a foot and no beak — and a head reaches back across the bar, so the stem has to
+  arrive as a corner of the bar, not as an end under it. And a stem standing directly
+  under the hook closes the arch into an **A**: the hook comes down onto the end of the
+  `f`'s own crossbar, so the letter after it must stand clear of that, and the two designs
+  that did not were rendered and thrown away. The specimen sheet is what decided it; the
+  tests now measure the two things that keep it from coming back — no ink to the right of
+  a joined stem at the x-height, and the hook a shoulder's height above it. The dot goes
+  for a reason of its own: brought in to the join's distance it lands beside the hook's
+  terminal, at the same height, and the two round marks a pen's width apart read as a slip
+  of the pen rather than as a letter. It is the only part of the `i` up where the arm is.
+
+The `f` itself is untouched, the last one included: in `ff` its crossbar ends a hair
+short of the next stem, which is the `f`'s own daylight and stays. What the join buys is
+visible from the outside. An advance is 0.58 em where the two letters' are 0.72, `office`
+is 0.11 em narrower with joins than without, and the pair's ink is **one piece** where
+`fi` set apart is three — the `f`, the stem, and the dot.
+
+`liga` is a *switch*, not a strength: a join is one glyph or it is not, and there is no
+half of one. `spec["liga"] = 0` sets a line character for character, which is what a
+caption that has to stay countable wants; the default is on, and the demo sheet prints
+the same line both ways so the difference can be looked at.
+The joins are glyphs and not characters — `skeleton.names()` still lists 214, because
+nobody types a ligature — and the sidecar's `ligatures` table says which sequences the
+face joins and to what, which is all an engine needs to make the same substitution. The
+join's own advance and ink box are in the metrics table like every other glyph's.
 
 ### A missing character is refused, not drawn
 
@@ -1713,19 +1762,19 @@ sensible weight and refusing it would only make a live parameter unusable.
 
 ### What is not here
 
-No ligatures, no hinting, no marks stacked on marks, no `.ttf` -- and no pair table,
-which is a decision and not a gap: the kerns are the rule above, derived from the pen
-every time a line is laid out. The letters
-are drawn at the size they are asked for, and the honest version of "optically correct at
-12 px" is to pick the `sans` pen, which is what a UI face is for. The demo sheet's last
-block is the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one of them is
-*generated* at that size rather than scaled down from a big one — which is the one claim
-this package shares with every other one here, and the reason it can make it.
+No hinting, no marks stacked on marks, no `.ttf` -- and no pair table and no ligature
+table, which are decisions and not gaps: the kerns are the rule above and the joins are
+five sequences in the alphabet, both derived from the pen every time a line is laid out.
+The letters are drawn at the size they are asked for, and the honest version of "optically
+correct at 12 px" is to pick the `sans` pen, which is what a UI face is for. The demo
+sheet's last block is the same sentence at 11, 12, 14, 18, 24, 32 and 48 px, and every one
+of them is *generated* at that size rather than scaled down from a big one — which is the
+one claim this package shares with every other one here, and the reason it can make it.
 
 The sidecar is the other half of the deliverable: `ozart/font/1`, with the guides, the
-leading, and every character's advance and ink box in em units. A game that lays out
-text from it never has to re-derive the pen, and a game that does not can still draw
-the letters.
+leading, every character's advance and ink box in em units, and the five joins (sequence
+to glyph) under `ligatures`. A game that lays out text from it never has to re-derive the
+pen, and a game that does not can still draw the letters.
 
 ## Maps (`gen/maps/`)
 
@@ -2864,9 +2913,14 @@ Generators to sit on top of the core, in the order they become useful:
   close bounded by the daylight the pair is promised, the white it carries over the
   measured reference pair, and a twelfth of an em; the spacing question asked of the
   bodies and the safety question of the finished ink, which is the same split the
-  advance makes)*; ~~ligatures~~ *(open: not a distance but a letter that is two
-  letters, and the skeleton has no way yet to say that one stroke belongs to two
-  characters)*. This is also the licensing note's "fonts leak" closed:
+  advance makes)*; ~~ligatures~~ *(done: `gen/text/skeleton.py` -- five joins, ﬀ ﬁ ﬂ ﬃ
+  ﬄ, composed from the letters they replace. The letter after an `f` stands at the `f`'s
+  own design width, an `i` gives up its dot, and its stem turns into the crossbar so it
+  grows no head; `spec["liga"]` switches them and the sidecar lists them. Two designs
+  were rendered and thrown away first -- a stem under the hook, and a join whose stem
+  kept the head serif it earns on the x-height; both close the arch into an A -- and the
+  tests now measure the two things that keep it from coming back)*. This is also the
+  licensing note's "fonts leak" closed:
   the shipped face is a function of a seed like everything else, and Pillow's bitmap
   font is back to being what it always was here -- a dev tool).*
 - **export extras** -- ~~SVG for vector UI~~ *(done, as `export/svg.py` + the

@@ -8,6 +8,11 @@ Three jobs, and they are three different questions:
   the two profiles -- and the tracking.  Both are *between* letters, so a line of ``n``
   letters has ``n - 1`` of each: that is the one thing a font's metrics have to get
   right, because every layout bug starts as an off-by-one-tracking.
+* **What is a letter?**  :func:`glyphs` answers that, and the answer is not always the
+  characters: with ``liga`` on, a sequence the face has a join for is set as that one
+  glyph.  A ligature is not a second way of drawing the line -- the join's spacing comes
+  out of the same metrics as everybody else's -- it is the alphabet admitting that two
+  of its letters have one place where they want to touch.
 * **Where does each letter sit?**  :func:`place` answers with the pen positions, and
   :func:`ink_bounds` answers with where the *ink* actually reached, which is not the
   same box: the em box has room in it that no letter uses, so a line centred by its
@@ -30,8 +35,15 @@ from core import palette, render
 from core.canvas import Canvas
 from gen.text import kern, pen, skeleton
 
-__all__ = ["INK", "advance", "measure", "place", "ink_bounds", "spec_of", "paint",
-           "draw", "block", "pair"]
+__all__ = ["INK", "JOINS", "advance", "glyphs", "measure", "place", "ink_bounds",
+           "spec_of", "paint", "draw", "block", "pair"]
+
+#: The sequences the face sets as one glyph, **longest first**: a text is read as
+#: ``ffi`` and not as ``ff`` and then ``i``, for the same reason a tokenizer sorts its
+#: keywords by length.  Derived from :data:`gen.text.skeleton.LIGATURES`, so there is
+#: one list of joins in the package and it is the skeleton's.
+JOINS = tuple(sorted((("".join(parts), ch) for ch, parts in skeleton.LIGATURES.items()),
+                     key=lambda pair: -len(pair[0])))
 
 #: The colour a line of text is drawn in when nobody says otherwise: a soft black,
 #: which is what a page wants and what a bright UI wants to be told otherwise about.
@@ -54,6 +66,40 @@ def spec_of(spec=None) -> dict:
         except (TypeError, ValueError):
             v = fallback
         out[key] = float(np.clip(v, lo, hi))
+    # ``liga`` is a *switch* and not a strength: a join is one glyph or it is not, and
+    # there is no half of it.  The value is rounded so a caller that writes ``True``,
+    # ``1`` or ``0.9`` all mean the same thing.
+    try:
+        liga = float((spec or {}).get("liga", 1.0))
+    except (TypeError, ValueError):
+        liga = 1.0
+    out["liga"] = 1.0 if liga >= 0.5 else 0.0
+    return out
+
+
+def glyphs(text: str, spec=None) -> list:
+    """The glyphs a string is *set* with, which is not always its characters.
+
+    With ``liga`` on, the longest join the face has for the text at that point replaces
+    the characters it is made of -- ``ffi`` is one glyph, not ``ff`` and an ``i`` -- and
+    everything else is itself.  Off, the line is the string, character for character,
+    which is what a caption that must be searchable or a test that counts kerning wants.
+    """
+    s = spec_of(spec)
+    text = str(text)
+    if not s["liga"]:
+        return list(text)
+    out = []
+    i = 0
+    while i < len(text):
+        for seq, one in JOINS:
+            if text.startswith(seq, i):
+                out.append(one)
+                i += len(seq)
+                break
+        else:
+            out.append(text[i])
+            i += 1
     return out
 
 
@@ -86,13 +132,13 @@ def measure(text: str, spec=None) -> float:
     the pen will actually lay out.
     """
     s = spec_of(spec)
-    text = str(text)
-    if not text:
+    line = glyphs(text, s)
+    if not line:
         return 0.0
     # each pair's distance *starts* at a letter, so the last letter's own advance is
     # added after the loop and the first one is never counted twice
-    total = sum(_pair(a, b, s) for a, b in zip(text, text[1:]))
-    return total + pen.advance(text[-1], s)
+    total = sum(_pair(a, b, s) for a, b in zip(line, line[1:]))
+    return total + pen.advance(line[-1], s)
 
 
 def place(text: str, spec=None) -> list:
@@ -103,13 +149,13 @@ def place(text: str, spec=None) -> list:
     because the right sidebearing of the last letter is not part of the ink either.
     """
     s = spec_of(spec)
-    text = str(text)
+    line = glyphs(text, s)
     out = []
     x = 0.0
-    for i, ch in enumerate(text):
+    for i, ch in enumerate(line):
         out.append((ch, x + pen.offset(ch, s)))
-        if i + 1 < len(text):
-            x += _pair(ch, text[i + 1], s)
+        if i + 1 < len(line):
+            x += _pair(ch, line[i + 1], s)
     return out
 
 

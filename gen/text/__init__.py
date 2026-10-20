@@ -6,7 +6,8 @@ are the same parts the rest of the toolkit has:
 
 ``skeleton``
     The alphabet itself: one polyline per stroke, in em units, drawn on the guides
-    every face agrees about.  Identity is these numbers and nothing else.
+    every face agrees about.  Identity is these numbers and nothing else.  The five
+    joins live here too, composed from the letters they replace rather than drawn.
 ``pen``
     What turns a skeleton into a letter -- weight, contrast, serifs, slant -- and the
     ink box that comes out.  Style is these four numbers and nothing else.
@@ -15,9 +16,9 @@ are the same parts the rest of the toolkit has:
     profiles read out of the pen's own field, and the daylight the pair is allowed to
     spend.  A rule with three numbers and no table of pairs.
 ``typeset``
-    Advances, kerns, tracking, alignment, and the drawing: a line of text is a
-    distance field like any other shape, so it takes the same coverage and the same
-    lit bevel.
+    Advances, kerns, tracking, alignment, the join substitution, and the drawing: a
+    line of text is a distance field like any other shape, so it takes the same
+    coverage and the same lit bevel.
 
 The point of the split is that a monoline UI face and a modulated book face are the
 *same alphabet* read two ways, which is what makes a generated font worth having

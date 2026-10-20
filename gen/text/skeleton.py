@@ -66,7 +66,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["GLYPHS", "ALIASES", "MARKS", "COMPOSED", "DOTTED", "X_HEIGHT",
+__all__ = ["GLYPHS", "ALIASES", "MARKS", "COMPOSED", "DOTTED", "LIGATURES", "X_HEIGHT",
            "CAP_HEIGHT", "ASCENDER", "DESCENDER", "GUIDES", "names", "has", "advance",
            "strokes", "mark_of", "mark_strokes"]
 
@@ -317,19 +317,43 @@ COMPOSED = {
 #: where the dot is: an acute on an i is *above the stem*, not above the dot.
 DOTTED = ("i", "j")
 
+#: The joins: what the typesetter draws where two letters would otherwise have to be
+#: kept apart by the daylight each of them asks for.  Unicode files these five as
+#: *presentation forms*, and that is exactly what they are -- nobody types a ligature,
+#: a text is *set* with one -- so they are glyphs and not characters: :func:`names`
+#: still lists 214 characters, and these are what the same alphabet does when it joins.
+#:
+#: Only the ``f`` joins, and that is not an accident of this alphabet: an ``f`` is the
+#: one letter in the lower case whose ink reaches right at the top -- its hook ends in
+#: mid-air, over the letter after it -- so it is the one letter that has something to
+#: put down.  The sequences are the five a Latin text actually met: ff, fi, fl, ffi, ffl.
+LIGATURES = {
+    "\ufb00": ("f", "f"),
+    "\ufb01": ("f", "i"),
+    "\ufb02": ("f", "l"),
+    "\ufb03": ("f", "f", "i"),
+    "\ufb04": ("f", "f", "l"),
+}
+
 
 # --------------------------------------------------------------------------
 # reading it
 # --------------------------------------------------------------------------
 def names() -> list:
-    """Every character the face has a skeleton for, in a stable order."""
+    """Every *character* the face has a skeleton for, in a stable order.
+
+    The joins (:data:`LIGATURES`) are deliberately not in here.  A ligature is a glyph
+    the typesetter reaches for and not a character a writer types, and a name list is
+    the answer to "what can a text contain", which is a different question from "what
+    can this face draw" -- :func:`has` answers the second one.
+    """
     return sorted(set(GLYPHS) | set(ALIASES) | set(COMPOSED))
 
 
 def has(ch: str) -> bool:
     """Whether ``ch`` is in the face.  A missing character is an error, not a box."""
     key = str(ch)
-    return key in GLYPHS or key in ALIASES or key in COMPOSED
+    return key in GLYPHS or key in ALIASES or key in COMPOSED or key in LIGATURES
 
 
 def mark_of(ch: str):
@@ -374,7 +398,10 @@ def advance(ch: str) -> float:
     the same way a serif does, if the mark reaches past the sidebearing it was given --
     see :func:`gen.text.pen.advance`.)
     """
-    key = _base(ch)
+    key = str(ch)
+    if key in LIGATURES:
+        return _compose(LIGATURES[key])[1]
+    key = _base(key)
     if key not in GLYPHS:
         raise KeyError(f"no skeleton for {str(ch)!r}: the face covers {len(names())} "
                        f"characters, and a missing one is a mistake rather than a box")
@@ -422,6 +449,73 @@ def _undotted(pts: list) -> list:
     return [s for i, s in enumerate(pts) if i != drop]
 
 
+# --------------------------------------------------------------------------
+# the joins
+# --------------------------------------------------------------------------
+#: A ligature is not drawn here, and that is the point of the section: it is the
+#: letters' own skeletons, moved -- so a join cannot drift away from the alphabet the
+#: way a second copy of a letter would.  A join makes exactly two moves, and both are
+#: about the same thing, which is where the letter *after* the f stands.
+#:
+#: * it stands at the **f's own design width** -- the edge of the slot the f asked for
+#:   and never filled.  The f's crossbar and its hook both stop short of that edge, and
+#:   they have to: the hook descends onto the end of the crossbar, so a stem standing
+#:   under the hook would close the shape into an A.  One bar's air past the terminal,
+#:   the pair reads as f-then-i at a distance no kern can reach;
+#: * an ``i`` gives up its **dot**, and its stem **turns into the crossbar**.  The dot is
+#:   the whole reason ``fi`` is a ligature -- a kern has to keep the f's hook clear of
+#:   it, and without it the hook is clear of everything -- and the turn is what stops
+#:   the i growing a *head*: a stem that ends on the x-height guide earns a serif there
+#:   (:func:`gen.text.pen` gives the x-height a foot and no beak), and a head on the
+#:   joined stem reaches back across the bar.  That is an A.  Ending the stroke in a
+#:   corner, where the bar runs on into the stem, is not an end at all.
+#:
+#: The ``f`` itself is untouched, the last one included -- nothing follows it, so it has
+#: nothing to make room for.
+
+def _raw(ch: str) -> str:
+    """A character's own strokes-string, before the pen or a mark touches it."""
+    return GLYPHS[_base(ch)][1]
+
+
+def _stem_x(pts: list, part: str) -> float:
+    """Where a part's stem stands.
+
+    An ``f``'s stem is the *tail* of its hook's stroke -- the arc comes down to the
+    stem's shoulder and the stroke runs on to the foot -- while an ``i``'s or an
+    ``l``'s stem is the stroke itself, and starts at its foot.
+    """
+    stroke = pts[0]
+    return float(stroke[-1][0] if part == "f" else stroke[0][0])
+
+
+def _compose(parts) -> tuple:
+    """A join's polylines and its design width, in em units: ``(strokes, design)``.
+
+    Left to right: each letter stands where the one before it ended *in design*, and an
+    ``i`` drops its dot.  That is the whole composition -- the strokes are the letters'
+    own, shifted -- and the design width of the join is the last letter's end, so a
+    ligature is the letters it replaces with the daylight between them taken out.
+    """
+    out = []
+    end = 0.0
+    bar_end = None                  # the crossbar of the f before, in the join's units
+    for j, part in enumerate(parts):
+        pts = _read(_raw(part), part)
+        if part in DOTTED:
+            pts = _undotted(pts)
+        dx = 0.0 if j == 0 else end - _stem_x(pts, part)
+        if bar_end is not None and part in DOTTED:
+            # the stem turns into the bar instead of ending under it
+            stem = pts[0]
+            pts = [[(stem[0][0], stem[0][1]), (stem[-1][0], stem[-1][1]),
+                    (bar_end - dx, stem[-1][1])]] + pts[1:]
+        out += [[(px + dx, py) for (px, py) in stroke] for stroke in pts]
+        bar_end = dx + float(pts[1][-1][0]) if part == "f" else None
+        end = dx + GLYPHS[_base(part)][0] / 10.0
+    return out, end
+
+
 def strokes(ch: str) -> list:
     """The glyph's skeleton: a list of polylines, in em units, y up.
 
@@ -435,6 +529,8 @@ def strokes(ch: str) -> list:
     mark lands where the dot was.
     """
     key = str(ch)
+    if key in LIGATURES:
+        return _compose(LIGATURES[key])[0]
     base = _base(key)
     if base not in GLYPHS:
         raise KeyError(f"no skeleton for {key!r}")
