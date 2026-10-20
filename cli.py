@@ -64,6 +64,7 @@ from gen.maps import paint as map_paint  # noqa: E402
 from gen.maps import politics as map_politics  # noqa: E402
 from gen.maps import region as map_region  # noqa: E402
 from gen.maps import roads as map_roads  # noqa: E402
+from gen.maps import site as map_site  # noqa: E402
 from gen.maps import terrain as map_terrain  # noqa: E402
 from gen.text import pen as text_pen  # noqa: E402
 from gen.text import skeleton as text_skeleton  # noqa: E402
@@ -1704,7 +1705,8 @@ def _repeat_canvas(canvas, n: int = 2):
     return out
 
 
-def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True) -> Path:
+def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True,
+                 mips: int | None = 1) -> Path:
     """Contact sheet of the six ground materials, each shown as a tiling of four.
 
     The materials are a *set* rather than six pictures, so the sheet is the place to
@@ -1719,6 +1721,12 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True) 
     all the same material.  The sidecar carries the same mapping the other way round and
     every number in the row that made the tile, so a seventh material can be argued about
     in numbers rather than in adjectives.
+
+    ``mips`` packs the atlas the way the tiles sheet is packed: 1 is the one sheet, and
+    above that a chain whose levels are reduced and *repacked*, because the margin is two
+    texels at every level.  The demo ships the head by default -- a ground is read from a
+    metre away, and six materials are a set rather than a level of detail -- but a game
+    that keeps a ground under a camera that moves has the same chain the tiles do.
     """
     half = max(int(size) // 2, 8)
     panels = [(name, tex_ground.texture(name, seed=seed, size=half))
@@ -1759,13 +1767,15 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True) 
                      "name": name,
                      "seed": seed,
                      "size": panel.w,
-                     "base": palette.srgb_to_hex(palette.oklch_to_srgb(g[name].base)),
-                     "relief": g[name].relief,
-                     "cells": g[name].cells,
-                     "bevel": g[name].bevel,
-                     "dome": g[name].dome,
-                     "layers": {"lump": g[name].lump, "ribbon": g[name].ribbon,
-                                "facet": g[name].facet, "grit": g[name].grit},
+                     # The whole row, not a selection of it: the docstring above
+                     # promises "every number in the row", and a sidecar that
+                     # dropped the scales could not be fed back to ``texture``.
+                     # ``base`` stays in OKLCH, because that is the parameter the
+                     # painter reads and a hex would round it to 8 bits; ``base_hex``
+                     # is the swatch, for a reader rather than for the code.
+                     "row": {**g[name]._asdict(), "base": list(g[name].base)},
+                     "base_hex": palette.srgb_to_hex(
+                         palette.oklch_to_srgb(g[name].base)),
                      "biomes": sorted(k for k, v in tex_ground.FOR_BIOME.items()
                                       if v == name),
                      "seam_error": round(tilelib.seam_error(
@@ -1778,11 +1788,71 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True) 
     # margins are more of the tile rather than a transparent gap, because the pixel
     # beside a tile's edge is its own opposite edge.
     if atlas:
-        image, info = tex_atlas.build(panels)
-        path = out.with_name(f"{out.stem}-atlas.png")
-        image.save(path)
-        _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
-        _report(path)
+        members = [(name, panel) for name, panel in panels]
+        if mips is None or int(mips) > 1:
+            levels = None if mips is None else int(mips)
+            for image, info in tex_atlas.mips(members, levels=levels):
+                path = out.with_name(f"{out.stem}-mip{info['level']}.png")
+                image.save(path)
+                _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+                _report(path)
+        else:
+            image, info = tex_atlas.build(members)
+            path = out.with_name(f"{out.stem}-atlas.png")
+            image.save(path)
+            _sidecar(path, seed, "procedural:gen.textures.atlas", **info)
+            _report(path)
+    return _report(out)
+
+
+def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
+              rows: int = 6, flat: bool = False) -> Path:
+    """One site twice: the biome's colour, and the ground the hex wears.
+
+    The two panels are the same geography and the same seed, so the difference is the
+    one the module is about.  At the strategic map's fourteen pixels the left picture is
+    the honest one; at fifty-six the right one is, because a hex is now big enough for
+    the eye to ask what the ground is *made of* rather than what it is.
+
+    ``flat`` asks for the left panel alone, which is what a caller comparing a site with
+    ``out/maps.png`` wants; the demo ships both because the pair is the argument.
+    """
+    flat_panel = map_site.site_image(seed=seed, cols=cols, rows=rows, size=size,
+                                     grounds=False)
+    panels = [("flat", flat_panel,
+               "the biome's colour, as the strategic map draws it")]
+    if not flat:
+        panels.append(("worn", map_site.site_image(seed=seed, cols=cols, rows=rows,
+                                                   size=size),
+                       "the same hexes, each wearing its biome's ground"))
+
+    gap, head, foot, margin = 26, 96, 50, 30
+    pw, ph = panels[0][1].w, panels[0][1].h
+    page = Canvas(len(panels) * pw + (len(panels) - 1) * gap + 2 * margin,
+                  head + ph + foot + margin, scale=1.0, y_up=False,
+                  background=(0.90, 0.90, 0.93))
+    for i, (_tag, panel, _note) in enumerate(panels):
+        page.blit(panel.rgb, panel.a, margin + i * (pw + gap), head)
+    page.save(out)
+
+    img = png.to_image(page)
+    _label(img, (margin, 18), "A site at close range", font=_font(21), plate=None,
+           dark=(28, 28, 34, 255))
+    _label(img, (margin, 50),
+           f"the same {cols} x {rows} hexes at {size} px, seed {seed}; the material is "
+           "sampled in world coordinates and lit once with the hex relief",
+           font=_font(13), plate=None, dark=(78, 78, 88, 255))
+    for i, (tag, _panel, note) in enumerate(panels):
+        x = margin + i * (pw + gap) + 3
+        _label(img, (x, head + ph + 6), f"{tag} -- {note}", font=_font(13))
+    img.save(out, "PNG", optimize=True)
+
+    _sidecar(out, seed, "procedural:gen.maps.site",
+             cols=cols, rows=rows, size=size,
+             span=map_site.SPAN, mix=map_site.MIX, relief=map_site.RELIEF,
+             terrain_relief=map_site.TERRAIN_RELIEF,
+             for_biome=dict(sorted(tex_ground.FOR_BIOME.items())),
+             panels=[tag for tag, _panel, _note in panels])
     return _report(out)
 
 
@@ -1863,6 +1933,7 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_coast(out / "coast-tiles.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
     demo_grounds(out / "grounds.png", seed=seed)
+    demo_site(out / "site.png", seed=seed)
     demo_text(out / "text.png")
     demo_factions(out / "factions.png", seed=seed)
     _report(creditslib.write(out))
@@ -2002,6 +2073,18 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--seed", type=int, default=7)
     gr.add_argument("--size", type=int, default=256, help="pixels per cell of the sheet")
     gr.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
+    gr.add_argument("--mips", type=int, default=1,
+                    help="levels of packed mip sheets (1 = the one atlas sheet)")
+
+    st = sub.add_parser("site", help="a map at close range: every hex wears its "
+                                     "biome's ground")
+    st.add_argument("--out", default="out/site.png", type=Path)
+    st.add_argument("--seed", type=int, default=7)
+    st.add_argument("--size", type=int, default=56, help="pixels per hex")
+    st.add_argument("--cols", type=int, default=8)
+    st.add_argument("--rows", type=int, default=6)
+    st.add_argument("--flat", action="store_true",
+                    help="the biome colour only, without the ground")
 
     tx = sub.add_parser("text", help="the generated typeface: specimen sheet and font metrics")
     tx.add_argument("--out", default="out/text.png", type=Path)
@@ -2140,7 +2223,11 @@ def main(argv=None) -> int:
         demo_tiles(args.out, seed=args.seed, size=args.size, sim=args.sim,
                    steps=args.steps, atlas=not args.no_atlas, mips=args.mips)
     elif args.cmd == "grounds":
-        demo_grounds(args.out, seed=args.seed, size=args.size, atlas=not args.no_atlas)
+        demo_grounds(args.out, seed=args.seed, size=args.size,
+                     atlas=not args.no_atlas, mips=args.mips)
+    elif args.cmd == "site":
+        demo_site(args.out, seed=args.seed, size=args.size, cols=args.cols,
+                  rows=args.rows, flat=args.flat)
     elif args.cmd == "credits":
         if args.out is not None:
             _report(creditslib.write(args.manifest, args.out))

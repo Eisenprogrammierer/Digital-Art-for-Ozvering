@@ -27,6 +27,10 @@
 ``paint``
     One per-pixel raster pass for the ground and its relief, a wash and a frontier
     line for the provinces, strokes for the rivers, the coast and the frame.
+``site``
+    The camera come down: the same lattice and the same borders, with every hex
+    wearing its biome's ground material -- sampled in world coordinates and lit once
+    with the hex relief, so a site is a material and not a tint.
 
 A map is a function of ``(seed, cols, rows)`` and nothing else: ``size`` decides
 only how many pixels it is drawn in, so the same seed is the same continent at
@@ -39,10 +43,10 @@ Typical use::
     image = map_image(seed=7, cols=26, rows=17, size=14.0, provinces=8)
     image.save("out/map.png")
 """
-from . import autotile, coast, grid, labels, paint, region, rivers, terrain
+from . import autotile, coast, grid, labels, paint, region, rivers, site, terrain
 
 __all__ = ["autotile", "coast", "grid", "labels", "paint", "region", "rivers",
-           "terrain", "HexGrid", "map_image"]
+           "site", "terrain", "HexGrid", "map_image"]
 
 HexGrid = grid.HexGrid
 map_image = paint.map_image

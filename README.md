@@ -31,7 +31,7 @@ python cli.py demo --out out --seed 7
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/anim.png`, `out/figures.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
+`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/grounds.png`, `out/grounds-atlas.png`, `out/site.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
@@ -43,7 +43,8 @@ names it set into the picture and the size of each, for the coast and
 biome-border tiles the grid they sit in and how many of the sixty-four each map
 wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for a ground material the
-row of the table that made it, the biomes that wear it and its seam, for the atlases the
+whole row of the table that made it, the biomes that wear it and its seam, for a site
+the ground's period, mix and relief and the biome mapping it wore, for the atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
 icons the tiers and counts it badged and the factions it dressed a set in, for an
@@ -87,6 +88,7 @@ python cli.py maps       --seed 7 --no-names              # ...without the provi
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py grounds    --seed 7 --size 256              # six ground materials for map tiles, + atlas
+python cli.py site       --seed 7 --size 56               # one site twice: biome colour vs ground worn
 python cli.py text       --size 20 --out out/text.png  # the typeface: a specimen, its metrics
 python cli.py credits    --manifest out         # what we owe, and what we made
 python cli.py credits    --manifest out --png out/credits.png   # and the screen
@@ -96,17 +98,18 @@ python tests/test_core.py                       # 68 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
 python tests/test_portraits.py                  # 37 tests
 python tests/test_ui.py                         # 47 tests
-python tests/test_maps.py                       # 97 tests
-python tests/test_textures.py                   # 62 tests
+python tests/test_maps.py                       # 100 tests
+python tests/test_textures.py                   # 65 tests
 python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 26 tests
 python tests/test_gallery.py                    # 20 tests
 ```
 
-Every one of those runs on every push as well -- the ten suites, the demo built
-twice and compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13,
-in `.github/workflows/tests.yml`.
+Every one of those runs on every push as well -- every suite in `tests/` (the workflow
+globs the directory, so a new one cannot be forgotten), the demo built twice and
+compared byte for byte, and `credits --check` -- on Python 3.10 and 3.13, in
+`.github/workflows/tests.yml`.
 
 ## Core toolkit (`core/`)
 
@@ -1800,7 +1803,8 @@ kept strictly apart:
 | `politics` | Who holds the provinces: realms drawn against their own coats so that two of them are a colour apart, grown over the province graph so that each is one block, and the colour each province wears -- a faction's tincture taken to a map's wash, with the livery's own step spent rather than clipped. Then who holds the *water*: each sea province goes to the realm with the longest coast on it, and a zone no realm's coast touches stays the high seas. |
 | `roads` | The roads between the capitals: Dijkstra over the lattice on the biome table's own movement costs, water impassable, and the cheapest set of roads that joins every capital on a landmass. |
 | `campaign` | The map as a file rather than as a picture: the biome table, one biome index per hex, the owner of each province, the sea provinces, and the hexes the roads and rivers walk -- everything a client that does not have this generator needs to run the map. |
-| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layers -- the coast and the biome border both, drawn from the same tileset rather than walked. |
+| `paint` | One raster pass for the ground and its relief, a wash and a frontier line for the provinces, strokes for the rivers, the roads and the frame, and the border layers -- the coast and the biome border both, drawn from the same tileset rather than walked. It takes an optional `ground` hook: a per-pixel shade and height added to the one Lambert pass, which is how a site wears a material without a second light. |
+| `site` | The camera come down: the same lattice, terrain and border tiles at a hex size where the ground is the subject, with every land hex wearing its biome's material -- sampled in world coordinates, scaled with the hex, and lit once with the hex relief. Water keeps its ramp, pixel for pixel. |
 
 ### Why axial coordinates, and what they buy
 
@@ -2516,7 +2520,8 @@ Ground("sand", base=(0.78, 0.062, 0.260), drop=0.07, turn=0.012,
        facet=0.00, cells=1, bevel=0.00, dome=0.0, grit=0.10, relief=3.2)
 ```
 
-Fifteen numbers a row, and the weights *are* the material. `lump` is isotropic mottling
+Fifteen fields a row -- a name, a base colour and thirteen numbers -- and the weights
+*are* the material. `lump` is isotropic mottling
 at a chosen feature size -- tufts, clods, drifts. `ribbon` is the same noise stretched
 along one axis, which is the parameter that was grown for the boards' grain and turns out
 to be the whole of sand: ripples are features that are long in one direction and short in
@@ -2537,8 +2542,9 @@ ground.texture(slate, seed=3, size=64)      # painted, lit, and held to the seam
 is a material, with nothing registered and nothing special-cased. That is a claim a test
 has to keep honest, because the failure a table invites is the field that is written
 down, documented, put in the sidecar -- and not read. So one test perturbs each of the
-fifteen numbers on a material that uses it and asserts the finished tile changes; `key`
-is the only exception, because it is the row's name rather than a material.
+fourteen values on a material that uses it and asserts the finished tile changes -- the
+base colour counts once, and `key` not at all, because it is the row's name rather than a
+material.
 
 One number is a conversion rather than a measurement. `tile.periodic_noise` takes a
 Gaussian *sigma*, and a table written in sigmas is a table of blurs: the first sheet of
@@ -2583,8 +2589,9 @@ wears: plains, steppe, forest and marsh are all grass; hills and mountains are b
 camp or a ploughed field, and a map that wants it knows why. The water biomes are absent
 because a ground texture is what a figure stands on. The map's table says what a hex *is*
 and this one says what it is made of, and they live in different packages on purpose --
-`gen.textures` does not import `gen.maps`, and the only place that knows both is the test
-that asserts every land biome has a material, no water biome does, and dirt is left over.
+`gen.textures` does not import `gen.maps`; the arrow runs the other way, through
+`gen/maps/site.py` and through the test that asserts every land biome has a material, no
+water biome does, and dirt is left over.
 The colours are tuned to the same palette without importing it: the bases sit where the
 map's biomes sit in OKLCH -- plains at 0.353 turns, desert 0.262, mountain 0.296, snow
 0.663 -- a little darker, because a hex a figure stands on is read from a metre away.
@@ -2603,6 +2610,40 @@ material with cracks in it can have a joint land exactly on the seam, and a join
 the material is made of. The demo draws each tile four times, captions it with the biomes
 that wear it and the tile size, and records every row of the table, the seam error, the
 mapping the other way round, and the packed atlas of all six in the sidecar.
+
+### A hex wears a ground
+
+The strategic map is right to draw ground as a colour: at fourteen pixels the question is
+what the hex *is*, and a material would be noise pretending to be information. The moment
+the camera comes down -- a battle map, a site screen -- the question changes, because the
+hex is now big enough for the eye to ask what it is *made of*. `gen/maps/site.py` is that
+view: the same lattice, the same terrain, the same border tiles, and every land hex
+wearing the material its biome names.
+
+Two pictures of one seed make the point, and `out/site.png` is both: on the left the
+biome's colour, on the right the ground. What is shared is the geography -- the same
+island, the same coast, the same hills -- and the sea is shared *exactly*: the material
+is applied with the water masked out rather than painted and faded, and the normal it
+lights the sea with is the one the sea had without a ground, because a gradient would
+otherwise carry a shoreline's crack one pixel into the water. The test compares the two
+pictures at every water pixel.
+
+Three decisions hold the rest together. **The material is sampled in world coordinates**,
+one texel to the pixel the site is drawn at, so the pattern belongs to the map and not to
+the canvas: widen the margin and the picture is cropped, not slid. Its features scale with
+the hex (`zoom = size / REF`, and `REF = 56` is the zoom the table was written at), so a
+site at twice the size is the same site and not a magnified one. **It is lit once**: its
+height is added to the height the hex relief interpolates and the single Lambert pass sees
+both, because a material lit by its own light laid over a map lit by the project's light
+is two lights and a collage. And **the colour is modulated, never replaced**: the biome
+colour is the map's claim about what the hex is, the material's tone is the claim about
+what it is like, so grass stays the map's green and rock the map's grey -- the difference
+is where the light lands.
+
+The map's own relief is turned down at this zoom (`TERRAIN_RELIEF = 0.9` against the
+strategic map's 4.0). The six-triangle crease of a hex is a hint of a slope at fourteen
+pixels and a folded sheet at fifty-six; the subject of a site is the ground, not the
+interpolant.
 
 ### An atlas of materials is not an atlas of sprites
 
@@ -2699,14 +2740,14 @@ this package being about *properties* rather than about pixels.
 
 ## The build as a page (`export/gallery.py`)
 
-Thirty-three sheets, a sidecar beside each, and no way to see what a build contains
-without opening files one at a time. That was the oldest item on the list. This is
+Every sheet and every SVG, a sidecar beside each, and no way to see what a build
+contains without opening files one at a time. That was the oldest item on the list. This is
 the interface to it: `out/index.html`, written by `demo` as its last step, or on its
 own with
 
 ```bash
-python cli.py gallery --manifest out            # linked: 29 KB, opens beside the pictures
-python cli.py gallery --manifest out --embed    # inlined: 6.5 MB, travels as one file
+python cli.py gallery --manifest out            # linked: 31 KB, opens beside the pictures
+python cli.py gallery --manifest out --embed    # inlined: 8.8 MB, travels as one file
 ```
 
 ### A page, not a window
@@ -2775,10 +2816,10 @@ is a catalogue of the build, not only of its illustrations.
 
 ### Two files or one
 
-By default the page links the pictures beside it: 29 KB of HTML over 4.9 MB of pictures,
+By default the page links the pictures beside it: 31 KB of HTML over 6.5 MB of pictures,
 which is the version to regenerate while working, because the browser is reading the
 files that were just written. `--embed` base64s each picture into the page, which is
-6.5 MB of HTML and one file with no folder to lose -- the version to send to someone
+8.8 MB of HTML and one file with no folder to lose -- the version to send to someone
 who does not have the build. Both are pure functions of the directory: build twice,
 get the same bytes, which is what the 20 tests in `tests/test_gallery.py` assert along
 with the claims a view can get wrong -- that every sidecar becomes exactly one card,
@@ -2967,7 +3008,13 @@ Generators to sit on top of the core, in the order they become useful:
   glyphs blitted at eight offsets so the ink never assumes a background.  Every
   quantity in the placement is a length in hexes, so the same seed puts the same name
   on the same hex at twice the size when the map is drawn twice as large -- which is
-  the claim the test makes, `b["em"] == 2.0 * a["em"]`)*.
+  the claim the test makes, `b["em"] == 2.0 * a["em"]`)*; ~~the map at close range,
+  wearing the grounds~~ *(done: `gen/maps/site.py` -- the camera down far enough for
+  the eye to ask what the ground is made of. The material is sampled in world
+  coordinates, scaled with the hex, and its height is added to the hex relief before
+  the one Lambert pass, so the sea is unchanged to the pixel -- tested, because that
+  is the claim that says a site is the same map and not a second picture. The
+  dependency runs one way: `gen.textures` still knows nothing about maps)*.
 - **textures** -- ~~Truchet tiles, Wang tiles for seamless tiling, Gray-Scott
   reaction-diffusion for organic patterns~~ *(done: `gen/textures/` -- Truchet
   arrangements, which are seamless for any choice; Wang tilings searched for on a
@@ -3006,7 +3053,7 @@ Generators to sit on top of the core, in the order they become useful:
   of pretending, and the sidecar carries each level's own density, where the coarsest
   sheet of a ten-tile chain reads 0.02 against 0.31 at the top)*;
   ~~a ground material set for map tiles~~ *(done: `gen/textures/ground.py` -- grass,
-  dirt, sand, rock, snow and shore as one painter over a table of fifteen numbers a
+  dirt, sand, rock, snow and shore as one painter over a table of fifteen fields a
   row, mixing four layers: a mottle at a feature size, the same noise stretched into
   ripples, periodic Voronoi facets for plates and pebbles, and one random value per
   pixel of grit.  A seventh material is a row, `rock._replace(...)`, and a test

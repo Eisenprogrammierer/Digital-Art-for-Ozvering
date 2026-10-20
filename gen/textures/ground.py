@@ -162,6 +162,9 @@ def facets(size: int = 128, cells: int = 4, seed: int = 0, jitter: float = 0.7) 
 
     ``jitter`` is how far a point may sit from the middle of its cell, as a fraction of
     the cell: at 0 the diagram is a grid of squares and at 1 a point can reach a corner.
+    One cell has no bisector and therefore no crack, so its ``edge`` is infinite rather
+    than a distance; a caller that clips it gets the whole tile as one flat plate, which
+    is the honest answer to "where is the border of the only cell".
 
     Every cell is measured against every pixel, ``cells ** 2`` passes over the tile.  The
     obvious speed-up is the nine cells around the one a pixel falls in -- and it is wrong:
@@ -222,20 +225,31 @@ def _noise(size: int, seed: int, feature: float, stretch: float = 1.0):
                                  scale=max(float(feature) / 3.0, 0.35), stretch=stretch)
 
 
-def fields(kind, seed: int = 0, size: int = 128) -> dict:
+def fields(kind, seed: int = 0, size: int = 128, zoom: float = 1.0) -> dict:
     """The material's tone and height on the pixel grid, before anything is lit.
 
     ``kind`` is a name from the table or a row of your own.  ``tone`` is ``0..1`` across
     the material -- the number the colour is built from -- and ``height`` is in texels,
     which is the number the light is built from.  Kept apart from the painting so a test
     can ask what makes two materials different without going through a raster and a light.
+
+    ``zoom`` scales the material's *features* and leaves the tile alone: at 2 the tufts,
+    the ripples and the plates are twice as wide in texels, which is what drawing the same
+    ground under a hex twice as large needs.  It multiplies the two feature sizes; the
+    facets are counted per tile and therefore already scale with the canvas, and the grit
+    stays one value per pixel by definition.  The default is the table as written, bit for
+    bit, because multiplying by one is not a computation.
     """
     g = _get(kind)
     size = int(size)
+    zoom = float(zoom)
+    if not zoom > 0.0:
+        raise ValueError(f"a ground is drawn at a positive zoom, not {zoom!r}")
     rng = np.random.default_rng((int(seed) * 2654435761 + 0x47524E44) & 0xFFFFFFFF)  # 'GRND'
-    lump = (_noise(size, int(seed) + 101, g.lump_scale)
+    lump = (_noise(size, int(seed) + 101, g.lump_scale * zoom)
             if g.lump > 0 else np.full((size, size), 0.5))
-    ribbon = (_noise(size, int(seed) + 211, g.ribbon_scale, stretch=g.ribbon_stretch)
+    ribbon = (_noise(size, int(seed) + 211, g.ribbon_scale * zoom,
+                     stretch=g.ribbon_stretch)
               if g.ribbon > 0 else np.full((size, size), 0.5))
     grit = rng.random((size, size))
     fac = facets(size=size, cells=g.cells, seed=int(seed) + 307) if g.facet > 0 else None
@@ -259,15 +273,15 @@ def fields(kind, seed: int = 0, size: int = 128) -> dict:
     return {"tone": tone, "height": height, "facets": fac, "ground": g}
 
 
-def texture(kind, seed: int = 0, size: int = 128) -> Canvas:
+def texture(kind, seed: int = 0, size: int = 128, zoom: float = 1.0) -> Canvas:
     """A finished ground tile: the material lit by the project's one light.
 
     ``kind`` is a name from the table or a row of your own; a row is how a seventh
     material is added without touching this file.  Opaque, like a floor: a map tile with
     holes in it is a map tile that will show the thing behind it, and there is no thing
-    behind it.
+    behind it.  ``zoom`` is the feature scale :func:`fields` documents.
     """
-    f = fields(kind, seed=seed, size=size)
+    f = fields(kind, seed=seed, size=size, zoom=zoom)
     g = f["ground"]
     size = int(size)
 

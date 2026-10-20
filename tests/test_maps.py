@@ -47,7 +47,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import palette, sdf  # noqa: E402
 from core.canvas import Canvas  # noqa: E402
 from gen.maps import (autotile, campaign, coast, grid as gridlib, paint,  # noqa: E402
-                      labels as label_lib, politics, region, rivers, roads, terrain)
+                      labels as label_lib, politics, region, rivers, roads,
+                      site as site_render, terrain)
 
 
 # ------------------------------------------------------------------- lattice
@@ -1749,6 +1750,72 @@ def test_a_campaign_file_is_small_enough_to_ship_per_map():
     assert len(text) < 20000, len(text)
     assert len(text) < len(json.dumps(doc, indent=2))
     assert doc["water"] == round(doc["water"], 3)
+
+
+# ---------------------------------------------------------------------- site
+def _site(seed=7, size=56.0, grounds=True, **kw):
+    return site_render.site_image(seed=seed, cols=5, rows=4, size=size,
+                                  grounds=grounds, **kw)
+
+
+def _site_land(grid, canvas, seed=7):
+    """The pixel mask of the site's land, and its cells."""
+    f = terrain.fields(grid, seed=seed)
+    cell = grid.cell(*canvas.grid())
+    r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
+    c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
+    return cell, cell.ok & ~f["water"][r, c]
+
+
+def test_a_site_wears_its_ground_and_the_sea_does_not_move():
+    """The one claim the hook makes: materials are for land, and water has no ground.
+
+    The sea is the same depth ramp as the flat map, *pixel for pixel*, because the
+    material is applied with the water masked out rather than painted and then faded.
+    The land is not the same, or the module would be a no-op with a good story.
+    """
+    g = gridlib.HexGrid(5, 4, 56.0)
+    flat = _site(grounds=False)
+    worn = _site(grounds=True)
+    again = _site(grounds=True)
+    cell, land = _site_land(g, flat)
+
+    a, b = flat.to_uint8(), worn.to_uint8()
+    assert np.array_equal(again.to_uint8(), b)          # one seed, one site
+    water = cell.ok & ~land
+    assert water.any() and land.any()
+    assert np.array_equal(a[water], b[water]), "the sea must not be painted"
+    assert (a[land] != b[land]).any(), "the land must be"
+
+
+def test_the_material_reaches_the_light_and_not_only_the_colour():
+    """A ground is a height field; if only its tone survived, this would be a tint.
+
+    ``relief=0`` switches the height off and leaves the colour modulation, so the
+    difference between the two pictures is exactly the material's contribution to the
+    one Lambert pass -- and it has to be large enough to see, not merely nonzero.
+    """
+    g = gridlib.HexGrid(5, 4, 56.0)
+    tint = _site(relief=0.0)
+    _cell, land = _site_land(g, tint)
+    a = tint.to_uint8()[..., :3].astype(np.float64)
+    b = _site(relief=1.15).to_uint8()[..., :3].astype(np.float64)
+    assert np.abs(a[land] - b[land]).mean() > 2.0
+
+
+def test_the_material_belongs_to_the_map_and_not_to_the_canvas():
+    """A wider margin crops the same site; it does not slide the material.
+
+    The sampler wraps world coordinates, and the canvas is centred on the map, so the
+    same pixel of ground lands at the same place in both pictures.  This is the test
+    that would fail if the phase were taken from the raster's own indices -- which is
+    the easy version, and is why a ground would visibly crawl when the page grew.
+    """
+    narrow = _site(margin=10.0).to_uint8()
+    wide = _site(margin=30.0).to_uint8()
+    assert wide.shape[0] - narrow.shape[0] == 40
+    assert wide.shape[1] - narrow.shape[1] == 40
+    assert np.array_equal(wide[20:-20, 20:-20], narrow)
 
 
 if __name__ == "__main__":

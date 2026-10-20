@@ -3,8 +3,10 @@ name: tests
 # What this checks is the two promises the README makes and the one it cannot
 # keep by itself:
 #
-#   * the ten suites pass -- on the Python the README claims is enough, and on
-#     a recent one, because a floor nobody runs is a floor nobody knows;
+#   * every suite in tests/ passes -- on the Python the README claims is enough,
+#     and on a recent one, because a floor nobody runs is a floor nobody knows;
+#     the loop globs the directory, so a new suite is run without editing this
+#     file, which is the only way a suite can be new and silently unrun;
 #   * two runs of the demo agree *with each other*, byte for byte.  Not with a
 #     golden hash: a hash would also fail the day numpy or Pillow changes a
 #     rounding, which is not a bug in this repository, and a check that cries
@@ -41,11 +43,11 @@ jobs:
       - name: lint
         run: pyflakes cli.py core gen export tests
 
-      - name: the ten suites
+      - name: the suites
         run: |
-          for suite in core heraldry portraits ui maps textures icons text figures gallery; do
+          for suite in tests/test_*.py; do
             echo "== $suite"
-            python "tests/test_$suite.py"
+            python "$suite"
           done
 
       - name: the demo builds a whole asset set, and the credits cover it

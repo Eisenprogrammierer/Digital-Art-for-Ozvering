@@ -169,8 +169,20 @@ def relief_height(grid: HexGrid, f: dict, cell, relief: float = 1.4):
 
 
 def terrain_layer(canvas: Canvas, grid: HexGrid, f: dict, seed: int = 0,
-                  relief: float = 4.0, texture: float = 0.07) -> None:
-    """The single raster pass: biome colour, depth ramp, relief and grain."""
+                  relief: float = 4.0, texture: float = 0.07, ground=None) -> None:
+    """The single raster pass: biome colour, depth ramp, relief and grain.
+
+    ``ground`` is an optional hook, called as ``ground(canvas, grid, f)`` and returning
+    ``(shade, height)``: a per-pixel multiplier for the biome colour and a per-pixel
+    height in pixels added to the hex relief *before* the one Lambert pass.  It is a
+    hook rather than an import so this module stays about maps; :mod:`gen.maps.site` is
+    the caller that knows about materials.  Water is not painted by it: the sea has no
+    ground, so the hook's answer is applied to land only and the water is the ramp it
+    always was, to the pixel.
+    """
+    shade = height_extra = None
+    if ground is not None:
+        shade, height_extra = ground(canvas, grid, f)
     X, Y = canvas.grid()
     cell = grid.cell(X, Y)
     r = np.clip(cell.rc[..., 0], 0, grid.rows - 1)
@@ -188,7 +200,17 @@ def terrain_layer(canvas: Canvas, grid: HexGrid, f: dict, seed: int = 0,
     # Relief: Lambert on the piecewise-linear surface, as a multiplier so the
     # biome colours survive the shading instead of being washed towards grey.
     h = relief_height(grid, f, cell, relief)
-    n = render.height_normals(h, canvas.dx, y_up=canvas.y_up)
+    base_n = render.height_normals(h, canvas.dx, y_up=canvas.y_up)
+    n = base_n
+    if height_extra is not None:
+        # One light sees the hex's own relief and the material's, so the two cannot
+        # disagree about which way is up.
+        raised = h + np.where(water, 0.0, height_extra)
+        n = render.height_normals(raised, canvas.dx, y_up=canvas.y_up)
+        # A gradient reads its neighbours, so a material on the shore would tilt the sea
+        # one pixel out.  The water keeps the normal it had without a ground: the sea has
+        # no material, and that has to be true at its edge as well.
+        n = np.where(water[..., None], base_n, n)
     L = np.array([LIGHT[0], LIGHT[1], 0.65])
     L = L / np.linalg.norm(L)
     lam = np.clip(n @ L, 0.0, 1.0)
@@ -198,6 +220,12 @@ def terrain_layer(canvas: Canvas, grid: HexGrid, f: dict, seed: int = 0,
     # as ground rather than as a chart.
     grain = noise.fbm(X / 5.0, Y / 5.0, seed=seed + 404, freq=1.0, octaves=3)
     srgb = srgb * (1.0 - texture + 2.0 * texture * grain)[..., None]
+
+    # The material's own tone modulates the biome's colour -- the colour is the map's
+    # claim about what the hex *is*, the tone is the claim about what it is *like* -- and
+    # water keeps the colour it had, because a sea has no ground.
+    if shade is not None:
+        srgb = srgb * np.where(water[..., None], 1.0, shade[..., None])
 
     canvas.over(palette.srgb_to_linear(np.clip(srgb, 0.0, 1.0)), cell.ok.astype(np.float64))
 
@@ -421,6 +449,7 @@ def map_image(
     margin: float = 7.0,
     relief: float = 4.0,
     texture: float = 0.07,
+    ground=None,
     lattice: float = 0.085,
     cliff: float = 0.55,
     inland: float = 0.0,
@@ -486,7 +515,8 @@ def map_image(
                          render.drop_shadow(cell.ok.astype(np.float64), canvas.scale,
                                             offset=(0.0, -3.0), sigma=3.2, opacity=shadow))
 
-    terrain_layer(canvas, grid, f, seed=seed, relief=relief, texture=texture)
+    terrain_layer(canvas, grid, f, seed=seed, relief=relief, texture=texture,
+                  ground=ground)
 
     if cliff > 0.0:
         canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))

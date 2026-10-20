@@ -25,7 +25,7 @@ The claims worth a test here are the ones the *word* seamless hides:
   margin cannot be a gap, because a tile is opaque and the margin is what a filtered
   sample beside it will read.  So the margin is the tile wrapped onto itself, and the
   test checks that pixel for pixel;
-* a ground material is a table of fifteen numbers a row, and that makes two claims
+* a ground material is a table of fifteen fields a row, and that makes two claims
   testable: every number changes the picture (the failure a table invites is a field
   that is documented and unread), and the pair of materials closest in colour is far
   apart in relief -- because a material is what the light finds.  The cells inside one
@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 import sys
 from pathlib import Path
 
@@ -753,12 +754,13 @@ def test_the_closest_pair_in_colour_is_far_apart_in_relief():
 
 
 def test_no_number_in_the_table_is_decoration():
-    """A row is fifteen numbers and every one of them has to change the picture.
+    """A row is fifteen fields and every value has to change the picture.
 
     The failure a table invites is the field that is written down, documented, put in the
-    sidecar -- and not read.  So each number is perturbed on a kind that uses it and the
-    finished tile has to come out different.  ``key`` is the one exception, because it is
-    the row's name and not a material; everything else has to be wired to the painter.
+    sidecar -- and not read.  So each value is perturbed on a kind that uses it and the
+    finished tile has to come out different -- the base colour counts once, the thirteen
+    numbers count one each, and ``key`` is the one exception, because it is the row's
+    name and not a material.  Everything else has to be wired to the painter.
     """
     changes = [
         ("grass", {"base": (0.55, 0.140, 0.410)}),      # a different hue
@@ -799,6 +801,25 @@ def test_a_seventh_ground_is_a_row():
     assert _canvas_bytes(b) == _canvas_bytes(ground.texture(slate, seed=3, size=64))
     assert tile.seam_error(tile.luminance(b.to_uint8())) <= 2.0
     assert tile.luminance(b.to_uint8()).mean() < tile.luminance(a.to_uint8()).mean()
+
+
+def test_the_row_in_the_sidecar_is_the_whole_recipe():
+    """A row is not a description if a number is missing from it.
+
+    The sidecar claims to carry the row that made the tile, so the row is put through
+    the same JSON a sidecar goes through and handed back to ``texture`` without a name
+    and without a registry: if the tile changes, something in the picture came from a
+    default rather than from the table, and the sidecar was a summary.
+    """
+    for name in ground.names():
+        row = {**json.loads(json.dumps(_ground_row(name)._asdict()))}
+        # JSON has no tuple, and a loader puts the base back together; the point of
+        # the test is that no *number* is missing, not that JSON has tuples.
+        rebuilt = ground.Ground(**{**row, "base": tuple(row["base"])})
+        assert rebuilt == _ground_row(name), name
+        a = _canvas_bytes(ground.texture(name, seed=3, size=64))
+        b = _canvas_bytes(ground.texture(rebuilt, seed=3, size=64))
+        assert a == b, name
 
 
 def test_an_unknown_ground_is_refused_with_the_set_in_the_message():
@@ -911,6 +932,22 @@ def test_the_table_is_written_in_pixels_and_the_noise_agrees():
         assert 0.35 * feature <= half <= 1.0 * feature, (feature, half)
 
 
+def test_one_cell_has_no_crack_to_measure():
+    """``cells=1`` is a flat plate, and its edge is infinite rather than a distance.
+
+    ``fields`` clips ``edge``, so the plate comes out flat and finite; a caller that
+    reads ``edge`` as a distance has to be told what the number means when there is no
+    second cell.  Infinite is the answer -- there is no border inside the only cell --
+    and it is documented rather than clamped to a plausible-looking half tile.
+    """
+    fac = ground.facets(size=32, cells=1, seed=3)
+    assert np.isinf(fac["edge"]).all()
+    assert np.allclose(fac["tone"], fac["tone"][0, 0])
+    flat = ground.fields(_ground_row("rock")._replace(facet=1.0, cells=1),
+                         seed=1, size=32)
+    assert np.isfinite(flat["height"]).all()
+
+
 def test_one_seed_is_one_tile_and_two_seeds_are_two():
     """Determinism, which for a material is a save file and not a nicety: a map that is
     reopened has to have the same ground under it, and two maps must not be one map.
@@ -921,6 +958,24 @@ def test_one_seed_is_one_tile_and_two_seeds_are_two():
         c = _canvas_bytes(ground.texture(name, seed=5, size=64))
         assert a == b, name
         assert a != c, name
+
+
+def test_zoom_is_a_feature_scale_and_not_a_tile_scale():
+    """``zoom=2`` is the table with its feature sizes doubled, and nothing else.
+
+    A site drawn at twice the hex size regenerates the material at twice the texels;
+    the features have to double with it or a tuft grows relative to the ground it is
+    on.  The test asks the definition directly: doubling the zoom is doubling the two
+    feature numbers, with the ribbon switched off so its unstretched cousin cannot
+    hide a difference.
+    """
+    row = _ground_row("rock")._replace(grit=0.0, ribbon=0.0)
+    plain = _canvas_bytes(ground.texture(row, seed=3, size=64))
+    assert plain == _canvas_bytes(ground.texture(row, seed=3, size=64, zoom=1.0))
+    assert plain != _canvas_bytes(ground.texture(row, seed=3, size=64, zoom=2.0))
+    doubled = row._replace(lump_scale=row.lump_scale * 2.0)
+    assert (_canvas_bytes(ground.texture(row, seed=3, size=64, zoom=2.0))
+            == _canvas_bytes(ground.texture(doubled, seed=3, size=64)))
 
 
 # ---------------------------------------------------------------------- atlas

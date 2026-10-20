@@ -491,6 +491,13 @@ def test_the_bands_run_across_the_folds_axis():
     """
     def spread(canvas):
         lum = _lum(canvas)
+        # A margin row is entirely outside the cloth and therefore entirely NaN, and
+        # ``nanmean`` of an empty slice is what numpy warns about.  Fill those pixels
+        # with the flag's own mean: "no ink here" is not a measurement, and a row of
+        # the mean has no spread, which is exactly what the test wants to say about it.
+        hole = ~np.isfinite(lum)
+        if hole.any():
+            lum = np.where(hole, np.nanmean(lum), lum)
         return float(np.nanstd(np.nanmean(lum, axis=0))), float(np.nanstd(np.nanmean(lum, axis=1)))
 
     plain = flags.plain("azure", ratio=(3, 2))
