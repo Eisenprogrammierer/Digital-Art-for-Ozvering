@@ -29,10 +29,28 @@ from core import palette
 from . import brush, head, ink
 from . import shape as S
 
-__all__ = ["shapes", "paint"]
+__all__ = ["shapes", "paint", "placement"]
 
 #: A highlight is never pure white; it takes a little of the iris, or it burns.
 _HL = 0.10
+
+
+def placement(st, side: int, turn: float = 0.0):
+    """Screen centre and horizontal scale for one eye on a turned face.
+
+    The old version projected the two *corners* independently onto the skull.
+    Near the edge of a wide eye that surface is steep, so the near corner moved
+    much further than the far one: measured on the seeded genomes it made the near
+    eye 21 % wider and the far eye 43 % narrower at a 27-degree turn -- one huge
+    eye and one slit.  An eye lies on the face plane, not over the whole curvature
+    of the skull, so its width foreshortens with ``cos(turn)`` and only gains a
+    few percent of perspective on the near side.  The centre still comes from the
+    solid, which is what keeps both eyes and the nose on one midline.
+    """
+    t = float(turn)
+    cx, _ = head.turn_point(side * st.eye_dx, st.eye_y, t, st)
+    scale = float(np.cos(t)) * (1.0 - 0.08 * side * np.sin(t))
+    return float(cx), float(np.clip(scale, 0.80, 1.0))
 
 
 def shapes(st, expr: dict) -> dict:
@@ -166,18 +184,13 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None):
         from . import expression
         expr = expression.neutral()
     closed = side in tuple(expr.get("closed", ()))
-    # An eye is a chord on a curved surface, so both its corners are placed and
-    # nothing else is scaled: the lid to lid height does not change, because a
-    # surface turning away compresses sideways and not downwards.  The far eye
-    # narrows hard and the near eye widens a little, which is what the geometry says
-    # and -- unlike the constant squeeze this replaces -- what a drawing does.
-    hw = st.eye_w * 0.5
-    centre = side * st.eye_dx
-    x_in, _ = head.turn_point(centre - side * hw, st.eye_y, turn, st)
-    x_out, _ = head.turn_point(centre + side * hw, st.eye_y, turn, st)
-    cx = 0.5 * (float(x_in) + float(x_out))
-    width_scale = (float(x_out) - float(x_in)) / st.eye_w
-    kw = dict(cx=cx, cy=float(st.eye_y), sx=width_scale, sy=1.0, rot=side * st.eye_tilt)
+    # An eye lies on the face plane: a turn compresses it sideways by ``cos`` and
+    # keeps the lid-to-lid height.  The centre is projected on the solid so it
+    # stays on the nose's midline, and the local frame is mirrored for the other
+    # side (``sx`` carries the sign).
+    cx, width_scale = placement(st, side, turn)
+    kw = dict(cx=cx, cy=float(st.eye_y), sx=side * width_scale, sy=1.0,
+              rot=side * st.eye_tilt)
 
     g = shapes(st, expr)
     P = lambda sh: sh.place(**kw)  # noqa: E731

@@ -351,6 +351,13 @@ still loads: missing demographic and phenotype genes take their documented defau
 while a missing shape or colour gene is still an error. The new genes are appended to
 the wire format, not inserted, so a saved dynasty keeps its order.
 
+Portrait proportions are guarded rather than left to independent sliders. Eye width
+foreshortens on the face plane by `cos(turn)`, not by the curvature of the whole
+skull; the ratio of opening height to width is held between `0.58` and `1.08`; front
+hair is cut around the actual, expression-warped eye openings; and cel bands paint
+wide-to-deep so a deep shadow cannot be erased by the wide one. These are invariants
+of the drawing, not settings a genome can spend.
+
 ### Heraldry
 
 A coat is a specification: shield, field, division, charges and tinctures. A faction

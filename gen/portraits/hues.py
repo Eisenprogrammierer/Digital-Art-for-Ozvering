@@ -150,7 +150,7 @@ def from_genes(genes: dict) -> Hues:
     )
 
     sclera = palette.mix((1.0, 1.0, 1.0), skin, SCLERA_TINT)
-    lid_shadow = cel.shadow(skin, depth=0.22, chroma=1.60, hue=-0.055)
+    lid_shadow = cel.shadow(skin, depth=0.20, chroma=1.35, hue=-0.045)
     lash = ink.shade_line(skin, mul=0.16, floor=0.070, chroma=1.30, hue=-0.014)
     line = ink.shade_line(skin, mul=0.30, floor=0.150, chroma=1.25, hue=-0.022)
 
@@ -161,7 +161,7 @@ def from_genes(genes: dict) -> Hues:
     lip_shadow = cel.shadow(lip, depth=0.08, chroma=1.10, hue=-0.006)
     skin_light = cel.highlight(skin, lift=0.040, chroma=0.82)
     skin_freckle = palette.mix(skin, palette.oklch_to_srgb((0.40, 0.085, 0.095)), 0.24)
-    skin_cool = cel.shadow(skin, depth=0.055, chroma=1.45, hue=-0.060)
+    skin_cool = cel.shadow(skin, depth=0.050, chroma=1.25, hue=-0.050)
 
     blush_lch = palette.srgb_to_oklch(skin).copy()
     blush_lch[1] = min(float(blush_lch[1]) * 1.7 + 0.045, 0.125)
@@ -187,12 +187,17 @@ def from_genes(genes: dict) -> Hues:
     # the base actually has, and the chroma takes up the difference -- a shadow on
     # dark skin should be a *richer* brown, not a blacker one.
     head_room = float(np.clip(float(palette.srgb_to_oklch(skin)[0]) / 0.70, 0.50, 1.0))
-    deep_chroma = 1.22 + 0.55 * (1.0 - head_room)
+    # A dark skin has less lightness to spend, but the old compensation bought
+    # all of it back as chroma and turned a brown shadow into a red mask.  Keep
+    # it a little richer than the base, not a different pigment.
+    deep_chroma = 1.15 + 0.22 * (1.0 - head_room)
 
     return Hues(
         skin=skin,
-        skin_shadow=cel.shadow(skin, depth=0.135 * head_room, chroma=deep_chroma),
-        skin_deep=cel.shadow(skin, depth=0.235 * head_room, chroma=deep_chroma + 0.12),
+        skin_shadow=cel.shadow(skin, depth=0.120 * head_room, chroma=deep_chroma,
+                               hue=-0.022),
+        skin_deep=cel.shadow(skin, depth=0.205 * head_room, chroma=deep_chroma + 0.06,
+                             hue=-0.022),
         skin_warm=cel.highlight(skin, lift=0.035, chroma=1.05),
         skin_light=skin_light,
         skin_freckle=skin_freckle,

@@ -84,7 +84,7 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     skull = head.silhouette(st, turn)
     skull_surf = brush.Surface(c, skull)
     skull_cov = skull_surf.full_coverage(c)
-    hs = hair.build(st, genes, rng, turn, skull=skull)
+    hs = hair.build(st, genes, rng, turn, skull=skull, eye_st=fst, eye_expr=expr)
 
     # --- 2. hair behind everything ---------------------------------------  (behind the body)
     hair.paint_back(c, st, h, hs, turn)
@@ -132,9 +132,15 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
 
     # --- 5. features ------------------------------------------------------
     front_cov = brush.mask(c, hs.front_mass)
+    _, Yg = c.grid()
+    # A fringe casts shade on the forehead, not a dark band across the eyes.  The
+    # old mask was the whole shifted hair mass: a sidelock hanging beside the jaw
+    # therefore threw its own silhouette over the eye at full strength.  Fade the
+    # cast out at the upper lid, and keep it light enough to read as bounce.
+    above_lid = np.clip((Yg - (fst.eye_y + fst.eye_up + 0.020)) / 0.040, 0.0, 1.0)
     fringe = np.minimum(brush.shift_cov(front_cov, -0.130, c.scale) * (1.0 - front_cov),
-                        skull_cov)
-    brush.paint_cov(c, fringe, h.skin_shadow, soft=1.0, alpha=0.58)
+                        skull_cov) * above_lid
+    brush.paint_cov(c, fringe, h.skin_shadow, soft=1.0, alpha=0.45)
     face.paint_nose(c, fst, h, turn, clip=skull)
     face.paint_mouth(c, fst, h, turn, expr, clip=skull)
     for side in (+1, -1):

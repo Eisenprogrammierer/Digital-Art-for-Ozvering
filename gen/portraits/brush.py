@@ -242,7 +242,11 @@ class Surface:
         L = L / max(float(np.linalg.norm(L)), 1e-12)
         lam = np.clip(n @ L, 0.0, 1.0)
         base = self.coverage()
-        for i in range(min(len(colours), len(edges)) - 1, -1, -1):
+        # ``edges`` is descending (wide band first, deep band last), so paint in
+        # the same order as the list.  Iterating the other way used to paint the
+        # widest band *over* the deep one, erasing every second shadow; a band
+        # list of two produced only one band on screen.
+        for i in range(min(len(colours), len(edges))):
             m = ((lam < float(edges[i])) & (self.d < 0.0)).astype(np.float64)
             if soft > 0.0:
                 m = render.gaussian_blur(m, soft)

@@ -86,13 +86,13 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
     n = noise.fbm(X, Y, seed=seed, freq=5.0, octaves=4)
     warm = np.clip((n - 0.48) * 2.0, 0.0, 1.0)
     cool = np.clip((0.52 - n) * 2.0, 0.0, 1.0)
-    canvas.over(palette.srgb_to_linear(h.skin_warm), clip * warm * 0.055)
-    canvas.over(palette.srgb_to_linear(h.skin_cool), clip * cool * 0.045)
+    canvas.over(palette.srgb_to_linear(h.skin_warm), clip * warm * 0.032)
+    canvas.over(palette.srgb_to_linear(h.skin_cool), clip * cool * 0.026)
 
     # Visible pores are a texture, not a noise field: a high-frequency field at a
     # few percent reads as grain at every size without becoming static.
     pore = (noise.value_noise(X, Y, seed=seed + 17, freq=58.0) - 0.5)
-    canvas.over(palette.srgb_to_linear(h.skin_freckle), clip * np.abs(pore) * 0.020)
+    canvas.over(palette.srgb_to_linear(h.skin_freckle), clip * np.abs(pore) * 0.012)
 
     # A continuous light term *under* the cel bands.  Flat bands are the style;
     # flat bands with nothing behind them are the reason a cheek can read as a
@@ -103,8 +103,8 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
     L = np.array((render.LIGHT[0], render.LIGHT[1], 0.60), dtype=np.float64)
     L = L / max(float(np.linalg.norm(L)), 1e-12)
     lam = np.clip(n @ L, 0.0, 1.0)
-    shade = np.clip((0.62 - lam) * 0.62, 0.0, 0.22) * clip
-    lift = np.clip((lam - 0.58) * 0.46, 0.0, 0.15) * clip
+    shade = np.clip((0.62 - lam) * 0.62, 0.0, 0.14) * clip
+    lift = np.clip((lam - 0.58) * 0.46, 0.0, 0.10) * clip
     canvas.over(palette.srgb_to_linear(h.skin_shadow), shade)
     canvas.over(palette.srgb_to_linear(h.skin_light), lift)
 
@@ -115,26 +115,26 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
     for side in (+1, -1):
         cx, cy = _face_point(st, side, bw * 0.35, ey - 0.045, turn)
         brush.paint(canvas, S.ellipse(bw * 0.22, 0.075, float(cx), float(cy)),
-                    h.skin_light, clip=clip, alpha=0.13, soft=3.2)
+                    h.skin_light, clip=clip, alpha=0.080, soft=3.2)
         under_y = ey - ex * 0.0 - st.eye_down - 0.027
         ux, uy = _face_point(st, side, st.eye_dx * 0.92, under_y, turn)
         age = demography.age_t(genes)
         brush.paint(canvas, S.ellipse(st.eye_w * 0.27, st.eye_w * 0.095,
                                       float(ux), float(uy)),
-                    h.skin_cool, clip=clip, alpha=0.055 + 0.11 * age, soft=2.4)
+                    h.skin_cool, clip=clip, alpha=0.035 + 0.08 * age, soft=2.4)
     fx, fy = 0.0, float(st.eye_y) + 0.19
     brush.paint(canvas, S.ellipse(bw * 0.27, 0.060, fx, fy), h.skin_light,
-                clip=clip, alpha=0.055, soft=3.5)
+                clip=clip, alpha=0.035, soft=3.5)
     nx, ny = head.turn_point(0.0, st.nose_y + st.nose_h * 0.40, turn, st)
     brush.paint(canvas, S.ellipse(st.nose_w * 0.28, st.nose_h * 0.45, float(nx), float(ny)),
-                h.skin_light, clip=clip, alpha=0.105, soft=1.8)
+                h.skin_light, clip=clip, alpha=0.075, soft=1.8)
     cx, cy = head.turn_point(0.0, st.chin_y + 0.065, turn, st)
     brush.paint(canvas, S.ellipse(st.chin_w * 0.55, 0.030, float(cx), float(cy)),
-                h.skin_light, clip=clip, alpha=0.11, soft=2.0)
+                h.skin_light, clip=clip, alpha=0.070, soft=2.0)
     # Chin crease: the small shadow that separates the lower lip from the chin.
     cmx, cmy = head.turn_point(0.0, st.mouth_y - st.mouth_w * 0.22, turn, st)
     brush.paint(canvas, S.ellipse(st.mouth_w * 0.27, 0.012, float(cmx), float(cmy)),
-                h.skin_shadow, clip=clip, alpha=0.10, soft=1.6)
+                h.skin_shadow, clip=clip, alpha=0.070, soft=1.6)
 
     # The jaw and temples: the face needs a lower plane and a cast shade where the
     # hair meets the skull, or the cheeks read as one flat oval.
@@ -143,16 +143,16 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
         b = _face_point(st, side, st.chin_w * 0.70, st.chin_y + 0.055, turn)
         jaw = S.lock([a, ((a[0] + b[0]) * 0.51, (a[1] + b[1]) * 0.5), b],
                      w0=0.030, w1=0.014, bulge=0.020, per_segment=5)
-        brush.paint(canvas, jaw, h.skin_shadow, clip=clip, alpha=0.16, soft=3.2)
+        brush.paint(canvas, jaw, h.skin_shadow, clip=clip, alpha=0.080, soft=3.2)
         tx, ty = _face_point(st, side, bw * 0.72, ey + 0.11, turn)
         brush.paint(canvas, S.ellipse(bw * 0.14, 0.11, float(tx), float(ty)),
-                    h.skin_shadow, clip=clip, alpha=0.20, soft=3.6)
+                    h.skin_shadow, clip=clip, alpha=0.100, soft=3.6)
     # Cheek warmth, always present; the blush gene adds the manga marks on top.
     for side in (+1, -1):
         bx, by = _face_point(st, side, st.eye_dx + st.eye_w * 0.12, st.blush_y, turn)
         brush.paint(canvas, S.ellipse(st.eye_w * 0.42, st.eye_w * 0.20,
                                       float(bx), float(by)),
-                    h.blush, clip=clip, alpha=0.085, soft=3.0)
+                    h.blush, clip=clip, alpha=0.050, soft=3.0)
 
     _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed)
     _paint_age_lines(canvas, st, h, genes, turn, clip)

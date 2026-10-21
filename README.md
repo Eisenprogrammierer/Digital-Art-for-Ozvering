@@ -866,7 +866,13 @@ of halfway down, because nothing is ever painted over a tail.
 The parameterisation is deliberately *not* a wall of independent sliders -- those
 produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
 the genome may only push a preset around inside limits a `_clamp_params` pass then
-re-checks.
+re-checks. The clamp is also where relationships live, not just ranges: eye width
+and opening height are separate genes, but their ratio is held between `0.58` and
+`1.08`, because two legal sliders could otherwise meet as a narrow eye with a
+shallow lid and produce a reptile slit. The mouth's lip line is a line at 4.5 % of
+the mouth width, not a band, so a neutral mouth cannot read as an open one. And
+cel bands are painted wide-to-deep; the order is part of the drawing, because the
+wide band painted last erases the deep one and leaves a single flat shadow.
 
 ### A turn is a rotation, not a squeeze
 
@@ -903,11 +909,13 @@ Everything else is a caller, and each caller asks for the thing it is:
   silhouette is its front-on one to a per cent, and a deep one widens towards
   profile. A test samples both faces of each section and holds the silhouette the
   renderer draws against the projection the features use;
-* **an eye** is a chord, not a point: both its corners are placed and nothing else
-  is scaled. It narrows by exactly what the surface foreshortens and keeps its
-  height, because a plane turning away compresses it sideways and not downwards.
-  The far eye narrows hard and the near one widens a little -- which is what the
-  geometry says, and, unlike a constant squeeze, what a drawing does;
+* **an eye** is an opening on the face plane, not a chord across the whole skull.
+  Its centre still comes from the solid, so both eyes and the nose stay on one
+  midline, but its width foreshortens by `cos(turn)` with only a few percent of
+  near-side perspective. Projecting both corners independently followed the
+  skull's curvature instead and produced a 2:1 near/far ratio -- one huge eye and
+  one slit. The opening's height stays put because a plane turning away compresses
+  it sideways and not downwards;
 * **the hair and the ears** ride a shell a hair's breadth out from the surface, so a
   lock's root follows the head instead of sitting where the cap used to be.
 
@@ -1015,7 +1023,10 @@ axis must reach geometry or hair, and every pigment axis must move the colour
 script; the freckle patterns are checked in pixels. The composition invariants
 are:
 
-* the fringe never covers an eye;
+* no front hair enters an eye opening -- the test samples the whole placed,
+  expression-warped opening against both the cap and the fringe, not just the eye
+  centres, because the cap and a sidelock can graze an outer corner while the
+  centre stays clear;
 * the skull cap and the fringe overlap along the hairline, so no band of bare skull
   shows between them (the artefact is a "crown of teeth");
 * the crown is *painted* hair and not skin, sampled from the pixels, because

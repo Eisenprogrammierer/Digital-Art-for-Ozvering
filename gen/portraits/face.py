@@ -232,7 +232,12 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
     asym = float(expr["mouth_asym"])
     left = np.array([-hw, my + asym * 0.35])
     right = np.array([hw, my - asym * 0.35])
-    line_w = max(mw * 0.18, 0.010)
+    # The lip line is a *line*, not a band.  It used to be 18 % of the mouth's
+    # own width, and then the lock builder added another 105 % of that as bulge;
+    # a neutral mouth was therefore a black oval 22 % as wide as the mouth.  That
+    # is why every closed mouth read as an open one.  A line at 4.5 % of the
+    # mouth width is the same weight as the lid line at this scale.
+    line_w = max(mw * 0.045, 0.0025)
 
     inner, teeth = mouth_interior(st, turn, expr)
     if inner is not None:
@@ -260,8 +265,8 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
         brush.paint(canvas, S.lock(body, w0=body_w, w1=body_w,
                                    bulge=body_bulge, per_segment=4),
                     h.lip, clip=clip, alpha=0.48)
-        brush.paint(canvas, S.lock(lip, w0=line_w * 0.16, w1=line_w * 0.16,
-                                   bulge=line_w * 1.05, per_segment=4),
+        brush.paint(canvas, S.lock(lip, w0=line_w * 0.40, w1=line_w * 0.18,
+                                   bulge=line_w * 0.55, per_segment=4),
                     h.line, clip=clip)
         upper = S.arc(left, right, curve * 0.55, 0.5, 14)
         brush.paint(canvas, S.lock(upper, w0=(0.065 + 0.028 * full) * mw,

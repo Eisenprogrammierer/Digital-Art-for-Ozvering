@@ -290,9 +290,16 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
                         float(st.head_w) * 0.98)
             tip = np.array([sign * out_x, root[1] - length])
             mid = np.array([sign * (out_x + bow), root[1] - length * 0.42])
+            base_w = sw * (1.0 - 0.32 * k) * float(rng.uniform(0.90, 1.06))
+            # A curtain is narrow at the parting and widens as it falls past the
+            # cheek.  It used to be widest at the root, which put half a lock's
+            # width on the *inside* of the eye at eye height: on a turned head
+            # that is a strand laid across the outer corner.  Keeping the root
+            # slim and the hem full clears the whole eye, not just its centre,
+            # while still covering the temple and the jaw below it.
             out.append(S.lock([root, mid, tip],
-                              w0=sw * (1.0 - 0.32 * k) * float(rng.uniform(0.90, 1.06)),
-                              w1=sw * (0.30 - 0.06 * k), bulge=sw * 0.13,
+                              w0=base_w * 0.30,
+                              w1=base_w * 0.75, bulge=base_w * 0.18,
                               per_segment=7, resample=34))
             roots.append(float(root[1]))
             strands.append(_strand([root, mid, tip], sw * (0.30 - 0.06 * k), mid[1] + 0.03,
@@ -442,7 +449,38 @@ class Hair:
         self.mass = union_all([self.back_mass, self.front_mass] + near_locks)
 
 
-def _cap(st, p: dict, turn: float, hairline: float, skull: Shape | None = None) -> Shape:
+def _eye_clearance(st, turn: float, expr=None):
+    """The actual eye openings, grown by a hair's breadth, for front hair to avoid.
+
+    The projected hairline is enough for the cap almost everywhere, but at a
+    three-quarter turn a sidelock and the cap independently graze the far eye.
+    This is the geometric version of the composition invariant the tests already
+    assert: a lock may hide the temple, never the opening.
+
+    The first version cleared a fat ellipse around each eye.  It passed the
+    overlap test but lifted the hairline in a round notch well above the lid.  A
+    cut that follows the opening itself is both smaller and less legible as a
+    cut: it reads as the hair tucked behind the eye instead of a bite out of the
+    fringe.
+    """
+    from . import expression as _expression
+    from . import eyes as _eyes
+    if expr is None:
+        expr = _expression.neutral()
+    geometry = _eyes.shapes(st, expr)
+    out = []
+    for side in (+1, -1):
+        cx, ws = _eyes.placement(st, side, turn)
+        opening = geometry["opening"].place(
+            cx=cx, cy=float(st.eye_y), sx=side * ws, sy=1.0,
+            rot=side * float(st.eye_tilt),
+        )
+        out.append(opening.offset(0.012))
+    return out
+
+
+def _cap(st, p: dict, turn: float, hairline: float, skull: Shape | None = None,
+         clearance: Shape | None = None) -> Shape:
     """The skull cap: the head's own outline grown by ``vol``, minus the face.
 
     Reusing the head silhouette is what makes a cap fit *this* skull -- a wide
@@ -462,12 +500,38 @@ def _cap(st, p: dict, turn: float, hairline: float, skull: Shape | None = None) 
     """
     hull = (skull if skull is not None else head.silhouette(st, turn)).offset(float(p["vol"]))
     r = float(st.head_w) * float(p.get("cap_r", 1.8))
-    face = S.ellipse(r, r, cy=hairline - r)
-    return hull - face
+    # The opening has to be cut on the *turned* face.  Subtracting a front-view
+    # circle from an already-projected hull leaves the cap over the near eye and
+    # opens a bare patch on the far cheek: at a three-quarter turn the face has
+    # slid sideways but the hole has not.  Project the upper lip of the opening
+    # through the same skull as every feature, then close the cut well below the
+    # chin; the cap only exists above the hairline, so the lower edge is off-head.
+    sk = head.skull(st)
+    xs = np.linspace(-r, r, 73)
+    ys = hairline - r + np.sqrt(np.maximum(r * r - xs * xs, 0.0))
+    cut = [sk.project(float(x), float(y), turn) for x, y in zip(xs, ys)]
+    xmin = min(float(x) for x, _ in cut) - 0.05
+    xmax = max(float(x) for x, _ in cut) + 0.05
+    cut.extend([(xmax, -1.8), (xmin, -1.8)])
+    face = S.poly(np.asarray(cut, dtype=np.float64))
+    # On the last few degrees of a turn the projected hairline still grazes the
+    # far eye's outer corner.  The eye is the one part of a face hair must never
+    # cover, so subtract the clearance around each opening as a hard invariant.
+    # It is already inside the face cut almost everywhere; where it is not, it
+    # reads as the hairline lifting around the eye.
+    clear = clearance if clearance is not None else union_all(
+        _eye_clearance(st, turn))
+    return hull - face - clear
 
 
-def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = None) -> Hair:
-    """Construct a hairstyle for a genome.  Deterministic given ``rng``."""
+def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = None,
+          eye_st=None, eye_expr=None) -> Hair:
+    """Construct a hairstyle for a genome.  Deterministic given ``rng``.
+
+    ``eye_st`` is the expression-warped style the eyes are drawn with, and
+    ``eye_expr`` the expression row.  Hair keeps the unwarped skull and hairline,
+    but its clearance has to follow the eyes wherever the expression put them.
+    """
     if rng is None:
         rng = np.random.default_rng(0)
     name = genes.get("hair_style", "short")
@@ -478,11 +542,17 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     back, near, back_strands, near_strands = _back_locks(st, p, rng, turn)
     bangs, bang_roots, bang_strands = _bangs(st, p, rng, turn)
     sides, side_roots, side_strands = _sidelocks(st, p, rng, turn)
+    # The fringe and the curtains get the same eye clearance as the cap.  The
+    # bit removed is always at a lock's inner edge, where it reads as hair tucked
+    # behind the opening rather than as a strand crossing it.
+    clear = union_all(_eye_clearance(eye_st or st, turn, eye_expr))
+    bangs = [clump - clear for clump in bangs]
+    sides = [lock - clear for lock in sides]
     crest, crest_strands = _crest(st, p, rng, turn)
     return Hair(
         name=name,
         p=p,
-        cap=_cap(st, p, turn, hairline, skull),
+        cap=_cap(st, p, turn, hairline, skull, clearance=clear),
         back_locks=back,
         near_locks=near,
         bangs=bangs,

@@ -49,8 +49,11 @@ def _style(genes: dict):
 
 def _hair(genes: dict):
     st = _style(genes)
+    expr = expression.get(genes["expression"])
+    fst = expression.warp(st, expr)
     rng = np.random.default_rng(dna.seed_of(genes))
-    return st, hair.build(st, genes, rng, float(genes["turn"]))
+    return st, hair.build(st, genes, rng, float(genes["turn"]), eye_st=fst,
+                          eye_expr=expr)
 
 
 def _hash(canvas) -> str:
@@ -154,6 +157,9 @@ def test_derived_anatomy_stays_plausible():
             assert st.chin_w < st.jaw_w < st.cheek_w, f"{where}: jaw does not taper"
             assert st.eye_dx + st.eye_w * 0.5 + 0.045 <= st.head_w + 1e-9, \
                 f"{where}: an eye hangs off the skull"
+            aspect = (st.eye_up + st.eye_down) / st.eye_w
+            assert 0.58 - 1e-9 <= aspect <= 1.08 + 1e-9, \
+                f"{where}: eye opening aspect {aspect:.2f} is a slit or a dinner plate"
             assert st.neck_w < st.jaw_w, f"{where}: neck thicker than the jaw"
             assert st.shoulder_w > st.neck_w + 0.24 - 1e-9, f"{where}: no shoulders"
             assert st.shoulder_y < st.neck_y < st.chin_y, f"{where}: bust above the chin"
@@ -253,30 +259,28 @@ def test_the_receding_side_is_the_one_that_goes_back():
                     f"{where}: receding disagrees with the depth"
 
 
-def test_a_turned_eye_narrows_by_the_surface_it_sits_on():
-    """An eye is a chord on the skull: both corners are placed, nothing is squashed.
+def test_a_turned_eye_keeps_its_plane_proportions():
+    """Both eyes foreshorten by almost the same amount, not one huge and one slit.
 
-    A surface turning away compresses sideways and not downwards, so the eye keeps
-    its height -- and the far eye narrows hard while the near one widens a little,
-    which is what the geometry says and what a drawing does.
+    Projecting each corner onto the skull's curvature used to stretch the near eye
+    and collapse the far one; the measured ratio could pass 2:1 on a seeded genome.
+    An eye is a flat opening on the face plane, so the scale is ``cos(turn)`` plus
+    a few percent of perspective on the near side.
     """
     for name in style_mod.names():
         st = style_mod.get(name)
-        sk = head.skull(st)
-        hw = st.eye_w * 0.5
+        straight = eyes.placement(st, +1, 0.0)
+        assert abs(straight[0] - st.eye_dx) < 1e-12, f"{name}: the eye left its station"
+        assert abs(straight[1] - 1.0) < 1e-12, f"{name}: a zero turn changed the scale"
         for turn in (0.10, 0.30, 0.45, head.TURN_MAX):
-            for side in (+1, -1):
-                centre = side * st.eye_dx
-                x_in, y_in = sk.project(centre - side * hw, st.eye_y, turn)
-                x_out, y_out = sk.project(centre + side * hw, st.eye_y, turn)
-                width = abs(float(x_out) - float(x_in))
-                where = f"{name} turn {turn:.2f} side {side:+d}"
-                assert abs(float(y_in) - st.eye_y) < 1e-12, f"{where}: the eye moved up or down"
-                assert abs(float(y_out) - float(y_in)) < 1e-12, f"{where}: the eye tilted"
-                if side * turn > 0:      # the far eye: its surface turns away
-                    assert width < st.eye_w, f"{where}: the far eye did not narrow"
-                else:                    # the near eye: its surface turns towards the camera
-                    assert width > st.eye_w, f"{where}: the near eye collapsed"
+            near = eyes.placement(st, -1, turn)
+            far = eyes.placement(st, +1, turn)
+            where = f"{name} turn {turn:.2f}"
+            assert 0.80 <= near[1] <= 1.0 and 0.80 <= far[1] <= 1.0, \
+                f"{where}: eye scale {near[1]:.3f}/{far[1]:.3f} out of range"
+            assert near[1] >= far[1], f"{where}: the far eye is wider than the near one"
+            assert near[1] / far[1] < 1.15, \
+                f"{where}: eye width ratio {near[1] / far[1]:.3f} is caricature"
 
 
 def test_a_turned_head_neither_collapses_nor_explodes():
@@ -339,26 +343,33 @@ def test_the_framing_is_a_headshot():
 
 
 # -------------------------------------------------------------------- hair
-def test_the_fringe_leaves_the_eyes_clear():
+def test_no_front_hair_enters_an_eye_opening():
     """A lock over an eye is the difference between a face and a curtain.
 
-    Sampled where the eyes *are*, not where they would be looking straight ahead:
-    a turn slides them, and the eye it slides inwards is the one a stray lock is
-    most likely to land on.
+    Sampling the centre of each eye was not enough: at a three-quarter turn the
+    cap and a sidelock both grazed the *outer corner* of the far opening while
+    the centre stayed clear.  This samples the actual placed opening -- after the
+    expression has moved it -- against both the cap and the front mass.
     """
-    for seed in range(90):
+    for seed in range(120):
         g = _genes(seed)
         st, h = _hair(g)
         turn = float(g["turn"])
-        pts = []
+        expr = expression.get(g["expression"])
+        fst = expression.warp(st, expr)
+        geometry = eyes.shapes(fst, expr)
         for side in (+1, -1):
-            x, y = head.turn_point(side * st.eye_dx, st.eye_y, turn, st)
-            pts.append((float(x), float(y)))
-        x, y = head.turn_point(0.0, st.eye_y, turn, st)
-        pts.append((float(x), float(y)))
-        pts = np.asarray(pts)
-        d = h.front_mass.f(pts[:, 0], pts[:, 1])
-        assert (d < -0.002).sum() == 0, f"seed {seed} ({g['hair_style']}): hair over an eye"
+            cx, scale = eyes.placement(fst, side, turn)
+            opening = geometry["opening"].place(
+                cx=cx, cy=fst.eye_y, sx=side * scale, sy=1.0, rot=side * fst.eye_tilt
+            )
+            x0, y0, x1, y1 = opening.bbox
+            X, Y = np.meshgrid(np.linspace(x0, x1, 31), np.linspace(y0, y1, 31))
+            inside = opening.f(X, Y) < 0.0
+            where = f"seed {seed} ({g['hair_style']}) side {side:+d}"
+            assert not np.any(inside & (h.cap.f(X, Y) < -0.002)), f"{where}: cap over an eye"
+            assert not np.any(inside & (h.front_mass.f(X, Y) < -0.002)), \
+                f"{where}: a lock over an eye"
 
 
 def test_the_hairline_has_no_gap():

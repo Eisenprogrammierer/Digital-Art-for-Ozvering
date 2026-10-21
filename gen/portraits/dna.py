@@ -406,6 +406,21 @@ def _clamp_params(p: dict) -> dict:
     p["eye_w"] = min(max(float(p["eye_w"]), 0.10), 0.36)
     p["eye_up"] = min(max(float(p["eye_up"]), 0.035), 0.18)
     p["eye_down"] = min(max(float(p["eye_down"]), 0.028), 0.15)
+    # Opening height is a proportion, not a free slider.  A narrow eye and a
+    # shallow opening are two independent genes, and together they produced
+    # 0.47-aspect slits on a face with wide-set eyes -- a sleepy reptile.  Keep
+    # the opening between a narrow adult eye and a round one, scaling both lids
+    # together so the upper/lower ratio the genome chose survives.
+    opening = float(p["eye_up"]) + float(p["eye_down"])
+    low, high = float(p["eye_w"]) * 0.58, float(p["eye_w"]) * 1.08
+    if opening < low:
+        k = low / max(opening, 1e-9)
+        p["eye_up"] = float(p["eye_up"]) * k
+        p["eye_down"] = float(p["eye_down"]) * k
+    elif opening > high:
+        k = high / opening
+        p["eye_up"] = float(p["eye_up"]) * k
+        p["eye_down"] = float(p["eye_down"]) * k
     p["iris_r"] = min(float(p["iris_r"]), float(p["eye_w"]) * 0.55)
     p["pupil_r"] = min(float(p["pupil_r"]), float(p["iris_r"]) * 0.62)
     p["hl_r"] = min(float(p["hl_r"]), float(p["iris_r"]) * 0.62)

@@ -266,6 +266,13 @@ def union_all(shapes, pad: float = 0.035) -> Shape:
         out = np.full(np.shape(x), _INF)
         for s, bx in zip(shapes, boxes):
             m = (x >= bx[0]) & (x <= bx[2]) & (y >= bx[1]) & (y <= bx[3])
+            if np.ndim(m) == 0:
+                # A scalar query (a test, a hairline sample) must not be indexed
+                # with a 0-d mask: numpy turns the boolean into an index, not a
+                # window, and ``out[m]`` then fails or drops a dimension.
+                if bool(m):
+                    out = np.minimum(out, s.f(x, y))
+                continue
             if not m.any():
                 continue
             out[m] = np.minimum(out[m], s.f(x[m], y[m]))
