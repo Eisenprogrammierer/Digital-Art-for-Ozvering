@@ -181,8 +181,84 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
                                       float(bx), float(by)),
                     h.blush, clip=clip, alpha=0.050, soft=3.0)
 
+    _paint_face_skeleton(canvas, st, h, genes, turn, clip)
     _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed)
     _paint_age_lines(canvas, st, h, genes, turn, clip)
+
+
+def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
+    """The bones under the face, painted as light rather than drawn as lines.
+
+    Cel bands give the large forms, but a face still reads as a mask unless the
+    skull shows through them: a glabella between the brows, a supraorbital ridge
+    that casts into the orbit, the zygomatic arch running back to the ear, the
+    temporal hollow inside it, the nasolabial break, and the gonion where the jaw
+    turns up into the ramus.  Every mark here is a broad, low-alpha plane clipped
+    to the skull.  None of them moves a feature or draws an outline, so they
+    cannot change the portrait's geometry -- they only give the same geometry a
+    surface.
+    """
+    bw = float(st.head_w)
+    ey = float(st.eye_y)
+    brow = float(st.brow_y)
+    age = demography.age_t(genes)
+    # ``skin_light`` is only a hair above the base skin -- it is a cel band, not
+    # a highlight -- so painting it at low alpha is invisible.  The bones need a
+    # value that actually reads as lit, and a slightly higher alpha, or the
+    # whole pass is a no-op.
+    light = palette.lighten(h.skin_light, 0.055)
+
+    # Glabella: the flat bridge of bone between the brows.  One lit patch keeps
+    # the two ridges from joining into a single bar across the forehead.
+    gx, gy = head.turn_point(0.0, brow + 0.020, turn, st)
+    brush.paint(canvas, S.ellipse(bw * 0.085, 0.030, float(gx), float(gy)),
+                light, clip=clip, alpha=0.080, soft=2.6)
+
+    for side in (+1, -1):
+        # Supraorbital ridge: the brow's bony shelf.  It follows the brow's own
+        # curve and sits just above it, so the shade it casts falls into the
+        # orbit rather than onto the forehead.
+        a = _face_point(st, side, bw * 0.07, brow + 0.040, turn)
+        b = _face_point(st, side, bw * 0.50, brow + 0.026, turn)
+        ridge = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 + 0.010), b],
+                       w0=bw * 0.058, w1=bw * 0.038, bulge=bw * 0.016, per_segment=5)
+        brush.paint(canvas, ridge, light, clip=clip, alpha=0.125, soft=2.8)
+
+        # The orbit itself.  The eye is painted over the middle of this shade, so
+        # what survives is a rim of depth around the eye -- which is the point:
+        # an eye on a flat cheek is a sticker.
+        ox, oy = _face_point(st, side, st.eye_dx * 0.98, brow - 0.042, turn)
+        brush.paint(canvas, S.ellipse(st.eye_w * 0.56, 0.038, float(ox), float(oy)),
+                    h.skin_shadow, clip=clip, alpha=0.090, soft=2.4)
+
+        # Zygomatic arch: from the cheekbone back towards the ear.  This is the
+        # ridge that separates the cheek's light from the temple's hollow.
+        za = _face_point(st, side, bw * 0.50, ey - 0.028, turn)
+        zb = _face_point(st, side, bw * 0.84, ey - 0.004, turn)
+        arch = S.lock([za, ((za[0] + zb[0]) * 0.5, (za[1] + zb[1]) * 0.5 + 0.008), zb],
+                      w0=bw * 0.036, w1=bw * 0.024, bulge=bw * 0.010, per_segment=4)
+        brush.paint(canvas, arch, light, clip=clip, alpha=0.080, soft=2.8)
+
+        # Temporal fossa: the hollow inside the arch.  It deepens with age, which
+        # is one of the few places a face ages before it wrinkles.
+        tx, ty = _face_point(st, side, bw * 0.80, brow - 0.010, turn)
+        brush.paint(canvas, S.ellipse(bw * 0.085, 0.070, float(tx), float(ty)),
+                    h.skin_shadow, clip=clip, alpha=0.060 + 0.040 * age, soft=2.8)
+
+        # The faint nasolabial break.  Age draws this hard; even a young face has
+        # a soft one, and without it the cheek runs straight into the lip.
+        na = _face_point(st, side, st.nose_w * 0.82, st.nose_y - st.nose_h * 0.02, turn)
+        nb = _face_point(st, side, st.mouth_w * 0.52, st.mouth_y + 0.028, turn)
+        fold = S.lock([na, ((na[0] + nb[0]) * 0.5 + side * 0.006, (na[1] + nb[1]) * 0.5), nb],
+                      w0=0.0045, w1=0.0022, bulge=0.004, per_segment=4)
+        brush.paint(canvas, fold, h.skin_shadow, clip=clip,
+                    alpha=0.050 + 0.020 * age, soft=1.1)
+
+        # The gonion: the small dark turn where the mandible becomes the ramus,
+        # just under the ear.  It gives the jaw an end instead of fading out.
+        ax, ay = _face_point(st, side, st.jaw_w * 0.95, st.jaw_y + 0.072, turn)
+        brush.paint(canvas, S.ellipse(bw * 0.050, 0.038, float(ax), float(ay)),
+                    h.skin_shadow, clip=clip, alpha=0.070, soft=2.0)
 
 
 def _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed) -> None:
@@ -458,12 +534,24 @@ def paint_facial_hair(canvas, st, h, genes: dict, turn: float, clip, rng) -> Non
 # neck and bust
 # --------------------------------------------------------------------------
 def paint_neck(canvas, st, h, genes: dict, turn: float, clip) -> None:
-    """Neck planes and the soft folds age and posture put there."""
+    """The neck as a column with a skeleton inside it.
+
+    A neck is not an extruded oval.  The sternocleidomastoids run as two cords
+    from behind the ear to the sternal notch, the larynx sits on the midline just
+    under the jaw, and the trachea carries the groove between the cords.  The
+    bulges are light with a shadow beneath, the grooves are shadow -- the same
+    rule the face uses, at a smaller scale, so the neck belongs to the same body.
+    """
     if clip is None:
         return
     age = demography.age_t(genes)
+    sex = str(genes.get("sex", "androgynous"))
     nw = float(st.neck_w)
     top = float(st.chin_y)
+    bottom = float(st.neck_y)
+    # See _paint_face_skeleton: skin_light is a cel band, not a highlight, so a
+    # bone painted in it at low alpha does not appear at all.
+    light = palette.lighten(h.skin_light, 0.055)
     # Central throat light, two side shadows: the cheapest way to turn a column
     # into a cylinder without abandoning cel shading.
     brush.paint(canvas, S.ellipse(nw * 0.26, 0.15, 0.0, top - 0.16),
@@ -471,14 +559,63 @@ def paint_neck(canvas, st, h, genes: dict, turn: float, clip) -> None:
     for side in (+1, -1):
         brush.paint(canvas, S.ellipse(nw * 0.20, 0.15, side * nw * 0.70, top - 0.17),
                     h.skin_shadow, clip=clip, alpha=0.12, soft=3.0)
-        a = head.turn_point(side * nw * 0.62, top - 0.02, turn, st)
-        b = head.turn_point(side * nw * 0.30, float(st.neck_y) + 0.02, turn, st)
-        cord = S.lock([(float(a[0]), float(a[1])),
-                       (side * nw * 0.46, (a[1] + b[1]) * 0.5),
-                       (float(b[0]), float(b[1]))],
-                      w0=0.0040, w1=0.0020, bulge=0.004, per_segment=5)
-        brush.paint(canvas, cord, h.skin_shadow, clip=clip,
-                    alpha=0.075 + 0.045 * age, soft=1.3)
+
+    # The sternocleidomastoids.  They leave the mastoid behind the ear (above
+    # this clip, on the skull) and cross to the sternal notch, so the visible
+    # part is the diagonal from the upper side down to the midline.  A lit ridge
+    # with a groove on its inner side is what turns the column into two cords
+    # with a hollow between them; the old single dark line read as a seam.
+    for side in (+1, -1):
+        a = head.turn_point(side * nw * 0.80, top + 0.150, turn, st)
+        b = head.turn_point(side * nw * 0.30, bottom + 0.060, turn, st)
+        mid = ((a[0] + b[0]) * 0.5 + side * nw * 0.030, (a[1] + b[1]) * 0.5)
+        ridge = S.lock([(float(a[0]), float(a[1])), mid, (float(b[0]), float(b[1]))],
+                       w0=nw * 0.048, w1=nw * 0.036, bulge=nw * 0.018, per_segment=5)
+        brush.paint(canvas, ridge, light, clip=clip, alpha=0.18, soft=1.9)
+        groove = S.lock([(float(a[0]) - side * nw * 0.120, float(a[1])),
+                         (float(b[0]) - side * nw * 0.030, float(b[1]))],
+                        w0=nw * 0.032, w1=nw * 0.024, bulge=nw * 0.010, per_segment=4)
+        brush.paint(canvas, groove, h.skin_shadow, clip=clip,
+                    alpha=0.125 + 0.030 * age, soft=1.6)
+
+    # The supraclavicular fossae: the hollows just above the collarbones, on
+    # either side of the neck's base.  They are the last piece of neck anatomy
+    # the collar leaves visible, and the reason the neck sits down *into* the
+    # shoulders instead of standing on them.
+    for side in (+1, -1):
+        fx, fy = head.turn_point(side * nw * 0.92, bottom + 0.078, turn, st)
+        brush.paint(canvas, S.ellipse(nw * 0.30, 0.028, float(fx), float(fy)),
+                    h.skin_shadow, clip=clip, alpha=0.10 + 0.03 * age, soft=2.0)
+
+    # The laryngeal prominence.  The thyroid cartilage is a small midline bump
+    # just below the jaw: light on it, a shadow under it, never a ball.  It is
+    # stronger on a male neck and fades on a child, which is exactly what the
+    # cartilage does.
+    prominence = {"male": 1.0, "androgynous": 0.52, "female": 0.30}.get(sex, 0.5)
+    prominence *= float(np.clip(0.35 + 1.0 * age, 0.0, 1.15))
+    ay = top - 0.085 - 0.010 * age
+    if prominence > 0.04:
+        brush.paint(canvas, S.ellipse(nw * 0.17, 0.034, 0.0, ay),
+                    light, clip=clip, alpha=0.30 * prominence, soft=1.3)
+        brush.paint(canvas, S.ellipse(nw * 0.15, 0.014, 0.0, ay - 0.028),
+                    h.skin_shadow, clip=clip, alpha=0.280 * prominence, soft=1.0)
+        # The thyrohyoid hollow between the cartilage and the jaw.
+        brush.paint(canvas, S.ellipse(nw * 0.12, 0.010, 0.0, ay + 0.032),
+                    h.skin_shadow, clip=clip, alpha=0.095 * prominence, soft=1.2)
+
+    # The trachea: a faint central ridge below the larynx, with a soft shadow on
+    # either side.  Two shadows are enough to round it; rings would be a diagram.
+    brush.paint(canvas, S.lock([(0.0, ay - 0.035), (0.0, bottom + 0.030)],
+                               w0=0.009, w1=0.012, per_segment=3),
+                light, clip=clip, alpha=0.10, soft=1.7)
+    for side in (+1, -1):
+        brush.paint(canvas, S.lock([(side * nw * 0.16, ay - 0.045),
+                                    (side * nw * 0.18, bottom + 0.030)],
+                                   w0=0.014, w1=0.017, per_segment=3),
+                    h.skin_shadow, clip=clip, alpha=0.050, soft=2.2)
+
+    # Soft transverse creases: age and posture, not anatomy.  They stay faint so
+    # they do not cut the column into rings.
     for k in range(1 if age < 0.75 else 2):
         y = top - 0.18 - 0.045 * k
         crease = S.lock([(-nw * 0.52, y), (0.0, y - 0.012), (nw * 0.52, y)],
@@ -536,6 +673,32 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                 h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
     brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
                 h.skin_light, clip=clip, alpha=0.12, soft=2.8)
+
+    # The sternal notch: the hollow where the clavicles meet, and the only piece
+    # of chest skeleton a shirt closed at the throat leaves visible.  It is also
+    # what makes the base of the neck sit *in* the chest instead of in front of
+    # it.  The clip is the opening, so it can never draw over the collar.
+    notch_y = top - depth * 0.62
+    brush.paint(canvas, S.ellipse(x0 * 0.20, 0.016, 0.0, notch_y),
+                h.skin_shadow, clip=opening, alpha=0.24, soft=1.1)
+    brush.paint(canvas, S.ellipse(x0 * 0.10, 0.008, 0.0, notch_y + 0.018),
+                h.skin_light, clip=opening, alpha=0.10, soft=1.0)
+
+    # The clavicles are under the shirt, but the cloth lies on them.  A soft
+    # ridge from the collar's outer edge to the shoulder, with a hollow above it
+    # at the base of the neck, is the one way a closed collar can say the chest
+    # has bones.  It is painted before the collar, so the collar's own drape wins
+    # wherever the two meet.
+    for side in (+1, -1):
+        a = (side * x0 * 1.62, top)
+        b = (side * float(st.shoulder_w) * 0.60, top - 0.036)
+        clavicle = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 + 0.007), b],
+                          w0=0.028, w1=0.016, bulge=0.012, per_segment=4)
+        brush.paint(canvas, clavicle, palette.lighten(h.cloth_hi, 0.05),
+                    clip=clip, alpha=0.13, soft=3.0)
+        brush.paint(canvas, S.ellipse(float(st.shoulder_w) * 0.16, 0.030,
+                                      side * float(st.shoulder_w) * 0.30, top + 0.012),
+                    h.cloth_shadow, clip=clip, alpha=0.10, soft=2.8)
 
     # A folded collar is not a band floating across the throat.  The old stand
     # was a shallow arc whose top outline ran almost horizontally over the neck

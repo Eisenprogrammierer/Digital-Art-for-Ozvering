@@ -60,6 +60,23 @@ def _hash(canvas) -> str:
     return hashlib.sha256(canvas.to_uint8().tobytes()).hexdigest()
 
 
+def _luma(canvas, x: float, y: float, r: float = 0.012) -> float:
+    """Mean luminance of a small world-space patch of a rendered canvas.
+
+    A plane or a bone is only real if it changes the picture, so these tests read
+    the pixels rather than the geometry.  ``x``/``y`` are world units, the same
+    coordinates the paint passes use.
+    """
+    px = int(round((x - canvas.center[0]) * canvas.scale + canvas.w / 2.0 - 0.5))
+    py = int(round((canvas.center[1] - y) * canvas.scale + canvas.h / 2.0 - 0.5))
+    rr = max(1, int(round(r * canvas.scale)))
+    u8 = canvas.to_uint8()
+    patch = u8[max(0, py - rr):py + rr + 1,
+               max(0, px - rr):px + rr + 1].astype(np.float64)
+    return float((patch[..., 0] * 0.2126 + patch[..., 1] * 0.7152
+                  + patch[..., 2] * 0.0722).mean())
+
+
 # ------------------------------------------------------------------ genome
 def test_genome_round_trips_through_its_string():
     for seed in range(200):
@@ -856,6 +873,48 @@ def test_demography_changes_the_face_and_not_the_dna_contract():
     _, sn = _hair(dict(base, culture="north"))
     _, sd = _hair(dict(base, culture="desert"))
     assert sn.p["gloss"] != sd.p["gloss"], "culture did not reach grooming"
+
+
+def test_the_larynx_is_a_second_sex_character():
+    """The Adam's apple is cartilage, so it follows sex and age, not the shirt.
+
+    A neck that never changes for either is a cylinder, and a larynx as strong on
+    a child as on an adult is a sticker.  The test reads the finished picture: the
+    lit prominence has to sit above its own shadow, more clearly on an adult male
+    than on a female or a child.
+    """
+    strength = {}
+    for seed in (13, 42):
+        base = _genes(seed)
+        for sex, age in (("male", "middle"), ("female", "middle"), ("male", "child")):
+            g = dict(base, sex=sex, age=age)
+            st = _style(g)
+            c = portraitlib.render(g, size=480)
+            y = st.chin_y - 0.085 - 0.010 * demography.age_t(g)
+            strength[(seed, sex, age)] = _luma(c, 0.0, y) - _luma(c, 0.0, y - 0.030)
+
+    for seed in (13, 42):
+        adult = strength[(seed, "male", "middle")]
+        female = strength[(seed, "female", "middle")]
+        child = strength[(seed, "male", "child")]
+        assert adult > 8.0, f"seed {seed}: the larynx did not read on an adult male neck"
+        assert adult > 2.5 * female, f"seed {seed}: a female neck carries the male larynx"
+        assert adult > 1.8 * child, f"seed {seed}: a child's larynx is as strong as an adult's"
+
+
+def test_the_face_skeleton_is_not_a_flat_mask():
+    """The skeleton pass must reach the picture, not merely exist in the code."""
+    g = _genes(7)
+    lit = portraitlib.render(g, size=384).to_uint8().astype(np.int16)
+    original = portraitlib.detail._paint_face_skeleton
+    portraitlib.detail._paint_face_skeleton = lambda *args, **kwargs: None
+    try:
+        flat = portraitlib.render(g, size=384).to_uint8().astype(np.int16)
+    finally:
+        portraitlib.detail._paint_face_skeleton = original
+    diff = np.abs(lit - flat).max(axis=2)
+    assert diff.max() >= 5, "the facial skeleton did not change a single pixel"
+    assert int((diff >= 3).sum()) > 300, "the facial skeleton only touched a corner of the face"
 
 
 def test_climate_reaches_skin_hair_and_feature_geometry_with_pinned_genes():

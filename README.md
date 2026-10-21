@@ -997,6 +997,24 @@ returns `st` itself, so the posed path with a neutral row is the portrait that e
 before there was a warp, to the byte. The passport path never calls the warp at all.
 That is checked against a `git worktree` of the previous commit, not just against itself.
 
+### The face and the neck carry a skeleton
+
+Cel bands give the large forms, but a face still reads as a mask unless the bone shows
+through them. `detail._paint_face_skeleton` adds a second, quieter pass: the glabella,
+the supraorbital ridge and the orbit it shades, the zygomatic arch and the temporal
+hollow, the nasolabial break and the gonion. `detail.paint_neck` carries the neck's own
+skeleton: the two sternocleidomastoid cords with the groove between them, the trachea,
+and the laryngeal prominence -- an Adam's apple that is stronger on a male and fades on
+a child, because the cartilage does. The shirt covers the clavicles, so the bust pass
+shows them the only way a closed collar can: a soft ridge on the cloth and the sternal
+notch in the last strip of skin the collar leaves open.
+
+Every mark is a broad, low-alpha plane clipped to the skull, the neck or the opening.
+None of them is an outline, so none can move a feature; they only give the geometry a
+surface. Two tests read the finished pixels: the face skeleton must change them, and
+the larynx must be a lit bump above its own shadow that is measurably stronger on an
+adult male than on a woman or a child.
+
 ### A portrait is a genome
 
 The strategic asset is not the pixels, it is the string:

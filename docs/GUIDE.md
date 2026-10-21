@@ -372,6 +372,16 @@ strand lines that read as straw. Cel bands paint wide-to-deep so a deep shadow c
 be erased by the wide one. These are invariants of the drawing, not settings a genome
 can spend.
 
+Under the skin, a second and quieter pass carries the bone. On the face it is the
+glabella, the brow ridge and the orbit it shades, the zygomatic arch, the temporal
+hollow, the nasolabial break and the gonion. On the neck it is the two
+sternocleidomastoid cords and the groove between them, the trachea, and the laryngeal
+prominence: an Adam's apple that is stronger on a male and fades on a child, because
+the cartilage does. The shirt covers the clavicles, so the bust shows them the only way
+a closed collar can -- a soft ridge on the cloth and the sternal notch in the strip of
+skin the collar leaves open. Every mark is a broad, low-alpha plane clipped to the
+skull, the neck or the opening; none is an outline, so none can move a feature.
+
 ### Heraldry
 
 A coat is a specification: shield, field, division, charges and tinctures. A faction
