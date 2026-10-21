@@ -324,6 +324,8 @@ python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
 python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
 python cli.py portrait --out out/heart.png --seed 7 --face-shape heart \
                         --eye-shape hooded --nose-shape roman --freckles bridge
+python cli.py portrait --out out/beard.png --seed 7 --sex male --age adult \
+                        --facial-hair full_beard
 python cli.py portrait --out out/pigment.png --seed 7 \
                         --gene skin_melanin=-0.4 --gene hair_warmth=0.6
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
@@ -340,7 +342,8 @@ python cli.py lineage --out out/lineage.png --seed 7 --children 6
 Фенотипический слой добавляет именованные семейства и непрерывные оси. Семейства:
 `--face-shape` (oval, round, square, heart, long, diamond), `--jaw-shape`,
 `--eye-shape`, `--brow-shape`, `--nose-shape`, `--mouth-shape`,
-`--hairline-shape` и `--freckles`. Непрерывные оси — ширина и высота лба, ширина
+`--hairline-shape`, `--freckles` и `--facial-hair` (none, stubble, mustache,
+goatee, short_beard, full_beard). Непрерывные оси — ширина и высота лба, ширина
 висков, ширина и посадка скул, полнота щёк, угол и ширина челюсти, длина и ширина
 подбородка, глубина головы, расстояние между глазами, высота и нависание века,
 размер радужки, высота и длина бровей, длина/ширина/переносица носа, высота рта,
@@ -349,7 +352,9 @@ python cli.py lineage --out out/lineage.png --seed 7 --children 6
 пигментных осей двигают меланин/тепло/розовость/оливковость кожи,
 меланин/тепло/рыжину/блеск волос, оттенок/насыщенность/светлоту радужки и пигмент
 губ. У каждой оси диапазон `[-1, 1]` и нейтральный ноль; категории выбираются из
-таблицы.
+таблицы. `facial_hair` — это мазок, а не форма: он ложится на челюсть, подбородок
+и верхнюю губу и зависит от портретируемого — у взрослых, кроме женщин, он
+рисуется, а портрет женщины или ребёнка совпадает с вариантом `none` до байта.
 
 `--gene KEY=VALUE` закрепляет любую ось генома, включая старые гены формы и цвета;
 повторите флаг для нескольких. Строка ДНК, записанная до появления фенотипических

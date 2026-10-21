@@ -39,6 +39,7 @@ from __future__ import annotations
 import numpy as np
 
 from core.canvas import Canvas
+from core import palette
 
 from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues
 from . import style as style_mod
@@ -140,7 +141,7 @@ def compose_posed(genes: dict, size=384, background: bool = True,
                volume=cel.dome(st.neck_w * 1.7, 0.36, 0.30, cy=st.chin_y - 0.22), bevel=0.03,
                soft=1.2)
     neck.stroke(c, st.ink_w * st.line * 0.55, h.line_soft, inset=st.ink_w * st.line * 0.34,
-                alpha=0.55, taper=_contour_taper(st.chin_y))
+                alpha=0.55, soft=0.5, taper=_contour_taper(st.chin_y))
     neck_cov = neck.full_coverage(c)
     detail.paint_neck(c, st, h, genes, turn, neck_cov)
     cast = np.minimum(neck_cov * (1.0 - skull_cov),
@@ -167,8 +168,15 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     face.paint_ears(c, st, h, turn, clip=skull)
     detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
     lw = st.ink_w * st.line
-    skull_surf.stroke(c, lw, h.line, inset=lw * 0.42,
-                      taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34))
+    # The outer contour is the one line the eye traces first, so a hard, opaque,
+    # full-weight stroke turns the whole head into a cut-out sticker.  It is drawn
+    # a little lighter than the features, in a softened ink, and feathered, so the
+    # silhouette reads as a surface meeting the light rather than as a border.
+    skull_surf.stroke(c, lw * 0.90,
+                      palette.mix(h.line, h.line_soft, 0.35),
+                      inset=lw * 0.42,
+                      taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34),
+                      alpha=0.72, soft=0.55)
     detail.paint_facial_hair(c, st, h, genes, turn, skull_cov, rng)
     face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 

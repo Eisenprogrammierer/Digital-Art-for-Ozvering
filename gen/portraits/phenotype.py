@@ -31,7 +31,7 @@ import numpy as np
 
 __all__ = [
     "FACE_SHAPES", "JAW_SHAPES", "EYE_SHAPES", "BROW_SHAPES", "NOSE_SHAPES",
-    "MOUTH_SHAPES", "HAIRLINE_SHAPES", "FRECKLE_PATTERNS",
+    "MOUTH_SHAPES", "HAIRLINE_SHAPES", "FRECKLE_PATTERNS", "FACIAL_HAIR",
     "CATEGORIES", "MORPH", "PIGMENT", "DEFAULTS", "CATEGORY_DEFAULTS",
     "random_values", "modify", "validate",
 ]
@@ -46,6 +46,11 @@ NOSE_SHAPES = ("button", "straight", "roman", "wide", "snub", "delicate")
 MOUTH_SHAPES = ("line", "full", "bow", "wide", "small", "downturned")
 HAIRLINE_SHAPES = ("straight", "rounded", "high", "low", "swept", "widow")
 FRECKLE_PATTERNS = ("none", "sparse", "bridge", "cheeks", "full")
+#: Facial hair is a paint pattern, not a change to the skull: the jaw, chin and
+#: lip keep their geometry and the hair is laid over them.  The variants are
+#: ordered from a clean jaw to a full beard, because the middle of the list is
+#: where most adult faces actually sit.
+FACIAL_HAIR = ("none", "stubble", "mustache", "goatee", "short_beard", "full_beard")
 
 #: Every categorical phenotype gene and the values it accepts.
 CATEGORIES = {
@@ -57,6 +62,7 @@ CATEGORIES = {
     "mouth_shape": MOUTH_SHAPES,
     "hairline_shape": HAIRLINE_SHAPES,
     "freckles": FRECKLE_PATTERNS,
+    "facial_hair": FACIAL_HAIR,
 }
 
 #: Continuous geometry axes.  They are appended after the legacy shape genes so
@@ -88,6 +94,7 @@ CATEGORY_DEFAULTS = {
     "mouth_shape": "line",
     "hairline_shape": "straight",
     "freckles": "sparse",
+    "facial_hair": "none",
 }
 
 DEFAULTS = {
@@ -163,6 +170,10 @@ _CATEGORY_MODS = {
         "downturned": {"mouth_curve": -0.011, "mouth_w": -0.004},
     },
     "freckles": {"none": {}, "sparse": {}, "bridge": {}, "cheeks": {}, "full": {}},
+    # Facial hair is painted, not sculpted: the geometry of the lower face is the
+    # same for a clean jaw and a full beard, so every variant maps to no style
+    # change.  Keeping the entry explicit keeps the category table complete.
+    "facial_hair": {name: {} for name in FACIAL_HAIR},
     "hairline_shape": {
         "straight": {},
         "rounded": {"hairline_gap": -0.008},
@@ -276,6 +287,14 @@ def random_values(rng: np.random.Generator) -> dict:
         g[key] = float(np.clip(value, -1.0, 1.0))
     for key in PIGMENT:
         g[key] = float(np.clip(rng.normal(0.0, 0.40), -1.0, 1.0))
+    # Facial hair is drawn *last* on purpose.  ``facial_hair`` was added to the
+    # genome after every gene above it, and a generator is a stream: inserting a
+    # draw in the middle would silently change every seed's existing genes.  This
+    # keeps old genomes rendering byte-identical and only adds the new axis.
+    # Most faces are clean-shaven; a stubble or a short beard is ordinary adult
+    # grooming, and a full beard is the rare end of the range.
+    g["facial_hair"] = str(rng.choice(FACIAL_HAIR,
+                                      p=(0.56, 0.16, 0.08, 0.07, 0.08, 0.05)))
     return {key: (round(value, 4) if isinstance(value, float) else value)
             for key, value in g.items()}
 

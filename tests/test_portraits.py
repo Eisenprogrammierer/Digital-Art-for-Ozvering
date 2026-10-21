@@ -924,12 +924,12 @@ def test_every_phenotype_category_has_its_own_geometry():
     """A named family is a real axis, not a caption.
 
     Each value must produce a distinct style signature, and every one of those
-    signatures must still satisfy the anatomy guard.  Freckles are a paint
-    pattern, so they are covered by the pixel test below instead.
+    signatures must still satisfy the anatomy guard.  Freckles and facial hair are
+    paint patterns, not geometry, so they are covered by the pixel tests below.
     """
     base = _neutral_phenotype(_genes(31))
     for key, choices in phenotype.CATEGORIES.items():
-        if key == "freckles":
+        if key in ("freckles", "facial_hair"):
             continue
         signatures = []
         for value in choices:
@@ -994,6 +994,53 @@ def test_freckle_patterns_reach_the_pixels():
     assert len(set(hashes.values())) == len(hashes), "freckle patterns are only labels"
     again = _hash(portraitlib.render(dict(base, freckles="full"), size=72))
     assert again == hashes["full"], "the freckle pattern is not deterministic"
+
+
+def test_facial_hair_styles_reach_the_pixels():
+    """Facial hair is a paint pattern, so it is verified in the picture.
+
+    Every style must change the pixels, the result must be deterministic, and the
+    sitter gates must hold: a woman renders exactly as if the gene were absent,
+    because the gate belongs to the face, not to the wire format.
+    """
+    base = _neutral_phenotype(_genes(63))
+    base.update(sex="male", age="adult")
+    hashes = {name: _hash(portraitlib.render(dict(base, facial_hair=name), size=96))
+              for name in phenotype.FACIAL_HAIR}
+    assert len(set(hashes.values())) == len(hashes), "facial-hair styles are only labels"
+    again = _hash(portraitlib.render(dict(base, facial_hair="full_beard"), size=96))
+    assert again == hashes["full_beard"], "the facial-hair style is not deterministic"
+
+
+def test_facial_hair_is_gated_on_the_sitter():
+    """The sex/age gate is a property of the face, not of the wire format.
+
+    The genome string seeds every stroke, so two genomes that differ in
+    ``facial_hair`` cannot be compared as whole pictures.  This drives the paint
+    pass directly instead: for a woman and for a child the pass must be a no-op,
+    and for an adult man the same call must change the canvas.
+    """
+    from gen.portraits import detail  # noqa: PLC0415
+
+    base = _neutral_phenotype(_genes(63))
+
+    def painted(genes: dict) -> str:
+        c = portraitlib.canvas(64, background=(0.9, 0.9, 0.9))
+        st = _style(genes)
+        h = hues.from_genes(genes)
+        rng = np.random.default_rng(0)
+        detail.paint_facial_hair(c, st, h, genes, 0.0, np.ones((64, 64)), rng)
+        return _hash(c)
+
+    for genes in (dict(base, sex="female", age="adult"),
+                  dict(base, sex="male", age="child"),
+                  dict(base, sex="female", age="child")):
+        assert painted(dict(genes, facial_hair="none")) == \
+            painted(dict(genes, facial_hair="full_beard")), \
+            f"facial hair was painted on {genes['sex']}/{genes['age']}"
+    clean = painted(dict(base, sex="male", age="adult", facial_hair="none"))
+    bearded = painted(dict(base, sex="male", age="adult", facial_hair="full_beard"))
+    assert clean != bearded, "an adult man's beard never reached the canvas"
 
 
 if __name__ == "__main__":

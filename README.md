@@ -1015,13 +1015,17 @@ dna.describe(child)                # 'chibi · long hair #cba18f · iris … · 
 Colours blend in OKLab, shapes average and drift, categories are drawn from one
 parent or the other, and the result is still a genome. The demographic genes --
 `sex`, `age`, `climate`, `culture` -- are appended after the original shape genes,
-followed by the phenotype layer: eight named families (`face_shape`, `jaw_shape`,
+followed by the phenotype layer: nine named families (`face_shape`, `jaw_shape`,
 `eye_shape`, `brow_shape`, `nose_shape`, `mouth_shape`, `hairline_shape`,
-`freckles`), continuous skull/face axes (forehead, cheekbone, jaw angle, chin,
-eye spacing, nose bridge, lip fullness, ear, neck, hair volume, fringe and
-shoulder slope) and twelve pigment axes for skin, hair, iris and lips. The layer
-is append-only, so an older DNA string still loads with documented defaults while
-every legacy gene stays mandatory. `--gene KEY=VALUE` pins any of the new axes
+`freckles`, `facial_hair`), continuous skull/face axes (forehead, cheekbone, jaw
+angle, chin, eye spacing, nose bridge, lip fullness, ear, neck, hair volume,
+fringe and shoulder slope) and twelve pigment axes for skin, hair, iris and lips.
+The layer is append-only, so an older DNA string still loads with documented
+defaults while every legacy gene stays mandatory. The paint-only families are
+gated on the sitter rather than the wire format: `facial_hair` is a layer of
+stubble, moustache, goatee or beard over the lower face, and it is drawn only for
+an adult who is not female, so a woman's or a child's portrait is byte-identical whether the
+gene says `none` or `full_beard`. `--gene KEY=VALUE` pins any of the new axes
 without another command-line flag, and the categories have first-class flags and
 studio fields because those are the choices a designer makes by name. `age` is
 both a heritable state and a portrait state: a child of any two parents is born

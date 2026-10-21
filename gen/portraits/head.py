@@ -180,11 +180,17 @@ def shoulders(st) -> Shape:
     slope = float(getattr(st, "shoulder_slope", 0.0))
     outer = top - 0.22 + 0.035 * slope
     crest = top - 0.010 * slope
+    # The top edge is a *neckline*, not a shelf.  A straight edge across the
+    # shoulders ran over the throat above the collar and read as a shirt seam
+    # crossing the sitter's neck.  The edge now meets the collar stand at the
+    # sides and dips below the throat at the middle, so the cloth closes around
+    # the neck and only the collar's own opening crosses it.
     pts = [
         (-w, bottom),
         (-w, outer),
         (-w * 0.66, crest),
         (-nw, top + 0.075),
+        (0.0, top - 0.020),
         (nw, top + 0.075),
         (w * 0.66, crest),
         (w, outer),

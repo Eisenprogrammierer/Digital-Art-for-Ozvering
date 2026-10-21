@@ -324,6 +324,8 @@ python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
 python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
 python cli.py portrait --out out/heart.png --seed 7 --face-shape heart \
                         --eye-shape hooded --nose-shape roman --freckles bridge
+python cli.py portrait --out out/beard.png --seed 7 --sex male --age adult \
+                        --facial-hair full_beard
 python cli.py portrait --out out/pigment.png --seed 7 \
                         --gene skin_melanin=-0.4 --gene hair_warmth=0.6
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
@@ -340,7 +342,8 @@ face. `portraits` accepts the same four flags to pin one gene across the sheet.
 The phenotype layer adds named families and continuous axes. The named families are
 `--face-shape` (oval, round, square, heart, long, diamond), `--jaw-shape`,
 `--eye-shape`, `--brow-shape`, `--nose-shape`, `--mouth-shape`,
-`--hairline-shape` and `--freckles`. The continuous axes cover forehead width and
+`--hairline-shape`, `--freckles` and `--facial-hair` (none, stubble, mustache,
+goatee, short_beard, full_beard). The continuous axes cover forehead width and
 height, temple width, cheekbone width and drop, cheek fullness, jaw angle and width,
 chin length and width, head depth, eye spacing/height/hood, iris size, brow height
 and length, nose length/width/bridge, mouth height, lip fullness, ear size, neck
@@ -348,7 +351,9 @@ width and length, hairline height, hair volume, fringe length and parting, sidel
 weight and shoulder slope. Twelve pigment axes move skin melanin/warmth/rosiness/
 olive, hair melanin/warmth/redness/gloss, iris hue/chroma/value and lip pigment. Every
 axis has a documented `[-1, 1]` range and a neutral zero; the categories are chosen
-from their table.
+from their table. `facial_hair` is a paint pattern rather than a shape: it is laid
+over the jaw, chin and upper lip, and it is gated on the sitter -- an adult who
+is not female draws it, a woman or a child renders as if the gene said `none`.
 
 `--gene KEY=VALUE` pins any genome axis, including the older shape and colour genes;
 repeat it for more than one. A DNA string written before the phenotype genes existed

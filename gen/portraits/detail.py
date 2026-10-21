@@ -24,7 +24,7 @@ import numpy as np
 
 from core import noise, palette, render
 
-from . import brush, demography, head
+from . import brush, demography, head, phenotype
 from . import shape as S
 
 __all__ = [
@@ -147,6 +147,33 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
         tx, ty = _face_point(st, side, bw * 0.72, ey + 0.11, turn)
         brush.paint(canvas, S.ellipse(bw * 0.14, 0.11, float(tx), float(ty)),
                     h.skin_shadow, clip=clip, alpha=0.100, soft=3.6)
+
+    # Deeper structure.  Flat cel bands put the cheek, the jaw and the chin on one
+    # value, which is why a face can look like a mask; these low-alpha planes give
+    # each surface its own light.  The cheekbone is a lit mass with a hollow under
+    # it, the jaw angle has a shadow above the jaw line, and the chin gets its own
+    # light and a crease so it does not share the jaw's outline.
+    for side in (+1, -1):
+        kx, ky = _face_point(st, side, bw * 0.42, ey - 0.030, turn)
+        brush.paint(canvas, S.ellipse(bw * 0.21, 0.058, float(kx), float(ky)),
+                    h.skin_light, clip=clip, alpha=0.095, soft=2.6)
+        hx, hy = _face_point(st, side, bw * 0.40, ey - 0.115, turn)
+        brush.paint(canvas, S.ellipse(bw * 0.16, 0.052, float(hx), float(hy)),
+                    h.skin_shadow, clip=clip, alpha=0.075, soft=2.8)
+        jx, jy = _face_point(st, side, st.jaw_w * 0.60, st.jaw_y + 0.032, turn)
+        brush.paint(canvas, S.ellipse(st.jaw_w * 0.30, 0.046, float(jx), float(jy)),
+                    h.skin_light, clip=clip, alpha=0.055, soft=2.6)
+        gx, gy = _face_point(st, side, bw * 0.58, st.jaw_y + 0.090, turn)
+        brush.paint(canvas, S.ellipse(bw * 0.12, 0.045, float(gx), float(gy)),
+                    h.skin_shadow, clip=clip, alpha=0.065, soft=2.6)
+        sx, sy = _face_point(st, side, st.chin_w * 0.88, st.chin_y + 0.078, turn)
+        brush.paint(canvas, S.ellipse(st.chin_w * 0.20, 0.030, float(sx), float(sy)),
+                    h.skin_shadow, clip=clip, alpha=0.055, soft=1.8)
+    # The chin's own light, a little below the existing plane, keeps the chin and
+    # the jaw from reading as one continuous curve.
+    chx, chy = head.turn_point(0.0, st.chin_y + 0.072, turn, st)
+    brush.paint(canvas, S.ellipse(st.chin_w * 0.40, 0.036, float(chx), float(chy)),
+                h.skin_light, clip=clip, alpha=0.065, soft=2.2)
     # Cheek warmth, always present; the blush gene adds the manga marks on top.
     for side in (+1, -1):
         bx, by = _face_point(st, side, st.eye_dx + st.eye_w * 0.12, st.blush_y, turn)
@@ -233,34 +260,198 @@ def _paint_age_lines(canvas, st, h, genes, turn, clip) -> None:
                         alpha=0.075 * strength, soft=0.8)
 
 
-def paint_facial_hair(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
-    """A restrained five-o'clock shadow for adult male faces.
+def _fp(st, turn: float, side: int, x: float, y: float):
+    """A face point, turned: ``side == 0`` is the midline."""
+    if side == 0:
+        px, py = head.turn_point(0.0, y, turn, st)
+    else:
+        px, py = _face_point(st, side, x, y, turn)
+    return (float(px), float(py))
 
-    This is a *plane* of cool hair colour, not a beard: the geometry for a beard
-    would need its own silhouette and its own style table, and a half-built beard
-    is worse than a clean jaw.  It is clipped to the skull and painted before the
-    mouth, so the lip keeps its edge.
+
+def _beard_band(st, turn: float, coverage: float):
+    """The beard's silhouette: the lower face between the cheek line and the jaw.
+
+    ``coverage`` runs from a short beard that hugs the jaw (0) to a full beard
+    that climbs to the sideburns and covers the cheeks (1).  The shape is built
+    from turned face points, so it follows a three-quarter view, and it is
+    clipped to the skull by the caller.
     """
-    if str(genes.get("sex", demography.DEFAULTS["sex"])) != "male":
+    bw = float(st.head_w)
+    ey = float(st.eye_y)
+    jaw_w, jaw_y = float(st.jaw_w), float(st.jaw_y)
+    chin_w, chin_y = float(st.chin_w), float(st.chin_y)
+    mw, my = float(st.mouth_w), float(st.mouth_y)
+    cov = float(np.clip(coverage, 0.0, 1.0))
+    rise = 0.100 + 0.100 * (1.0 - cov)
+    side = 0.80 - 0.08 * (1.0 - cov)
+    outer_r = [
+        (1, bw * side, ey + 0.030),
+        (1, bw * (side - 0.14), ey - rise * 0.85),
+        (1, jaw_w * 0.98, jaw_y - 0.005),
+        (1, chin_w * 1.25, chin_y + 0.025),
+        (0, 0.0, chin_y - 0.006),
+    ]
+    outer_l = [
+        (0, 0.0, chin_y - 0.006),
+        (-1, chin_w * 1.25, chin_y + 0.025),
+        (-1, jaw_w * 0.98, jaw_y - 0.005),
+        (-1, bw * (side - 0.14), ey - rise * 0.85),
+        (-1, bw * side, ey + 0.030),
+    ]
+    top_l = [
+        (-1, bw * (side - 0.18), ey - rise * 0.35),
+        (-1, bw * 0.44, ey - rise),
+        (-1, mw * 0.72, my + mw * 0.22),
+    ]
+    top_r = [
+        (1, mw * 0.72, my + mw * 0.22),
+        (1, bw * 0.44, ey - rise),
+        (1, bw * (side - 0.18), ey - rise * 0.35),
+    ]
+    pts = [_fp(st, turn, *p) for p in outer_r + outer_l + top_l + top_r]
+    return S.poly(np.asarray(pts, dtype=np.float64), resample=52)
+
+
+def _mustache(st, turn: float):
+    """A moustache over the upper lip: a bowed lock that tapers at the corners."""
+    mw, my = float(st.mouth_w), float(st.mouth_y)
+    ax = mw * 0.74
+    left = np.array(head.turn_point(-ax, my + mw * 0.10, turn, st), dtype=np.float64)
+    right = np.array(head.turn_point(ax, my + mw * 0.10, turn, st), dtype=np.float64)
+    spine = S.arc(left, right, mw * 0.155, 0.5, 18)
+    return S.lock(spine, w0=mw * 0.10, w1=mw * 0.11, bulge=mw * 0.10,
+                  per_segment=4, resample=32)
+
+
+def _chin_patch(st, turn: float):
+    """The goatee's chin: a soft mass under the lower lip."""
+    cx, cy = head.turn_point(0.0, st.chin_y + 0.075, turn, st)
+    return S.ellipse(st.chin_w * 0.78, 0.062, float(cx), float(cy))
+
+
+def paint_facial_hair(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
+    """Facial hair for adults: stubble, a moustache, a goatee or a beard.
+
+    The beard has its own silhouette now rather than a single cool plane.  It is
+    clipped to the skull and painted before the mouth, so the lip keeps its edge
+    and the beard cannot spill onto the background.  The gene is categorical
+    (:data:`gen.portraits.phenotype.FACIAL_HAIR`); the sex and age gates are here
+    because facial hair is an adult male presentation, not a property of the
+    shape of the jaw.
+    """
+    kind = str(genes.get("facial_hair", "none"))
+    if kind not in phenotype.FACIAL_HAIR or kind == "none":
+        return
+    if str(genes.get("sex", demography.DEFAULTS["sex"])) == "female":
         return
     age = demography.age_t(genes)
-    if age < 0.42:
+    if age < 0.24:
         return
-    strength = 0.075 + 0.055 * age
-    # Jaw and chin: two soft crescents following the lower silhouette.
+    if clip is None:
+        return
+    density = float(np.clip(0.70 + 0.30 * age, 0.70, 1.0))
+    X, Y = canvas.grid()
+    seed = int(rng.integers(0, 2**31 - 1))
+    # A beard has grain in both directions; the first version stretched the noise
+    # along x, which turned the whole mass into vertical scratches.
+    grain = np.clip(noise.fbm(X * 5.0, Y * 5.0, seed=seed, freq=15.0, octaves=3) - 0.46,
+                    0.0, 1.0)
+    # Facial hair is hair: it keeps the hair's own dark value and only a trace of
+    # the skin.  A beard mixed too far towards the skin reads as a dirty face.
+    deep = palette.mix(h.hair_deep, h.skin, 0.02)
+    base = palette.mix(palette.mix(h.hair, h.hair_deep, 0.55), h.skin, 0.05)
+    fine = palette.mix(h.hair_shadow, h.skin, 0.08)
+
+    def _paint(shape, colour, alpha: float, soft: float = 0.0) -> None:
+        brush.paint(canvas, shape, colour, clip=clip, alpha=alpha, soft=soft)
+
+    def _grain(shape, alpha: float) -> None:
+        cov = brush.mask(canvas, shape) * np.asarray(clip) * grain
+        brush.paint_cov(canvas, cov, deep, soft=1.1, alpha=alpha)
+
+    # A soft jaw plane underpins every style, including a clean one: it is the
+    # shadow of the jaw's own volume, not hair.
     for side in (+1, -1):
-        a = _face_point(st, side, st.head_w * 0.48, st.eye_y - 0.15, turn)
-        b = _face_point(st, side, st.chin_w * 0.70, st.chin_y + 0.045, turn)
-        shadow = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), b],
-                        w0=0.030, w1=0.016, bulge=0.024, per_segment=5)
-        brush.paint(canvas, shadow, h.skin_cool, clip=clip, alpha=strength, soft=2.2)
-    # Upper lip and chin patch, lighter than the jaw.
-    mx, my = head.turn_point(0.0, st.mouth_y + 0.030, turn, st)
-    brush.paint(canvas, S.ellipse(st.mouth_w * 0.34, 0.012, float(mx), float(my)),
-                h.hair_deep, clip=clip, alpha=strength * 0.55, soft=1.6)
-    cx, cy = head.turn_point(0.0, st.chin_y + 0.085, turn, st)
-    brush.paint(canvas, S.ellipse(st.chin_w * 0.38, 0.020, float(cx), float(cy)),
-                h.hair_deep, clip=clip, alpha=strength * 0.45, soft=1.8)
+        a = _face_point(st, side, st.head_w * 0.50, st.eye_y - 0.15, turn)
+        b = _face_point(st, side, st.chin_w * 0.72, st.chin_y + 0.045, turn)
+        jaw = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), b],
+                     w0=0.032, w1=0.017, bulge=0.025, per_segment=5)
+        _paint(jaw, h.skin_cool, 0.055 * density, soft=2.3)
+
+    if kind == "stubble":
+        # A stubble is a texture, not a beard: a cool tint over the lower face,
+        # peppered with dots.  The first version painted the band's own silhouette
+        # darkly, which read as a bruise along the jaw rather than as hair under
+        # the skin.
+        stub = palette.mix(h.skin_shadow, h.hair_deep, 0.35)
+        band = _beard_band(st, turn, 0.35)
+        _paint(band, stub, 0.20 * density, soft=1.8)
+        dots = np.clip(noise.value_noise(X, Y, seed=seed + 91, freq=120.0) - 0.60,
+                       0.0, 1.0)
+        cov = brush.mask(canvas, band) * np.asarray(clip) * np.clip(dots, 0.0, 1.0)
+        brush.paint_cov(canvas, cov, deep, alpha=0.30 * density)
+        return
+
+    if kind in ("mustache", "goatee"):
+        if kind == "goatee":
+            chin = _chin_patch(st, turn)
+            _paint(chin, base, 0.70 * density, soft=0.9)
+            _grain(chin, 0.16)
+            # The chin patch reaches up to the lower lip; the mouth is painted
+            # after this pass, so the lip itself stays clean.
+            cx, cy = head.turn_point(0.0, st.chin_y + 0.150, turn, st)
+            _paint(S.ellipse(st.chin_w * 0.34, 0.030, float(cx), float(cy)),
+                   base, 0.45 * density, soft=1.4)
+        # A moustache is the same mass in every facial-hair style but a clean
+        # one; it is drawn over the upper lip and under the nose.
+        mo = _mustache(st, turn)
+        _paint(mo, base, 0.86 * density, soft=0.5)
+        _paint(mo, deep, 0.22, soft=0.0)
+        _grain(mo, 0.14)
+        # A shadow under the moustache lifts it off the lip.
+        lower = S.lock(S.arc(np.array(head.turn_point(-st.mouth_w * 0.66,
+                                                      st.mouth_y + st.mouth_w * 0.06, turn, st)),
+                             np.array(head.turn_point(st.mouth_w * 0.66,
+                                                      st.mouth_y + st.mouth_w * 0.06, turn, st)),
+                             -st.mouth_w * 0.02, 0.5, 14),
+                           w0=st.mouth_w * 0.05, w1=st.mouth_w * 0.05, per_segment=4)
+        _paint(lower, deep, 0.24 * density, soft=0.8)
+        return
+
+    # A short or full beard: one silhouette, denser in the middle than at the
+    # upper edge, with a moustache and a little strand work on top.
+    coverage = 0.45 if kind == "short_beard" else 1.0
+    beard = _beard_band(st, turn, coverage)
+    alpha = (0.86 if kind == "short_beard" else 1.0) * density
+    _paint(beard, base, alpha, soft=0.4)
+    # The lower edge of the mass is darker -- the beard shading itself -- which is
+    # what stops a filled silhouette reading as a flat patch.
+    for side in (+1, -1):
+        a = _face_point(st, side, st.head_w * 0.72, st.eye_y - 0.10, turn)
+        b = _face_point(st, side, st.chin_w * 0.80, st.chin_y + 0.020, turn)
+        edge = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), b],
+                      w0=0.026, w1=0.030, bulge=0.018, per_segment=6)
+        _paint(edge, deep, 0.22, soft=0.9)
+    _grain(beard, 0.12 if kind == "short_beard" else 0.15)
+    mo = _mustache(st, turn)
+    _paint(mo, base, 0.96 * density, soft=0.35)
+    _paint(mo, deep, 0.20, soft=0.0)
+    _grain(mo, 0.14)
+    # A handful of short strands give the beard its own grain at avatar size.
+    # They follow the jaw, not the vertical: the first pass drew nine parallel
+    # scratches straight down the face.
+    bw = float(st.head_w)
+    for i in range(6):
+        u = (i + 0.5) / 6.0
+        side = -1.0 if i % 2 else 1.0
+        a = _face_point(st, side, bw * (0.20 + 0.42 * u), st.eye_y - 0.10 - 0.06 * u,
+                        turn)
+        b = _face_point(st, side, bw * (0.18 + 0.38 * u), st.jaw_y + 0.020 - 0.02 * u,
+                        turn)
+        ln = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), b],
+                    w0=0.0024, w1=0.0008, bulge=0.0035, per_segment=4)
+        _paint(ln, fine if i % 3 == 0 else deep, 0.22, soft=0.7)
 
 
 # --------------------------------------------------------------------------
@@ -346,26 +537,13 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
                 h.skin_light, clip=clip, alpha=0.12, soft=2.8)
 
-    # The collar stand is the band that actually goes round the neck.  Without
-    # it the leaves below have nothing to be attached to, and the result reads as
-    # a V-neck trim on a t-shirt.  It sits on the skin at the base of the neck,
-    # not behind it, so it is painted here rather than with the shirt fill.
-    stand_spine = [(-x0 * 1.14, top + 0.060), (0.0, top + 0.030),
-                   (x0 * 1.14, top + 0.060)]
-    stand = S.lock(stand_spine, w0=0.022, w1=0.022, bulge=0.016,
-                   per_segment=6, resample=30)
+    # A folded collar is not a band floating across the throat.  The old stand
+    # was a shallow arc whose top outline ran almost horizontally over the neck
+    # and read as a shirt seam crossing the sitter's throat.  The collar here is
+    # the two leaves below: their inner edges follow the opening up the sides of
+    # the neck, which is the curve a collar actually makes.  The colour they are
+    # cut from is kept here for that pass.
     collar_col = palette.lighten(palette.mix(h.cloth_hi, h.cloth_trim, 0.10), 0.085)
-    brush.paint(canvas, stand, collar_col, alpha=0.98, soft=0.45)
-    brush.paint(canvas, S.lock([(p[0], p[1] - 0.011) for p in stand_spine],
-                               w0=0.006, w1=0.006, bulge=0.004,
-                               per_segment=6, resample=30),
-                h.cloth_shadow, alpha=0.14, soft=0.9)
-    brush.paint(canvas, stand.outline(lw * 0.50), h.cloth_line,
-                alpha=0.60, soft=0.30)
-    brush.paint(canvas, S.lock([(p[0], p[1] + 0.008) for p in stand_spine],
-                               w0=0.003, w1=0.003, bulge=0.002,
-                               per_segment=6, resample=30),
-                h.cloth_hi, alpha=0.42, soft=0.6)
 
     # Two collar leaves.  Their inner edges follow the V; their outer edges run
     # from the shoulder to a point near the bottom of the opening.  This is the
@@ -396,6 +574,24 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                     alpha=0.62, soft=0.20)
         brush.paint(canvas, leaf.outline(lw * 1.25), collar_col, clip=clip,
                     alpha=0.22, soft=0.7)
+
+    # The collar band: a strip that runs up the sides of the neck and closes at
+    # the throat.  This is the line that has to *follow* the opening.  The old
+    # flat stand crossed the throat; a band along the V reads as a collar and
+    # lets the shirt's own edge hide behind it.
+    band_spine = [(-x0 * 0.98, top + 0.050),
+                  (0.0, top - depth * point_drop + 0.010),
+                  (x0 * 0.98, top + 0.050)]
+    band = S.lock(band_spine, w0=0.020, w1=0.020, bulge=0.009,
+                  per_segment=6, resample=32)
+    brush.paint(canvas, band, collar_col, clip=clip, alpha=0.98, soft=0.35)
+    brush.paint(canvas, band.outline(lw * 0.42), h.cloth_line, clip=clip,
+                alpha=0.55, soft=0.25)
+    brush.paint(canvas, S.lock([(p[0], p[1] + 0.007) for p in band_spine],
+                               w0=0.003, w1=0.003, bulge=0.002,
+                               per_segment=6, resample=32),
+                h.cloth_hi, clip=clip, alpha=0.38, soft=0.6)
+
     # The notch between the two collar points: a small dark wedge, not a gap
     # all the way down to the placket.
     notch_y = top - depth * point_drop + 0.012
@@ -521,11 +717,16 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
 
     # One clean silhouette for the whole front hair.  Inking every lock was what
     # made the hair look like straw; a single contour around the mass reads as a
-    # drawn hairstyle and lets the fill carry the internal planes.
-    lw = float(st.ink_w) * float(st.line) * 0.80
-    outline = brush.Surface(canvas, front, pad=2.6 * lw)
-    outline.stroke(canvas, lw, h.line_hair, inset=lw * 0.42,
-                   alpha=0.64, soft=0.4)
+    # drawn hairstyle and lets the fill carry the internal planes.  The contour is
+    # kept light and feathered -- a full-weight, opaque hairline is what made the
+    # styles read as a hard helmet -- and a soft tone just outside the mass breaks
+    # the boundary into the background.
+    lw = float(st.ink_w) * float(st.line) * 0.72
+    outline = brush.Surface(canvas, front, pad=3.2 * lw)
+    outline.stroke(canvas, lw, palette.mix(h.line_hair, h.hair_shadow, 0.30),
+                   inset=lw * 0.42, alpha=0.46, soft=0.9)
+    feather = np.clip(render.gaussian_blur(mask, 2.2) - mask, 0.0, 1.0)
+    canvas.over(palette.srgb_to_linear(h.hair_shadow), feather * 0.16)
 
     # A few hairs at the hairline and outside the silhouette.  They are kept
     # sparse on purpose: a rim of them is a haircut, a fringe of them is a mop.

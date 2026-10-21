@@ -239,6 +239,11 @@ def random_genes(seed=0) -> dict:
     # categories and continuous axes are generated in one place, which is also the
     # one place a new variant has to be added.
     g.update(phenotype.random_values(rng))
+    # Facial hair is a male presentation and an adult one.  The draw above is
+    # sex-blind so the category stays heritable, and the gate lives here beside
+    # the sex and age it reads.
+    if g["sex"] != "male" or g["age"] == "child":
+        g["facial_hair"] = "none"
     return g
 
 
@@ -512,10 +517,12 @@ def describe(genes: dict) -> str:
     face = genes.get("face_shape", phenotype.DEFAULTS["face_shape"])
     eyes = genes.get("eye_shape", phenotype.DEFAULTS["eye_shape"])
     nose = genes.get("nose_shape", phenotype.DEFAULTS["nose_shape"])
+    facial = genes.get("facial_hair", phenotype.CATEGORY_DEFAULTS["facial_hair"])
+    facial = "" if facial == "none" else f" \u00b7 {facial.replace('_', ' ')}"
     return (
         f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
         f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
-        f" \u00b7 {face} face / {eyes} eyes / {nose} nose"
+        f" \u00b7 {face} face / {eyes} eyes / {nose} nose{facial}"
         f" \u00b7 {genes.get('sex', demography.DEFAULTS['sex'])}"
         f" {genes.get('age', demography.DEFAULTS['age'])}"
         f" \u00b7 {genes.get('climate', demography.DEFAULTS['climate'])}"
