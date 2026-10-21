@@ -512,6 +512,43 @@ def test_a_strand_never_escapes_the_clump_it_is_drawn_on():
             assert escape <= 1e-9, f"{name}: the strand leaves the crest by {escape:.2e}"
 
 
+def test_the_spiky_styles_carry_spikes():
+    """``spiky`` and ``wild`` are named for their spikes, so the count is not a knob.
+
+    A table edit once left ``spike`` at zero on both and they rendered as the plain
+    short cap with a different fringe.  The spikes are the only thing that separates
+    them from ``short`` at the silhouette, so their presence is asserted directly.
+    """
+    for name in ("spiky", "wild"):
+        g = _genes(9, hair_style=name)
+        _, h = _hair(g)
+        assert len(h.crest) >= 5, f"{name} has no spikes"
+    _, plain = _hair(_genes(9, hair_style="short"))
+    assert len(plain.crest) == 0, "the short cut grew spikes"
+
+
+def test_the_crown_is_layered_over_the_cap():
+    """The crown sheets are paint only: they must lie *within* the cap.
+
+    They are never part of ``mass``, so they cannot be allowed to change the
+    silhouette either -- an overhang would draw hair outside the shape whose
+    contour is inked.  Every sheet has to both reach the cap and stay inside it.
+    """
+    for name in dna.HAIR_STYLES:
+        for seed in range(4):
+            g = _genes(seed * 29 + 2, hair_style=name)
+            _, h = _hair(g)
+            assert len(h.crown) >= 3, f"{name}: no crown sheets"
+            for lock in h.crown:
+                on_cap = lock & h.cap
+                x0, y0, x1, y1 = on_cap.bbox
+                assert x1 > x0 and y1 > y0, f"{name}: a crown sheet misses the cap"
+                X, Y = _probe(on_cap)
+                escape = float(h.cap.f(X, Y).max())
+                assert escape <= 1e-9, (
+                    f"{name} seed {seed}: a crown sheet left the cap by {escape:.2e}")
+
+
 # -------------------------------------------------------------- the picture
 def test_render_is_deterministic():
     g = dna.random_genes(5)

@@ -13,7 +13,9 @@ they hang, and how far*:
 * the **back mass** is a fan of wide locks that shows around the silhouette and
   hangs as far as the style's length;
 * the **shine** is a row of small fat locks sitting just inside the silhouette
-  along the crown, which is what stops hair looking like painted-on plastic.
+  along the crown, which is what stops hair looking like painted-on plastic;
+* the **crown sheets** are broad paint-only locks laid over the cap, so the top
+  of the head is a pile of hair rather than one flat plate.
 
 Two construction rules matter more than the numbers.  First, every root is pulled
 *inside* the skull's hull by about half the lock's own width, so the rounded root
@@ -77,11 +79,11 @@ HAIR_STYLES = {
     "pony":   dict(vol=0.080, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.260, sdrop=0.450, near=False,
                    back=8, kw=0.310, kdrop=0.200, crest=1, spike=0, cap_r=2.20, flare=1.04),
     "spiky":  dict(vol=0.066, bangs=8, bw=0.215, blen=0.30, sides=0, sw=0.220, sdrop=0.320, near=False,
-                   back=8, kw=0.300, kdrop=0.170, crest=0, spike=0, cap_r=2.00, flare=1.04,
-                   sl=0.070),
+                   back=8, kw=0.300, kdrop=0.170, crest=0, spike=6, cap_r=2.00, flare=1.04,
+                   sl=0.100),
     "wild":   dict(vol=0.092, bangs=8, bw=0.215, blen=0.45, sides=0, sw=0.260, sdrop=0.520, near=False,
-                   back=9, kw=0.315, kdrop=0.220, crest=0, spike=0, cap_r=1.45, flare=1.08,
-                   sl=0.070),
+                   back=9, kw=0.315, kdrop=0.220, crest=0, spike=8, cap_r=1.45, flare=1.08,
+                   sl=0.130),
 }
 
 
@@ -431,7 +433,7 @@ def _crest(st, p: dict, rng, turn: float) -> tuple:
         # frame cannot afford a spike -- there are about ten hundredths of a unit
         # of headroom above the cap -- and the sides are where a spiky cut shows
         # anyway, because that is where it leaves the silhouette.
-        d = float(rng.uniform(0.0, 1.0)) ** 0.60 * 0.24 + 0.12
+        d = float(rng.uniform(0.0, 1.0)) ** 0.60 * 0.22 + 0.20
         th = np.pi * (0.5 + (d if rng.random() < 0.5 else -d))
         # On the hull, not inside it: a spike's root is a cut, and a cut hidden
         # inside the mass is a line drawn across the crown.
@@ -472,6 +474,38 @@ def _shine(st, p: dict, rng, turn: float) -> list:
     return out
 
 
+def _crown_locks(st, p: dict, rng, turn: float) -> list:
+    """Broad sheets laid along the crown, over the cap.
+
+    The cap is one filled surface, and one filled surface is a helmet: a head of
+    hair is a pile of sheets, and each catches the light a little differently.
+    These locks are *paint only* -- they are never part of ``mass`` or
+    ``front_mass``, so they cannot change the silhouette or reach the face, and
+    each is clipped to the cap before it is painted.  They are a second read of
+    the volume the cap already has, not a second hairstyle.
+
+    They radiate from the parting, which is why the parting is a gene: a crown
+    combed both ways from a centre part and a crown combed to one side are not
+    the same head.
+    """
+    vol = float(p["vol"])
+    part_x = float(p.get("part") or 0.0) * float(st.head_w) * 0.30
+    _, ry = _hull(st, vol)
+    root = np.array(head.turn_point(part_x, ry - 0.050, turn, st, vol=vol))
+    out = []
+    for i in range(5):
+        side = 1.0 if i % 2 == 0 else -1.0
+        u = (i // 2 + 0.5) / 2.0  # two rows: steep near the part, flat past it
+        th = np.pi * (0.5 + side * (0.12 + 0.32 * u))
+        tip = _root(st, vol, th, turn, inset=0.030 + 0.022 * float(rng.random()))
+        mid = root + (tip - root) * 0.52 + np.array([side * 0.012, 0.026 * u])
+        w0 = float(st.head_w) * float(rng.uniform(0.105, 0.145))
+        w1 = w0 * float(rng.uniform(0.34, 0.54))
+        out.append(S.lock([root, mid, tip], w0=w0, w1=w1,
+                          bulge=w0 * 0.30, per_segment=6, resample=30))
+    return out
+
+
 class Hair:
     """Everything a hairstyle is made of, ready to paint in two passes.
 
@@ -493,12 +527,12 @@ class Hair:
 
     __slots__ = ("name", "p", "cap", "fringe_base", "back_locks", "near_locks", "bangs",
                  "bang_roots", "sides", "side_roots", "front_strands", "crest",
-                 "crest_strands", "shine", "back_strands", "near_strands", "back_mass",
-                 "front_mass", "mass")
+                 "crest_strands", "shine", "crown", "back_strands", "near_strands",
+                 "back_mass", "front_mass", "mass")
 
     def __init__(self, name, p, cap, back_locks, near_locks, bangs, bang_roots, sides,
                  side_roots, front_strands, crest, crest_strands, shine,
-                 back_strands=(), near_strands=(), fringe_base=None):
+                 back_strands=(), near_strands=(), fringe_base=None, crown=()):
         self.name = name
         self.p = p
         self.cap = cap
@@ -515,6 +549,7 @@ class Hair:
         self.crest = crest
         self.crest_strands = crest_strands
         self.shine = shine
+        self.crown = list(crown)
         self.back_mass = union_all([cap] + back_locks + crest)
         front = list(bangs) + list(sides)
         if fringe_base is not None:
@@ -669,6 +704,7 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
         back_strands=back_strands,
         near_strands=near_strands,
         fringe_base=fringe_base,
+        crown=_crown_locks(st, p, rng, turn),
     )
 
 
@@ -830,6 +866,18 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         above = np.clip((Yg - (head.hairline_y(st) - 0.015)) / 0.030, 0.0, 1.0)
         brush.paint_cov(canvas, cap_cov * above,
                         palette.mix(hues.hair, hues.hair_shadow, 0.32), alpha=1.0)
+    # The cap is one value, and one value is a plate.  A broad, soft terminator
+    # rolls the crown toward the light, and the crown locks lay sheets of hair on
+    # top of it, so the top of the head is layered rather than flat.  Both passes
+    # are clipped to the cap, so neither can reach the face or the background.
+    if cap_cov.max() > 0.0:
+        _, Yc = canvas.grid()
+        roll = np.clip((Yc - (head.hairline_y(st) - 0.04)) / 0.34, 0.0, 1.0)
+        brush.paint_cov(canvas, cap_cov * (1.0 - roll), hues.hair_shadow,
+                        alpha=0.16, soft=2.0)
+        for i, lock in enumerate(h.crown):
+            colour = hues.hair_shadow if i % 2 else hues.hair_fine
+            brush.paint(canvas, lock & h.cap, colour, alpha=0.13, soft=1.7)
     # A fringe is a volume, not a flat ribbon: one smooth gradient over the whole
     # fringe, with no per-clump patches to break it into polygons.
     if h.bangs:
@@ -855,4 +903,5 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
 
 def describe(h: Hair) -> str:
     return (f"{h.name}: {len(h.bangs)} bangs, {len(h.sides)} sidelocks, "
-            f"{len(h.back_locks)} back, {len(h.near_locks)} near, {len(h.shine)} shine")
+            f"{len(h.back_locks)} back, {len(h.near_locks)} near, {len(h.shine)} shine, "
+            f"{len(h.crown)} crown")
