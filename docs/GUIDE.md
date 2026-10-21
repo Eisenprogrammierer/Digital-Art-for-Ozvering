@@ -160,7 +160,7 @@ older than seven days and keeps at most the newest two hundred.
 | Group | Generator | Primary output | Notes |
 | --- | --- | --- | --- |
 | Characters | `figures` | `figures.png` | Sprite sheet; cycle, frames, facing. |
-| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, expression, demography and phenotype. |
+| Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, demography and phenotype; expression is an opt-in posed study. |
 | Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits; optional demographic and phenotype pins. |
 | Characters | `lineage` | `lineage.png` | Two parents and their children. |
 | Heraldry | `arms` | `arms.png` | Coats of arms; count, cell size, forced shield. |
@@ -310,11 +310,15 @@ separation is not used.
 
 A portrait is a head as a stack of cross-sections, with a genome that can be traced,
 mixed and bred. `portrait` draws one; `portraits` draws a sheet; `lineage` draws two
-parents and their children. Style, hair, expression and the demographic genes can be
-forced for a one-off without changing the others.
+parents and their children. Style, hair and the demographic genes can be forced for a
+one-off without changing the others. The normal portrait is a passport photograph:
+the head faces the camera and the expression is neutral, whatever the genome's `turn`
+and `expression` genes say. `--expression` opts into the separate posed study
+(`portrait.render_posed`); without it the flag would be a silent no-op.
 
 ```bash
 python cli.py portrait --out out/one.png --seed 5 --size 384
+python cli.py portrait --out out/grin.png --seed 5 --expression grin   # opt-in posed study
 python cli.py portrait --out out/elder.png --seed 5 --age elder --climate arid
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
 python cli.py portraits --out out/women.png --seed 7 --sex female --count 8
@@ -355,12 +359,13 @@ the wire format, not inserted, so a saved dynasty keeps its order.
 Portrait proportions are guarded rather than left to independent sliders. Eye width
 is capped at half the skull width, half the cheekbone width and `1.28` times the
 inter-eye distance, with the iris at most `0.48` of the opening; the ratio of opening
-height to width is held between `0.58` and `0.96`. On the face plane, eye width
-foreshortens by `cos(turn)`, not by the curvature of the whole skull. Front hair is
-cut around the actual, expression-warped eye openings, and hair shading uses broad,
-soft, irregular clumps with a lit edge rather than full-strength outlines that read
-as straw. Cel bands paint wide-to-deep so a deep shadow cannot be erased by the wide
-one. These are invariants of the drawing, not settings a genome can spend.
+height to width is held between `0.58` and `0.96`. In the opted-in posed study,
+eye width foreshortens by `cos(turn)`, not by the curvature of the whole skull; the
+passport path uses turn zero. Front hair is cut around the actual eye openings, and
+the hair surface uses broad planes and one silhouette outline rather than fine
+strand lines that read as straw. Cel bands paint wide-to-deep so a deep shadow cannot
+be erased by the wide one. These are invariants of the drawing, not settings a genome
+can spend.
 
 ### Heraldry
 

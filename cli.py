@@ -1098,7 +1098,13 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
                  expression: str | None = None, sex: str | None = None,
                  age: str | None = None, climate: str | None = None,
                  culture: str | None = None, overrides: dict | None = None) -> Path:
-    """Render one portrait, from a seed or from a DNA string, and print its genome."""
+    """Render one portrait and print its genome.
+
+    The command is a passport photo by default: the head is straight and the face
+    neutral, whatever the genome's ``turn`` and ``expression`` genes say.  Passing
+    ``--expression`` opts into the separate posed study, so the flag is not a
+    silent no-op.
+    """
     if dna is not None:
         genes = portrait_dna.decode(dna)
         if seed is None:
@@ -1121,7 +1127,12 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
     print(f"seed {seed}")
     print(f"  {portrait_dna.describe(genes)}")
     print(f"  {text}")
-    img = png.to_image(portraitlib.render(genes, size=size))
+    if expression is not None:
+        print(f"  posed study: expression={expression!r}, turn from the genome")
+        img = png.to_image(portraitlib.render_posed(
+            genes, size=size, expression_name=expression))
+    else:
+        img = png.to_image(portraitlib.render(genes, size=size))
     img.save(out, "PNG", optimize=True)
     meta = out.with_suffix(".json")
     meta.write_text(

@@ -804,7 +804,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
 | `eyes`, `face`, `hair`, `expression` | The features themselves, and the warp that moves the whole face for a mood. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
-| `portrait` | Framing, layer order, `compose`/`render`/`render_seed`. |
+| `portrait` | Framing and layer order: passport `compose`/`render`/`render_seed`, plus the opt-in `compose_posed`/`render_posed` study. |
 
 ### Five decisions, in the order they matter
 
@@ -981,18 +981,21 @@ and it was wrong in a way a picture would not have shown: `dna._clamp_params` si
 skull from the eye positions, so widening the eyes by a proportion quietly walked them
 out through the silhouette that had just been fitted to them.
 
-That same argument splits the portrait in two. `portrait.compose` now builds the head,
-the hair, the ears and the bust from the style it always did, and builds *the face* --
-nose, mouth, blush, eyes, brows -- from the warped copy. A mood moves a face, not a
-person: nothing anatomical is allowed to move. The hairline is the one thing the
-derivation would otherwise drag along, so the warp writes it back through
-`Style.pinned`, which exists for exactly this -- a value that is an *anchor on the
-skull* rather than a conclusion about the face, and that `with_` would silently undo.
+That same argument splits the portrait in two. `portrait.compose` is the passport path:
+it asks `compose_posed` for a neutral face at zero turn, and deliberately ignores the
+genome's `turn` and `expression` genes. The opt-in `compose_posed` / `render_posed` API
+is where the study lives: it builds the head, the hair, the ears and the bust from the
+style it always did, and builds *the face* -- nose, mouth, blush, eyes, brows -- from
+the warped copy. A mood moves a face, not a person: nothing anatomical is allowed to
+move. The hairline is the one thing the derivation would otherwise drag along, so the
+warp writes it back through `Style.pinned`, which exists for exactly this -- a value
+that is an *anchor on the skull* rather than a conclusion about the face, and that
+`with_` would silently undo.
 
-A neutral expression is the identity **object**: `expression.warp(st, neutral())` returns
-`st` itself, so a portrait that is not in a mood is the portrait that existed before
-there was a warp, to the byte. That is checked against a `git worktree` of the previous
-commit, not just against itself.
+A neutral expression is still the identity **object**: `expression.warp(st, neutral())`
+returns `st` itself, so the posed path with a neutral row is the portrait that existed
+before there was a warp, to the byte. The passport path never calls the warp at all.
+That is checked against a `git worktree` of the previous commit, not just against itself.
 
 ### A portrait is a genome
 
@@ -1071,8 +1074,8 @@ are:
 * the crown is *painted* hair and not skin, sampled from the pixels, because
   geometry alone cannot catch a layer in the wrong place;
 * the skull stays in frame with the chin about two thirds down;
-* every style × hairstyle × expression builds, and the ones that are rendered
-  render something.
+* every style × hairstyle × expression builds through the posed study, and every
+  passport render is neutral and front-facing regardless of the genes.
 
 One more is structural rather than compositional: every fringe clump carries its
 own root height, because that is what the strand ink fades against, and a clump

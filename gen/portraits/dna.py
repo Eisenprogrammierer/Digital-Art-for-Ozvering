@@ -40,6 +40,11 @@ EXPRESSIONS = ("neutral", "smile", "grin", "surprised", "sad", "angry", "smug", 
 #: Hairstyles the hair pass knows how to build.
 HAIR_STYLES = ("short", "bob", "long", "hime", "twin", "pony", "spiky", "wild")
 
+#: A passport portrait should mostly show ordinary grooming.  These weights are
+#: for *new random genomes* only: an explicit style or a saved genome still has
+#: every option, but the contact sheet is no longer half costume hair.
+HAIR_WEIGHTS = (0.18, 0.22, 0.24, 0.06, 0.05, 0.14, 0.05, 0.06)
+
 #: The three original categories.  They stay first in the wire format even though
 #: the phenotype categories below are also categorical, because a saved genome is
 #: a stable contract first and a pretty string second.
@@ -146,11 +151,11 @@ def _hair(rng) -> str:
     roll = float(rng.random())
     if roll < 0.34:  # black / silver / ash: a near-neutral at either end
         light = float(rng.choice([rng.uniform(0.18, 0.36), rng.uniform(0.76, 0.93)]))
-        return palette.oklch_to_hex((light, float(rng.uniform(0.003, 0.022)), float(rng.random())))
+        return palette.oklch_to_hex((light, float(rng.uniform(0.004, 0.030)), float(rng.random())))
     if roll < 0.94:  # brown / auburn / blonde: a warm hue, moderate chroma
         hue = float(rng.uniform(0.035, 0.135))
         light = float(rng.uniform(0.32, 0.86))
-        chroma = float(rng.uniform(0.024, 0.078)) * (1.15 if light > 0.7 else 1.0)
+        chroma = float(rng.uniform(0.030, 0.090)) * (1.15 if light > 0.7 else 1.0)
         return palette.oklch_to_hex((light, min(chroma, 0.095), hue))
     # Deep cool hair: blue-black, plum-black, cool ash.  Low chroma and low
     # lightness, so it reads as a natural variant rather than a dye.
@@ -206,7 +211,7 @@ def random_genes(seed=0) -> dict:
     hair = _hair(rng)
     g = {
         "style": str(rng.choice(style_mod.names())),
-        "hair_style": str(rng.choice(HAIR_STYLES)),
+        "hair_style": str(rng.choice(HAIR_STYLES, p=HAIR_WEIGHTS)),
         "expression": str(rng.choice(tuple(e for e in EXPRESSIONS if e != "wink"))
                           if rng.random() < 0.85 else "wink"),
         "skin": _skin(rng, climate),
@@ -396,7 +401,11 @@ def _clamp_params(p: dict) -> dict:
     # The head may not be narrower than the features it has to contain.
     reach = float(p["eye_dx"]) + float(p["eye_w"]) * 0.5 + 0.045
     p["head_w"] = max(float(p["head_w"]), reach)
-    p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"])), reach - 0.016)
+    # Cheekbones may sit a little wider than the temples; the old bound at
+    # ``head_w`` made the cheek_bone axis a no-op on every preset already at the
+    # temple width.
+    p["cheek_w"] = max(min(float(p["cheek_w"]), float(p["head_w"]) + 0.026),
+                       reach - 0.016)
     p["top_w"] = min(float(p["top_w"]), float(p["cheek_w"]))
     # Taper is what turns an oval into a face.  A jaw almost as wide as the
     # cheekbones reads as a mask no amount of detail can rescue, so leave room for

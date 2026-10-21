@@ -1,5 +1,12 @@
 """Composition: the layer order that turns parts into a face.
 
+The **portrait** is a passport photograph: the sitter faces the camera, the head
+is straight, and the expression is neutral.  ``turn`` and ``expression`` are still
+genes in the genome, and the lower-level drawing supports both, but ``compose``
+and ``render`` deliberately ignore them.  A game that wants a mood or a
+three-quarter view later can call :func:`compose_posed` / :func:`render_posed`,
+which is the separate API for that experiment; the passport path stays stable.
+
 A portrait is painted in one order, and the order is most of the drawing:
 
 1. the background;
@@ -35,11 +42,22 @@ from core.canvas import Canvas
 
 from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues
 from . import style as style_mod
+from .shape import union_all
 
-__all__ = ["FRAME", "canvas", "compose", "render", "render_seed", "describe", "colors"]
+__all__ = [
+    "FRAME", "PHOTO_TURN", "PHOTO_EXPRESSION", "canvas",
+    "compose", "compose_posed", "render", "render_posed", "render_seed",
+    "describe", "colors",
+]
 
 #: Half-extents of the world box a portrait is composed in.
 FRAME = head.FRAME
+
+#: The passport-photo pose.  A character portrait is a straight-on photograph:
+#: the sitter looks into the lens and the face is at rest.  Pose and mood remain
+#: available through :func:`compose_posed`, never through the default path.
+PHOTO_TURN = 0.0
+PHOTO_EXPRESSION = "neutral"
 
 
 def canvas(size, background=None) -> Canvas:
@@ -65,16 +83,40 @@ def _contour_taper(y_min: float, heavy: float = 1.0, light: float = 0.3):
 
 
 def compose(genes: dict, size=384, background: bool = True) -> Canvas:
-    """Render a genome.  Pure: same genes, same bytes."""
+    """Render a passport portrait.  Pure: same genes, same bytes.
+
+    The pose is fixed: looking straight into the camera with a neutral face.  The
+    ``turn`` and ``expression`` genes are ignored here on purpose, so an old
+    genome with a three-quarter pose still produces the same straight portrait as
+    a new one.  Use :func:`compose_posed` for the opt-in expression/pose study.
+    """
+    return compose_posed(genes, size=size, background=background,
+                         expression_name=PHOTO_EXPRESSION, turn=PHOTO_TURN)
+
+
+def compose_posed(genes: dict, size=384, background: bool = True,
+                  expression_name: str | None = None,
+                  turn: float | None = None) -> Canvas:
+    """Render the opt-in pose/expression study for a genome.
+
+    This is the separate API the passport portrait deliberately does not use.
+    ``expression_name=None`` reads the genome's expression gene, and ``turn=None``
+    reads its turn gene; both can be overridden explicitly.  Nothing in the saved
+    DNA changes, so the mood is a viewing option rather than a different person.
+
+    An expression warps only the face.  The *head* -- its skull, its hair, its
+    ears and its bust -- is the character, so those passes keep ``st``; the face's
+    landmarks move together, so the nose, mouth, blush, eyes and brows are all
+    drawn from the warped copy.  For a neutral expression ``fst is st`` and
+    nothing moves at all.
+    """
     st = dna.apply_to(style_mod.get(genes["style"]), genes)
     h = hues.from_genes(genes)
-    expr = expression.get(genes["expression"])
-    # The face in this expression.  The *head* -- its skull, its hair, its ears and
-    # its bust -- is the character, so those passes keep ``st``; the face's landmarks
-    # move together, so the nose, mouth, blush, eyes and brows are all drawn from the
-    # warped copy.  For a neutral expression ``fst is st`` and nothing moves at all.
+    expr_name = genes["expression"] if expression_name is None else expression_name
+    expr = expression.get(expr_name)
     fst = expression.warp(st, expr)
-    turn = float(np.clip(genes["turn"], -head.TURN_MAX, head.TURN_MAX))
+    raw_turn = genes["turn"] if turn is None else turn
+    turn = float(np.clip(raw_turn, -head.TURN_MAX, head.TURN_MAX))
     rng = np.random.default_rng(dna.seed_of(genes))
 
     c = canvas(size)
@@ -132,15 +174,24 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
 
     # --- 5. features ------------------------------------------------------
     front_cov = brush.mask(c, hs.front_mass)
-    _, Yg = c.grid()
-    # A fringe casts shade on the forehead, not a dark band across the eyes.  The
-    # old mask was the whole shifted hair mass: a sidelock hanging beside the jaw
-    # therefore threw its own silhouette over the eye at full strength.  Fade the
-    # cast out at the upper lid, and keep it light enough to read as bounce.
-    above_lid = np.clip((Yg - (fst.eye_y + fst.eye_up + 0.020)) / 0.040, 0.0, 1.0)
-    fringe = np.minimum(brush.shift_cov(front_cov, -0.130, c.scale) * (1.0 - front_cov),
-                        skull_cov) * above_lid
-    brush.paint_cov(c, fringe, h.skin_shadow, soft=1.0, alpha=0.45)
+    Xg, Yg = c.grid()
+    # The cast shade is the fringe's, not the whole front hair's.  Including the
+    # sidelocks in this mask threw a second brown curtain down the cheeks and
+    # read as a bowl cut; including the cap did the same at the temples.  Cast
+    # only from the fringe, only onto the forehead, and only just under the hem.
+    fringe_shapes = list(hs.bangs)
+    if hs.fringe_base is not None:
+        fringe_shapes.append(hs.fringe_base)
+    if fringe_shapes:
+        fringe_cov = brush.mask(c, union_all(fringe_shapes))
+        above_brow = np.clip((Yg - (fst.brow_y + 0.005)) / 0.030, 0.0, 1.0)
+        below_hairline = np.clip((head.hairline_y(fst) - Yg) / 0.030, 0.0, 1.0)
+        inside_temple = np.clip(
+            (st.head_w * 0.94 - np.abs(Xg)) / (st.head_w * 0.22), 0.0, 1.0)
+        fringe = np.minimum(
+            brush.shift_cov(fringe_cov, -0.050, c.scale) * (1.0 - fringe_cov),
+            skull_cov) * above_brow * below_hairline * inside_temple
+        brush.paint_cov(c, fringe, h.skin_shadow, soft=2.0, alpha=0.14)
     face.paint_nose(c, fst, h, turn, clip=skull)
     face.paint_mouth(c, fst, h, turn, expr, clip=skull)
     for side in (+1, -1):
@@ -154,7 +205,16 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
 
 
 def render(genes: dict, size=384, background: bool = True) -> Canvas:
+    """The passport portrait: straight to camera, neutral expression."""
     return compose(genes, size=size, background=background)
+
+
+def render_posed(genes: dict, size=384, background: bool = True,
+                 expression_name: str | None = None,
+                 turn: float | None = None) -> Canvas:
+    """The opt-in pose/expression study; see :func:`compose_posed`."""
+    return compose_posed(genes, size=size, background=background,
+                         expression_name=expression_name, turn=turn)
 
 
 def render_seed(seed=0, size=384, background: bool = True, genes: dict | None = None):

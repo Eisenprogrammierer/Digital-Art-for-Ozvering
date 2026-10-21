@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from core import palette
+
 from . import brush, head
 from . import shape as S
 from .shape import Shape
@@ -194,20 +196,22 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
 # mouth
 # --------------------------------------------------------------------------
 def mouth_interior(st, turn: float = 0.0, expr=None):
-    """The dark of an open mouth plus its teeth band, or ``(None, None)``.
+    """The dark seam of a mouth plus its teeth band.
 
-    The opening is the same lens as the closed mouth, pushed down: ``up`` stays
-    the smile's arc and only ``down`` grows by ``mouth_open``, so a grin opens
-    *downwards* from the lip line instead of ballooning in both directions.  The
-    teeth are the top 45 % of that opening -- a whole white interior is what makes
-    a grin look like a single tooth.
+    A closed mouth is not a drawn line: it is a shallow seam with a dark interior,
+    an upper tooth edge and a tongue in shadow.  The old function returned
+    ``(None, None)`` for a neutral mouth, which left the lips painted as a shape
+    with no mouth inside them -- the "lipstick without a mouth" failure.  The
+    neutral opening is now a few percent of the mouth width, and an expression's
+    ``mouth_open`` grows it downwards from the same lip line.
     """
     if expr is None:
         from . import expression
         expr = expression.neutral()
     open_h = float(expr["mouth_open"])
-    if open_h <= 0.0:
-        return None, None
+    # Even a closed mouth has thickness.  This is the quiet baseline that makes
+    # the upper teeth and the tongue readable at portrait size.
+    seam = max(open_h, float(st.mouth_w) * 0.100)
     my = st.mouth_y + expr["mouth_dy"] + expr["mouth_curve"] * 0.3
     hw = st.mouth_w * float(expr["mouth_w_s"]) * 0.5
     left = (-hw, my)
@@ -216,8 +220,10 @@ def mouth_interior(st, turn: float = 0.0, expr=None):
     # lip, and spending the whole arc on the top edge makes a mouth as tall as it
     # is wide -- a dot.
     up = max(st.mouth_curve + expr["mouth_curve"], 0.010) * 0.5
-    inner = S.lens(left, right, up, up + open_h, up_bias=0.48, down_bias=0.52)
-    teeth = inner - inner.place(cy=-open_h * 0.45)
+    inner = S.lens(left, right, up, up + seam, up_bias=0.48, down_bias=0.52)
+    # The teeth are a strip inside the cavity, not a white filling for it: a
+    # dark border all round is what reads as a mouth rather than a metal line.
+    teeth = (inner - inner.place(cy=-seam * 0.62)).offset(-0.0012)
     return inner, teeth
 
 
@@ -239,52 +245,60 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
     # mouth width is the same weight as the lid line at this scale.
     line_w = max(mw * 0.045, 0.0025)
 
+    # The lips are a volume *around* the opening, not a replacement for it.
+    # Fullness is a phenotype axis, so the same mouth can be thin or full without
+    # a second mouth style.
+    full = float(getattr(st, "lip_full", 0.0))
+    body_w = (0.17 + 0.105 * full) * mw
+    body_bulge = (0.12 + 0.075 * full) * mw
+    body = S.arc(left, right, -abs(curve) - mw * (0.085 + 0.025 * full), 0.5, 14)
+    lower_lip = S.lock(body, w0=body_w, w1=body_w, bulge=body_bulge, per_segment=4)
+    brush.paint(canvas, lower_lip, palette.mix(h.lip, h.skin, 0.40),
+                clip=clip, alpha=0.28)
+    upper = S.arc(left, right, curve * 0.55, 0.5, 14)
+    brush.paint(canvas, S.lock(upper, w0=(0.065 + 0.028 * full) * mw,
+                               w1=(0.065 + 0.028 * full) * mw,
+                               bulge=(0.055 + 0.020 * full) * mw, per_segment=4),
+                h.lip_deep, clip=clip, alpha=0.22)
+
     inner, teeth = mouth_interior(st, turn, expr)
-    if inner is not None:
-        brush.paint(canvas, inner, h.mouth_dark, clip=clip, alpha=0.94)
-        if teeth is not None:
-            brush.paint(canvas, teeth, h.teeth, clip=clip, alpha=0.92)
-            brush.paint(canvas, S.lock(S.arc(left, right, curve, 0.5, 16),
-                                       w0=0.006, w1=0.006, per_segment=4),
-                        h.lip_shadow, clip=clip, alpha=0.38, soft=0.8)
-        # The opening is inked all the way round.  A line *under* it instead
-        # doubles the mouth's height and turns a grin into a smudge.
-        brush.paint(canvas, inner.outline(line_w * 0.42), h.lip_deep, clip=clip, alpha=0.85)
-        tongue = S.ellipse(mw * 0.24, mw * 0.045, 0.0, inner.bbox[1] + mw * 0.035)
-        brush.paint(canvas, tongue, h.lip_deep, clip=inner, alpha=0.28, soft=1.4)
-    else:
-        lip = S.arc(left, right, curve, 0.5, 16)
-        # The lower lip gets a volume of its own even on a line mouth: a single
-        # stroke is a scratch, a stroke over a soft body is a mouth.  Fullness is
-        # a phenotype axis, so the same line can be a thin mouth or a full one
-        # without a second mouth style.
-        full = float(getattr(st, "lip_full", 0.0))
-        body_w = (0.17 + 0.105 * full) * mw
-        body_bulge = (0.12 + 0.075 * full) * mw
-        body = S.arc(left, right, -abs(curve) - mw * (0.085 + 0.025 * full), 0.5, 14)
-        brush.paint(canvas, S.lock(body, w0=body_w, w1=body_w,
-                                   bulge=body_bulge, per_segment=4),
-                    h.lip, clip=clip, alpha=0.48)
-        brush.paint(canvas, S.lock(lip, w0=line_w * 0.40, w1=line_w * 0.18,
-                                   bulge=line_w * 0.55, per_segment=4),
-                    h.line, clip=clip)
-        upper = S.arc(left, right, curve * 0.55, 0.5, 14)
-        brush.paint(canvas, S.lock(upper, w0=(0.065 + 0.028 * full) * mw,
-                                   w1=(0.065 + 0.028 * full) * mw,
-                                   bulge=(0.055 + 0.020 * full) * mw, per_segment=4),
-                    h.lip_deep, clip=clip, alpha=0.30)
-        brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.045]),
-                                   w0=0.085 * mw, w1=0.085 * mw,
-                                   bulge=(0.06 + 0.025 * full) * mw, per_segment=4),
-                    h.lip_light, clip=clip, alpha=0.35)
-        brush.paint(canvas, S.ellipse(mw * (0.09 + 0.020 * full), mw * 0.035,
-                                      left[0] * 0.55, my - mw * 0.015),
-                    h.lip_gloss, clip=clip, alpha=0.30, soft=0.8)
-        # The two corner dimples are what keep a fuller mouth from reading as a
-        # painted oval: the line still has ends.
-        for corner in (left, right):
-            brush.paint(canvas, S.circle(mw * 0.022, float(corner[0]), float(corner[1])),
-                        h.lip_deep, clip=clip, alpha=0.34, soft=0.6)
+    brush.paint(canvas, inner, h.mouth_dark, clip=clip, alpha=1.0)
+    # A neutral passport mouth is closed: a strip of teeth would be a bright
+    # line, not an open smile.  The cavity and the tongue shadow carry the mouth;
+    # teeth arrive only when the expression actually parts the lips.
+    if teeth is not None and float(expr["mouth_open"]) > 1e-6:
+        brush.paint(canvas, teeth, palette.mix(h.teeth, h.mouth_dark, 0.26),
+                    clip=clip, alpha=0.68)
+        # The shadow under the upper teeth is what gives the opening depth.
+        brush.paint(canvas, S.lock(S.arc(left, right, curve, 0.5, 16),
+                                   w0=0.0040, w1=0.0040, per_segment=4),
+                    h.lip_shadow, clip=inner, alpha=0.50, soft=0.7)
+    seam_h = max(float(inner.bbox[3] - inner.bbox[1]), 1e-4)
+    tongue = S.ellipse(mw * 0.235, seam_h * 0.30, 0.0,
+                       inner.bbox[1] + seam_h * 0.30)
+    # The tongue is a shadow in the cavity, not a pink fill: too much lip colour
+    # here closes the mouth back into a painted seam.
+    brush.paint(canvas, tongue, palette.mix(h.mouth_dark, h.lip, 0.22),
+                clip=inner, alpha=0.66, soft=0.7)
+    # The opening is inked all the way round.  A line *under* it instead doubles
+    # the mouth's height and turns a grin into a smudge.
+    brush.paint(canvas, inner.outline(line_w * 0.36), h.mouth_dark,
+                clip=clip, alpha=0.82, soft=0.25)
+
+    # The lower lip keeps a light plane outside the opening, so the mouth has a
+    # body and the teeth have something to sit against.
+    brush.paint(canvas, S.lock(body + np.array([0.0, mw * 0.045]),
+                               w0=0.085 * mw, w1=0.085 * mw,
+                               bulge=(0.06 + 0.025 * full) * mw, per_segment=4),
+                h.lip_light, clip=clip, alpha=0.26)
+    brush.paint(canvas, S.ellipse(mw * (0.09 + 0.020 * full), mw * 0.030,
+                                  left[0] * 0.55, my - mw * 0.070),
+                h.lip_gloss, clip=clip, alpha=0.12, soft=0.8)
+    # The two corner dimples are what keep a fuller mouth from reading as a
+    # painted oval: the line still has ends.
+    for corner in (left, right):
+        brush.paint(canvas, S.circle(mw * 0.022, float(corner[0]), float(corner[1])),
+                    h.lip_deep, clip=clip, alpha=0.32, soft=0.6)
     # Philtrum: two soft ridges above the middle of the upper lip.  At this size
     # one pale plane is enough; drawing the grooves would be a moustache.
     px, py = head.turn_point(0.0, my + mw * 0.15, turn, st)

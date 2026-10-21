@@ -328,56 +328,94 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     brush.paint(canvas, S.ellipse(nw * 1.65, 0.11, 0.0, top + 0.02),
                 h.cloth_shadow, clip=clip, alpha=0.20, soft=4.0)
 
-    # A standing collar at the sides of the neck, then the neckline trim.  The
-    # two are separate tailoring signals: one says the garment has a collar, the
-    # other says it closes at the throat.
-    for side in (+1, -1):
-        a = (side * nw * 0.92, top + 0.045)
-        b = (side * nw * 1.16, top - 0.085)
-        collar = S.lock([a, ((a[0] + b[0]) * 0.5 + side * 0.012, (a[1] + b[1]) * 0.5), b],
-                        w0=lw * 1.7, w1=lw * 1.2, bulge=lw * 0.5, per_segment=4)
-        brush.paint(canvas, collar, h.cloth_hi, clip=clip, alpha=0.46, soft=0.7)
-        brush.paint(canvas, S.lock([a, b], w0=lw * 0.55, w1=lw * 0.35,
-                                   per_segment=3), h.cloth_line,
-                    clip=clip, alpha=0.42, soft=0.4)
-
-    # The opening itself.  A shirt with a collar line but no opening is a coloured
-    # trapezium; the skin inside the neckline is what makes the line read as an
-    # edge of cloth.  The depth is the only difference between the three cuts.
-    x0 = min(nw * 1.85, float(st.shoulder_w) * 0.42)
-    depth = {"v": 0.190, "scoop": 0.125, "crew": 0.070}.get(kind, 0.15)
-    opening = S.lens((-x0, top + 0.030), (x0, top + 0.030), up=0.020,
-                     down=depth, up_bias=0.50, down_bias=0.48)
+    # The opening.  The skin inside the neckline is what makes the line read as
+    # an edge of cloth, and the depth is the only difference between the cuts.
+    x0 = min(nw * 1.16, float(st.shoulder_w) * 0.285)
+    # A passport shirt closes at the throat.  A deep V reads as a t-shirt
+    # neckline; the opening is only wide enough to show the base of the neck.
+    depth = {"v": 0.056, "scoop": 0.050, "crew": 0.042}.get(kind, 0.050)
+    # The opening is only the throat, not the whole chest.  A shirt collar
+    # closes below it: the skin V ends at the top button, and the collar leaves
+    # lie on the cloth underneath.  Making the opening chest-deep was what made
+    # every previous collar read as a V-neck t-shirt.
+    opening = S.poly([(-x0, top + 0.035), (0.0, top - depth), (x0, top + 0.035)],
+                     resample=38)
     brush.paint(canvas, opening, h.skin, clip=clip, alpha=0.97, soft=0.4)
-    brush.paint(canvas, opening & S.ellipse(x0 * 0.90, 0.060, 0.0, top + 0.020),
-                h.skin_shadow, clip=clip, alpha=0.28, soft=2.6)
-    brush.paint(canvas, opening & S.ellipse(x0 * 0.52, 0.060, 0.0, top - depth * 0.45),
+    brush.paint(canvas, opening & S.ellipse(x0 * 0.82, 0.060, 0.0, top + 0.020),
+                h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
+    brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
                 h.skin_light, clip=clip, alpha=0.12, soft=2.8)
-    brush.paint(canvas, opening.outline(lw * 3.4), h.cloth_trim, clip=clip,
-                alpha=0.76, soft=0.5)
-    brush.paint(canvas, opening.outline(lw * 1.10), h.cloth_line, clip=clip,
-                alpha=0.95, soft=0.3)
 
-    # A shirt front: placket, yoke seam and buttons.  This is the difference
-    # between a coloured trapezium and a garment that closes.
-    placket_top = top - depth + 0.005
-    placket = S.lock([(0.0, placket_top), (0.0, top - 0.55)], w0=lw * 1.8,
-                     w1=lw * 2.4, bulge=lw * 0.5, per_segment=4)
-    brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.20, soft=1.2)
+    # The collar stand is the band that actually goes round the neck.  Without
+    # it the leaves below have nothing to be attached to, and the result reads as
+    # a V-neck trim on a t-shirt.  It sits on the skin at the base of the neck,
+    # not behind it, so it is painted here rather than with the shirt fill.
+    stand_spine = [(-x0 * 1.14, top + 0.060), (0.0, top + 0.030),
+                   (x0 * 1.14, top + 0.060)]
+    stand = S.lock(stand_spine, w0=0.022, w1=0.022, bulge=0.016,
+                   per_segment=6, resample=30)
+    collar_col = palette.lighten(palette.mix(h.cloth_hi, h.cloth_trim, 0.10), 0.085)
+    brush.paint(canvas, stand, collar_col, alpha=0.98, soft=0.45)
+    brush.paint(canvas, S.lock([(p[0], p[1] - 0.011) for p in stand_spine],
+                               w0=0.006, w1=0.006, bulge=0.004,
+                               per_segment=6, resample=30),
+                h.cloth_shadow, alpha=0.14, soft=0.9)
+    brush.paint(canvas, stand.outline(lw * 0.50), h.cloth_line,
+                alpha=0.60, soft=0.30)
+    brush.paint(canvas, S.lock([(p[0], p[1] + 0.008) for p in stand_spine],
+                               w0=0.003, w1=0.003, bulge=0.002,
+                               per_segment=6, resample=30),
+                h.cloth_hi, alpha=0.42, soft=0.6)
+
+    # Two collar leaves.  Their inner edges follow the V; their outer edges run
+    # from the shoulder to a point near the bottom of the opening.  This is the
+    # silhouette of a folded collar, not a ring around a t-shirt neck.
+    point_drop = {"v": 1.26, "scoop": 1.20, "crew": 1.12}.get(kind, 1.20)
     for side in (+1, -1):
-        edge = S.lock([(side * lw * 1.1, placket_top), (side * lw * 1.45, top - 0.55)],
-                      w0=lw * 0.30, w1=lw * 0.38, per_segment=3)
-        brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.25, soft=0.6)
-    yoke = S.lock([(-float(st.shoulder_w) * 0.60, top + 0.018),
-                   (0.0, top + 0.042),
-                   (float(st.shoulder_w) * 0.60, top + 0.018)],
-                  w0=lw * 1.4, w1=lw * 1.4, bulge=lw * 0.8, per_segment=5)
-    brush.paint(canvas, yoke, h.cloth_hi, clip=clip, alpha=0.22, soft=1.0)
-    brush.paint(canvas, S.lock([(-float(st.shoulder_w) * 0.60, top + 0.018),
-                                (0.0, top + 0.042),
-                                (float(st.shoulder_w) * 0.60, top + 0.018)],
-                               w0=lw * 0.22, w1=lw * 0.22, per_segment=5),
-                h.cloth_line, clip=clip, alpha=0.22, soft=0.5)
+        a = (side * x0 * 1.02, top + 0.065)
+        b = (side * x0 * 1.58, top + 0.010)
+        c = (side * x0 * 1.10, top - depth * 0.50)
+        d = (side * x0 * 0.14, top - depth * point_drop)
+        # The leaves close over the throat; only the narrow central notch shows
+        # skin.  Subtracting the whole opening made a V-neck, not a shirt collar.
+        leaf = S.poly([a, b, c, d], resample=32)
+        # A soft cast shadow under the free edge lifts the collar off the shirt.
+        shadow = leaf.offset(0.010).place(cy=-0.010) - leaf
+        brush.paint(canvas, shadow, h.cloth_shadow, clip=clip,
+                    alpha=0.30, soft=1.2)
+        brush.paint(canvas, leaf, collar_col, clip=clip, alpha=1.0, soft=0.30)
+        # A broad inner fold and a lit outer edge: the two planes of a collar.
+        fold = S.lock([a, d], w0=x0 * 0.18, w1=x0 * 0.08,
+                      bulge=x0 * 0.05, per_segment=5)
+        brush.paint(canvas, leaf & fold, h.cloth_shadow, clip=clip,
+                    alpha=0.22, soft=1.0)
+        brush.paint(canvas, leaf, h.cloth_trim, clip=clip, alpha=0.04, soft=0.8)
+        # The free edge is inked more firmly than the cloth: at avatar size the
+        # collar has to survive as a silhouette, not only as a value change.
+        brush.paint(canvas, leaf.outline(lw * 0.85), h.line, clip=clip,
+                    alpha=0.62, soft=0.20)
+        brush.paint(canvas, leaf.outline(lw * 1.25), collar_col, clip=clip,
+                    alpha=0.22, soft=0.7)
+    # The notch between the two collar points: a small dark wedge, not a gap
+    # all the way down to the placket.
+    notch_y = top - depth * point_drop + 0.012
+    notch = S.poly([(-0.011, notch_y + 0.010), (0.0, notch_y - 0.004),
+                    (0.011, notch_y + 0.010)], resample=18)
+    brush.paint(canvas, notch, h.cloth_shadow, alpha=0.62, soft=0.5)
+
+    # A short placket begins at the bottom of the V and runs down the chest.  It
+    # is the one seam a collared shirt is allowed to have here, and it must start
+    # *below* the collar rather than run through it.
+    placket_top = top - depth * point_drop - 0.006
+    placket_bottom = placket_top - 0.120
+    placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
+                     w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
+    brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.40, soft=0.8)
+    for side in (+1, -1):
+        edge = S.lock([(side * lw * 1.15, placket_top),
+                       (side * lw * 1.35, placket_bottom)],
+                      w0=lw * 0.26, w1=lw * 0.30, per_segment=3)
+        brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.34, soft=0.5)
 
     # Two folds from the shoulder seam towards the chest.
     for side in (+1, -1):
@@ -401,16 +439,15 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     # others.  Both are deliberately small; the bust should not become a costume
     # diagram.
     if culture in ("north", "steppe", "coast"):
-        y = {"v": top - 0.185, "scoop": top - 0.135,
-             "crew": top - 0.085}.get(kind, top - 0.15)
+        y = placket_top - 0.020
         disc = S.circle(0.014, 0.0, y)
         brush.paint(canvas, disc, h.metal, clip=clip, alpha=0.92, soft=0.2)
         brush.paint(canvas, disc.outline(0.0035), h.cloth_line, clip=clip, alpha=0.78)
         brush.paint(canvas, S.circle(0.005, -0.003, y + 0.004), h.cloth_hi,
                     clip=clip, alpha=0.78, soft=0.4)
     else:
-        for k in range(3):
-            y = top - 0.14 - 0.064 * k
+        for k in range(2):
+            y = placket_top - 0.032 - 0.060 * k
             brush.paint(canvas, S.circle(0.007, 0.0, y), h.metal, clip=clip,
                         alpha=0.82, soft=0.3)
             brush.paint(canvas, S.circle(0.007, 0.0, y).outline(0.0025),
@@ -431,175 +468,94 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
 # hair
 # --------------------------------------------------------------------------
 def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> None:
-    """Fine strands, flow bands and the flyaways that leave the silhouette.
+    """Clean cel light and a little texture over the finished hair.
 
-    The hairstyle geometry already gives the mass and the large locks.  This pass
-    draws the lines an illustrator would put *inside* that mass, plus a few hairs
-    that escape the silhouette -- both are cheap, both are clipped to the hair or
-    to the background outside the head, and both make the difference between a
-    wig and a head of hair.
+    The hair construction already paints the cap, the fringe and the curtains.
+    This pass adds one broad key light, one soft shadow, the parting, and a single
+    silhouette contour.  It deliberately draws no per-lock ink: a row of outlines
+    reads as straw at avatar size, and fine strand lines are not what makes hair
+    look dense.
     """
-    mass = brush.mask(canvas, hs.mass)
-    if mass.max() <= 0.0:
+    front = S.union_all([hs.cap, hs.front_mass])
+    mask = brush.mask(canvas, front)
+    if mask.max() <= 0.0:
         return
     X, Y = canvas.grid()
 
-    # Roots are deeper in the mass and tips catch more light.  A gentle value
-    # ramp along the fall is the difference between a coloured sheet and a
-    # volume; it is deliberately too small to read as a gradient.
-    fall = np.clip((0.34 - Y) / 0.55, 0.0, 1.0)
-    canvas.rgb[:] = np.clip(
-        canvas.rgb * (1.0 + (0.955 + 0.075 * fall - 1.0)[..., None] * mass[..., None]),
-        0.0, 1.0)
+    def smooth(t):
+        t = np.clip(t, 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
 
-    # Fibre grain: a *vertical* stretch of low-frequency noise, not an isotropic
-    # static field.  At 20 % the old grain was the straw; hair reads as hair when
-    # the texture runs with the fall and barely changes the value.
-    fibre = noise.fbm(X * 2.6, Y * 0.72, seed=301, freq=15.0, octaves=3) - 0.5
-    factor = 1.0 + fibre[..., None] * mass[..., None] * 0.12
+    nx = X / max(float(st.head_w), 1e-3)
+    ny = (Y - 0.05) / 0.52
+    # Light from the upper left: the right and lower part of the hair falls into
+    # shade, the left crown catches the key.  Multiplying in linear light keeps
+    # the lock colours underneath instead of painting a flat grey over them.
+    shadow = smooth((0.62 * nx - 0.50 * ny + 0.05) / 0.40)
+    light = smooth((-0.55 * nx + 0.70 * ny - 0.05) / 0.38)
+    factor = 1.0 + mask[..., None] * (
+        shadow[..., None] * (0.70 - 1.0) + light[..., None] * (1.16 - 1.0)
+    )
     canvas.rgb[:] = np.clip(canvas.rgb * factor, 0.0, 1.0)
 
-    # Broad light and shade following the fall.  These are wide and soft on
-    # purpose: a highlight is a plane catching the light, not a painted stripe,
-    # and the narrow arcs in ``Hair.shine`` are the specular core inside it.
-    for i in range(6):
-        u = (i + 0.5) / 6.0
-        x = (u - 0.5) * float(st.head_w) * 1.54
-        y0 = 0.16 - 0.10 * float(rng.random())
-        band = S.lock([(x, y0), (x * 1.05, y0 - 0.30), (x * 1.12, y0 - 0.68)],
-                      w0=0.052, w1=0.018, bulge=0.022, per_segment=5, resample=22)
-        brush.paint(canvas, band, h.hair_shadow, clip=mass,
-                    alpha=0.105 if i % 2 else 0.075, soft=3.2)
-    # The cap is one smooth shape, so it needs a few broad clump shadows of its
-    # own.  They are much wider and softer than a strand: at this width the eye
-    # reads a change of plane, not a wire.
-    cap = brush.mask(canvas, hs.cap)
-    if cap.max() > 0.0:
-        for i in range(6):
-            u = (i + float(rng.uniform(0.18, 0.82))) / 6.0
-            x = (u - 0.5) * float(st.head_w) * 1.32
-            sway = float(rng.uniform(-0.025, 0.025))
-            top = 0.46 - 0.050 * float(rng.random())
-            bottom = 0.16 + 0.025 * float(rng.random())
-            width = 0.032 + 0.026 * float(rng.random())
-            band = S.lock([(x * 0.62, top), (x + sway, (top + bottom) * 0.5),
-                           (x * 1.12 + sway, bottom)],
-                          w0=width, w1=width * 0.30, bulge=0.014,
+    # A little vertical grain, not a fibre mesh: enough to break a perfectly
+    # smooth fill, far too little to draw individual hairs.
+    grain = noise.fbm(X * 2.6, Y * 0.72, seed=301, freq=15.0, octaves=3) - 0.5
+    canvas.rgb[:] = np.clip(
+        canvas.rgb * (1.0 + grain[..., None] * mask[..., None] * 0.05), 0.0, 1.0)
+
+    # The parting is the one line that has to stay crisp.  It is a change of
+    # plane at the scalp, so it gets a dark side and a narrow lit side.
+    part = hs.p.get("part")
+    if part is not None:
+        px = float(part) * float(st.head_w) * 0.70
+        part_line = S.lock([(px * 0.88, 0.44), (px, 0.30), (px * 1.05, 0.18)],
+                           w0=0.014, w1=0.005, bulge=0.004,
+                           per_segment=5, resample=24)
+        brush.multiply(canvas, part_line, 0.78, clip=mask, alpha=0.28)
+        lit_part = S.lock([(px * 0.88 + 0.008, 0.44),
+                           (px + 0.007, 0.30), (px * 1.05 + 0.006, 0.18)],
+                          w0=0.004, w1=0.002, bulge=0.002,
                           per_segment=5, resample=24)
-            brush.paint(canvas, band, h.hair_deep if i % 2 else h.hair_shadow,
-                        clip=cap, alpha=0.220 + 0.110 * float(rng.random()), soft=1.7)
-            # A light edge beside the shadow turns a stripe into a rounded clump.
-            lit = S.lock([((x - width * 0.35) * 0.66, top),
-                          (x + sway - width * 0.35, (top + bottom) * 0.5),
-                          (x * 1.10 + sway - width * 0.30, bottom)],
-                         w0=width * 0.34, w1=width * 0.10, bulge=0.010,
-                         per_segment=5, resample=24)
-            brush.paint(canvas, lit, h.hair_fine, clip=cap, alpha=0.070, soft=1.5)
+        brush.multiply(canvas, lit_part, 1.08, clip=mask, alpha=0.12)
 
-        part = hs.p.get("part")
-        if part is not None:
-            px = float(part) * float(st.head_w) * 0.70
-            part_line = S.lock([(px * 0.80, 0.46), (px, 0.30), (px * 1.08, 0.17)],
-                               w0=0.012, w1=0.005, bulge=0.006,
-                               per_segment=5, resample=24)
-            brush.paint(canvas, part_line, h.hair_root, clip=cap,
-                        alpha=0.200, soft=1.0)
+    # One clean silhouette for the whole front hair.  Inking every lock was what
+    # made the hair look like straw; a single contour around the mass reads as a
+    # drawn hairstyle and lets the fill carry the internal planes.
+    lw = float(st.ink_w) * float(st.line) * 0.80
+    outline = brush.Surface(canvas, front, pad=2.6 * lw)
+    outline.stroke(canvas, lw, h.line_hair, inset=lw * 0.42,
+                   alpha=0.64, soft=0.4)
 
-    # A default part and its root shadow when the genome did not choose one.
-    # Drawing both this and the gene's part above would give the head two
-    # partings, which reads as a mistake at any size.
-    if hs.p.get("part") is None:
-        part_x = -0.025
-        part_shadow = S.lock([(part_x, head.hairline_y(st) + 0.03),
-                              (part_x + 0.006, 0.36), (part_x + 0.002, 0.47)],
-                             w0=0.0022, w1=0.0035, per_segment=4, resample=20)
-        brush.paint(canvas, part_shadow, h.hair_deep, clip=mass,
-                    alpha=0.26, soft=0.6)
-
-    # Broad strand shadows: the painted locks under the cap.  These are what make
-    # the crown read as hair rather than as a smooth shell; the fine lines below
-    # are the hairs inside those locks.
-    for i in range(5):
-        u = (i + 0.5) / 5.0
-        th = np.pi * (0.16 + 0.68 * u)
-        x0 = float(st.head_w) * 0.70 * np.cos(th)
-        y0 = 0.32 + 0.08 * np.sin(th)
-        drop = float(rng.uniform(0.28, 0.52))
-        band = S.lock([(x0, y0), (x0 * 1.08, y0 - drop * 0.5),
-                       (x0 * 1.16, y0 - drop)], w0=0.028, w1=0.010,
-                      bulge=0.012, per_segment=5, resample=24)
-        brush.paint(canvas, band, h.hair_shadow, clip=mass,
-                    alpha=0.105 if i % 2 else 0.075, soft=2.4)
-
-    # Internal strands: roots on the crown, tips down the length, clipped to the
-    # hair mass so a strand can never draw on skin.
-    for i in range(12):
-        u = (i + 0.5) / 12.0
-        th = np.pi * (0.12 + 0.76 * u)
-        x0 = float(st.head_w) * 0.78 * np.cos(th)
-        # Stagger the roots: a row of lines all starting at the same height reads
-        # as comb teeth, not hair.
-        y0 = 0.34 - 0.16 * float(rng.random()) + 0.10 * np.sin(th)
-        sway = float(rng.uniform(-0.035, 0.035))
-        drop = float(rng.uniform(0.24, 0.95))
-        p0 = (x0, y0)
-        p1 = (x0 * 1.06 + sway, y0 - drop * 0.48)
-        p2 = (x0 * 1.10 + sway * 1.7, y0 - drop)
-        line = S.lock([p0, p1, p2], w0=0.0200, w1=0.0070, bulge=0.012,
-                      per_segment=5, resample=24)
-        colour = h.hair_fine if i % 3 else h.hair_shadow
-        alpha = 0.20 if i % 3 else 0.14
-        brush.paint(canvas, line, colour, clip=mass, alpha=alpha, soft=0.9)
-
-    # Broad clump shadows over the whole fall, not just the cap.  At avatar size
-    # the narrow strands disappear; these wide, soft planes are what keep a long
-    # sidelock from reading as a flat strip of cloth.
-    for i in range(4):
-        u = (i + float(rng.uniform(0.20, 0.80))) / 4.0
-        x = (u - 0.5) * float(st.head_w) * 1.62
-        top = 0.24 - 0.12 * float(rng.random())
-        width = 0.045 + 0.030 * float(rng.random())
-        band = S.lock([(x * 0.82, top), (x * 1.02, -0.16), (x * 1.12, -0.66)],
-                      w0=width, w1=width * 0.28, bulge=0.020,
-                      per_segment=5, resample=24)
-        brush.paint(canvas, band, h.hair_shadow, clip=mass,
-                    alpha=0.140 + 0.070 * float(rng.random()), soft=2.0)
-
-    for i in range(2):
-        u = (i + float(rng.uniform(0.25, 0.75))) / 2.0
-        x = (u - 0.5) * float(st.head_w) * 1.28
-        band = S.lock([(x * 0.82, 0.28), (x * 1.02, -0.12), (x * 1.10, -0.56)],
-                      w0=0.032, w1=0.011, bulge=0.014,
-                      per_segment=5, resample=24)
-        brush.paint(canvas, band, h.hair_hi, clip=mass, alpha=0.085, soft=2.6)
-
-    # Baby hairs at the hairline: the short, fine hairs that keep the edge of a
-    # fringe from looking cut with scissors.  They are on the skin side of the
-    # hairline, so they use the skull mask rather than the hair mask.
+    # A few hairs at the hairline and outside the silhouette.  They are kept
+    # sparse on purpose: a rim of them is a haircut, a fringe of them is a mop.
     if skull_mask is not None:
         hairline = head.hairline_y(st)
-        for i in range(9):
-            u = (i + 0.5) / 9.0
-            x = (u - 0.5) * st.head_w * 1.35
-            y = hairline + 0.012 - 0.022 * (1.0 - abs(u - 0.5) * 2.0)
-            tip = (x + float(rng.uniform(-0.018, 0.018)), y - float(rng.uniform(0.016, 0.038)))
-            baby = S.lock([(x, y), tip], w0=0.0018, w1=0.0004, per_segment=3)
-            brush.paint(canvas, baby, h.hair_fine, clip=skull_mask, alpha=0.40, soft=0.35)
+        for i in range(5):
+            u = (i + 0.5) / 5.0
+            x = (u - 0.5) * float(st.head_w) * 1.18
+            y = hairline + 0.012 - 0.020 * (1.0 - abs(u - 0.5) * 2.0)
+            tip = (x + float(rng.uniform(-0.014, 0.014)),
+                   y - float(rng.uniform(0.014, 0.030)))
+            baby = S.lock([(x, y), tip], w0=0.0016, w1=0.0004, per_segment=3)
+            brush.paint(canvas, baby, h.hair_fine, clip=skull_mask,
+                        alpha=0.26, soft=0.35)
 
-    # Flyaways: a handful of hairs that leave the silhouette.  They are clipped
-    # to the background *outside the skull*, which keeps them off the face and off
-    # the collar without needing a second hair mask.
-    outside = None if skull_mask is None else np.clip(1.0 - skull_mask, 0.0, 1.0)
-    for i in range(14):
-        u = (i + 0.5) / 14.0
-        th = np.pi * (0.18 + 0.64 * u)
-        x0 = float(st.head_w) * 0.96 * np.cos(th)
-        y0 = 0.28 + 0.22 * np.sin(th)
-        ln = float(rng.uniform(0.045, 0.115))
-        p1 = (x0 + np.cos(th) * ln * 0.6, y0 + np.sin(th) * ln * 0.6)
-        p2 = (x0 + np.cos(th) * ln + float(rng.uniform(-0.025, 0.025)),
-              y0 + np.sin(th) * ln)
-        hair_line = S.lock([(x0, y0), p1, p2], w0=0.0018, w1=0.0005,
-                           bulge=0.004, per_segment=4, resample=20)
-        brush.paint(canvas, hair_line, h.hair_fine, clip=outside, alpha=0.58, soft=0.4)
-
+        # Outside the *hair*, not merely outside the skull: a flyaway drawn over
+        # the cap is a light scratch across the mass, which is exactly the straw
+        # artifact this pass is trying to avoid.
+        all_hair = brush.mask(canvas, hs.mass)
+        outside = np.clip(1.0 - skull_mask, 0.0, 1.0) * np.clip(1.0 - all_hair, 0.0, 1.0)
+        for i in range(5):
+            u = (i + 0.5) / 5.0
+            th = np.pi * (0.22 + 0.56 * u)
+            x0 = float(st.head_w) * 0.98 * np.cos(th)
+            y0 = 0.30 + 0.18 * np.sin(th)
+            ln = float(rng.uniform(0.040, 0.090))
+            p1 = (x0 + np.cos(th) * ln * 0.6, y0 + np.sin(th) * ln * 0.6)
+            p2 = (x0 + np.cos(th) * ln + float(rng.uniform(-0.020, 0.020)),
+                  y0 + np.sin(th) * ln)
+            fly = S.lock([(x0, y0), p1, p2], w0=0.0016, w1=0.0004,
+                         bulge=0.003, per_segment=4, resample=20)
+            brush.paint(canvas, fly, h.hair_fine, clip=outside,
+                        alpha=0.30, soft=0.4)

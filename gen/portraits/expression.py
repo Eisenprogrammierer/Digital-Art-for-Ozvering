@@ -93,7 +93,7 @@ EXPRESSIONS = {
                   brow_dy=-0.004, brow_inner_dy=-0.026, brow_arch=-0.010,
                   eye_up_s=0.92, eye_down_s=1.02, mouth_curve=-0.012, mouth_dy=-0.002,
                   mouth_w_s=0.92),
-    "smug": dict(_NEUTRAL, face_dy=0.001, face_spread=0.02,
+    "smug": dict(_NEUTRAL, face_dy=0.002, face_spread=0.02,
                  brow_dy=-0.004, brow_inner_dy=-0.008, eye_up_s=0.86, eye_down_s=0.98,
                  mouth_curve=0.012, mouth_asym=0.014, mouth_w_s=1.02, blush_mul=0.85),
     "wink": dict(_NEUTRAL, face_dy=0.005, face_spread=0.06,
