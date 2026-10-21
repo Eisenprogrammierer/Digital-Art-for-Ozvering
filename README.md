@@ -114,7 +114,7 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 46 tests
+python tests/test_portraits.py                  # 47 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
@@ -851,6 +851,18 @@ on the front of the head. Faded against its own root, every clump carries a stra
 from its hem up to just short of where it is attached, whatever the style's
 proportions are.
 
+The cap is where a head of hair most easily becomes a helmet. The answer is not
+more outline: a hundred clean strands turn into straw, and a full-strength line
+around every lock reads as cloth panels. The cap instead gets a few broad,
+irregular clumps, each with a soft shadow and a narrow lit edge on the side the
+light reaches, plus a part line and a small number of wider internal strands. The
+bands are deliberately low-contrast and jittered, because at avatar size fine
+detail disappears and an evenly spaced stripe pattern is the artifact that
+survives. Front and side locks use the same vocabulary -- soft clump shading,
+strand ink that fades before its root, and pointed tips on non-straight fringes --
+so the silhouette and the interior describe one material rather than a smooth
+hat with lines drawn on it.
+
 An outline is still only an outline, and a clump in front covers most of the one
 behind it, so what survives of the ink is a few millimetres of edge at the hem --
 a smooth sheet with a sawtooth bottom. The line an artist actually draws runs
@@ -866,13 +878,17 @@ of halfway down, because nothing is ever painted over a tail.
 The parameterisation is deliberately *not* a wall of independent sliders -- those
 produce monsters. Presets hold the anatomy, gaps encode the vertical layout, and
 the genome may only push a preset around inside limits a `_clamp_params` pass then
-re-checks. The clamp is also where relationships live, not just ranges: eye width
-and opening height are separate genes, but their ratio is held between `0.58` and
-`1.08`, because two legal sliders could otherwise meet as a narrow eye with a
-shallow lid and produce a reptile slit. The mouth's lip line is a line at 4.5 % of
-the mouth width, not a band, so a neutral mouth cannot read as an open one. And
-cel bands are painted wide-to-deep; the order is part of the drawing, because the
-wide band painted last erases the deep one and leaves a single flat shadow.
+re-checks. The clamp is also where relationships live, not just ranges. Eye width
+is capped at half the skull, half the cheekbone width and `1.28` times the
+inter-eye distance, so a wide-eye gene cannot outgrow the face that has to hold
+it; the iris is at most `0.48` of the opening, and the opening's height-to-width
+ratio stays between `0.58` and `0.96`. Those bounds are what stopped the
+"doll eye" failure: independently legal genes could otherwise meet as a huge eye
+on a narrow cheek with almost no gap between the two. The mouth's lip line is a
+line at 4.5 % of the mouth width, not a band, so a neutral mouth cannot read as
+an open one. And cel bands are painted wide-to-deep; the order is part of the
+drawing, because the wide band painted last erases the deep one and leaves a
+single flat shadow.
 
 ### A turn is a rotation, not a squeeze
 
@@ -1004,19 +1020,42 @@ shoulder slope) and twelve pigment axes for skin, hair, iris and lips. The layer
 is append-only, so an older DNA string still loads with documented defaults while
 every legacy gene stays mandatory. `--gene KEY=VALUE` pins any of the new axes
 without another command-line flag, and the categories have first-class flags and
-studio fields because those are the choices a designer makes by name. `age` is both a heritable state and a portrait state: a child of any
-two parents is born `child` or `youth`. `cli.py lineage` renders two
+studio fields because those are the choices a designer makes by name. `age` is
+both a heritable state and a portrait state: a child of any two parents is born
+`child` or `youth`. `cli.py lineage` renders two
 parents and six children for exactly that reason: a strategy game can populate a
 dynasty by crossing genomes instead of by inventing a face per character, and the
 roster it stores is a few kilobytes of text.
+
+### Climate and culture are appearance, not labels
+
+A demographic gene that changes nothing visible is a bug wearing a name. Climate
+now reaches the picture twice. It shifts skin and hair colour in OKLCH, as a
+climate term applied *after* the pigment genes, so it survives a pinned skin or
+hair colour rather than being overwritten by it. It also nudges the geometry that
+reads as adaptation -- nose width and height, brow weight, cheekbone width, mouth
+and lip fullness, neck and shoulder width, and head depth -- in hundredths of a
+head, enough for a lineage and not enough for a mask. Culture never touches the
+face. It selects a collar cut (`demography.COLLARS`), mixes a broad accent colour
+into the cloth as well as the trim, and adjusts hair grooming, volume and side-lock
+weight. The collar and the body colour are the parts a player can read at avatar
+size; the trim alone was a few pixels and disappeared.
+
+The effects are tested with genes pinned: a climate test holds the genome still
+and asserts that skin, hair and feature geometry all move, and a culture test
+holds it still and asserts that collar, cloth, trim and hair grooming differ while
+the face signature does not. The colour-script and age-greying tests pin
+`climate="temperate"`, because a non-temperate climate is now *supposed* to shift
+the base colours.
 
 ### What the tests hold down
 
 `tests/test_portraits.py` checks that the genome round-trips through its own string,
 that bred and mutated children are still readable, that the derived anatomy stays
-plausible across hundreds of genomes (the eyes fit in the skull, the jaw tapers,
-the features stay in order down the face with the hairline above the brows), and
-five composition invariants -- each of which broke once in review, which is why
+plausible across hundreds of genomes (the eyes fit in the skull and inside the
+cheekbones, the jaw tapers, the features stay in order down the face with the
+hairline above the brows), and five composition invariants -- each of which
+broke once in review, which is why
 each has a test. It also holds the expanded phenotype layer down: every category
 must have a distinct style signature inside the anatomy guard, every continuous
 axis must reach geometry or hair, and every pigment axis must move the colour

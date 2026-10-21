@@ -328,9 +328,10 @@ python cli.py lineage --out out/lineage.png --seed 7 --children 6
 `sex`, `age`, `climate` and `culture` are genes like any other. `sex` adjusts
 presentation and a few proportions; `age` changes the life stage, greys the hair in
 the colour script and adds age detail; `climate` is the environment a lineage adapted
-to, so it shifts skin and feature ranges rather than drawing a costume; `culture`
-chooses the dress tradition -- collar, trim and fastening -- and never the face.
-`portraits` accepts the same four flags to pin one gene across the sheet.
+to, so it shifts skin and hair colour after the pigment genes, and nudges the nose,
+brow, cheek, mouth, neck and head depth; `culture` chooses the dress tradition --
+collar, cloth accent, trim and fastening -- plus hair volume and gloss, and never the
+face. `portraits` accepts the same four flags to pin one gene across the sheet.
 
 The phenotype layer adds named families and continuous axes. The named families are
 `--face-shape` (oval, round, square, heart, long, diamond), `--jaw-shape`,
@@ -352,11 +353,14 @@ while a missing shape or colour gene is still an error. The new genes are append
 the wire format, not inserted, so a saved dynasty keeps its order.
 
 Portrait proportions are guarded rather than left to independent sliders. Eye width
-foreshortens on the face plane by `cos(turn)`, not by the curvature of the whole
-skull; the ratio of opening height to width is held between `0.58` and `1.08`; front
-hair is cut around the actual, expression-warped eye openings; and cel bands paint
-wide-to-deep so a deep shadow cannot be erased by the wide one. These are invariants
-of the drawing, not settings a genome can spend.
+is capped at half the skull width, half the cheekbone width and `1.28` times the
+inter-eye distance, with the iris at most `0.48` of the opening; the ratio of opening
+height to width is held between `0.58` and `0.96`. On the face plane, eye width
+foreshortens by `cos(turn)`, not by the curvature of the whole skull. Front hair is
+cut around the actual, expression-warped eye openings, and hair shading uses broad,
+soft, irregular clumps with a lit edge rather than full-strength outlines that read
+as straw. Cel bands paint wide-to-deep so a deep shadow cannot be erased by the wide
+one. These are invariants of the drawing, not settings a genome can spend.
 
 ### Heraldry
 

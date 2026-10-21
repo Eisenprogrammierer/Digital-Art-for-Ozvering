@@ -158,8 +158,18 @@ def test_derived_anatomy_stays_plausible():
             assert st.eye_dx + st.eye_w * 0.5 + 0.045 <= st.head_w + 1e-9, \
                 f"{where}: an eye hangs off the skull"
             aspect = (st.eye_up + st.eye_down) / st.eye_w
-            assert 0.58 - 1e-9 <= aspect <= 1.08 + 1e-9, \
+            assert 0.58 - 1e-9 <= aspect <= 0.96 + 1e-9, \
                 f"{where}: eye opening aspect {aspect:.2f} is a slit or a dinner plate"
+            # Eyes are a relationship: an opening cannot swallow the inter-eye
+            # gap or the temple even when both genes are at their extremes.
+            assert st.eye_w <= st.head_w * 0.50 + 1e-9, \
+                f"{where}: eye is too wide for the skull"
+            assert st.eye_w <= st.cheek_w * 0.50 + 1e-9, \
+                f"{where}: eye is too wide for the cheek"
+            assert st.eye_w <= st.eye_dx * 1.28 + 1e-9, \
+                f"{where}: eyes are almost touching"
+            assert 2.0 * st.eye_dx - st.eye_w >= st.eye_w * 0.45 - 1e-9, \
+                f"{where}: inter-eye gap collapsed"
             assert st.neck_w < st.jaw_w, f"{where}: neck thicker than the jaw"
             assert st.shoulder_w > st.neck_w + 0.24 - 1e-9, f"{where}: no shoulders"
             assert st.shoulder_y < st.neck_y < st.chin_y, f"{where}: bust above the chin"
@@ -279,7 +289,7 @@ def test_a_turned_eye_keeps_its_plane_proportions():
             assert 0.80 <= near[1] <= 1.0 and 0.80 <= far[1] <= 1.0, \
                 f"{where}: eye scale {near[1]:.3f}/{far[1]:.3f} out of range"
             assert near[1] >= far[1], f"{where}: the far eye is wider than the near one"
-            assert near[1] / far[1] < 1.15, \
+            assert near[1] / far[1] < 1.08, \
                 f"{where}: eye width ratio {near[1] / far[1]:.3f} is caricature"
 
 
@@ -729,7 +739,10 @@ def test_the_colour_script_derives_from_the_four_base_colours():
     derived tone is still a valid colour.
     """
     g = dna.random_genes(4)
-    neutral = dict(g, **{key: 0.0 for key in dna.PIGMENT})
+    # Temperate is the neutral climate.  A non-temperate lineage deliberately
+    # shifts even a pinned base colour, so the exact-material invariant belongs
+    # to the neutral environment.
+    neutral = dict(g, climate="temperate", **{key: 0.0 for key in dna.PIGMENT})
     h0 = hues.from_genes(neutral)
     assert np.allclose(h0.skin, palette.hex_to_srgb(g["skin"]))
     assert np.allclose(h0.hair, palette.hex_to_srgb(g["hair"]))
@@ -795,9 +808,45 @@ def test_demography_changes_the_face_and_not_the_dna_contract():
     desert = _style(dict(base, culture="desert"))
     assert north.p == desert.p, "culture changed the face instead of the clothing"
 
+    # It must still reach the picture.  The collar, the garment colour and the
+    # grooming differ, while the skull and features do not.
+    assert demography.collar(dict(base, culture="north")) != \
+        demography.collar(dict(base, culture="desert"))
+    hn = hues.from_genes(dict(base, culture="north"))
+    hd = hues.from_genes(dict(base, culture="desert"))
+    assert not np.allclose(hn.cloth, hd.cloth), "culture did not reach the garment"
+    assert not np.allclose(hn.cloth_trim, hd.cloth_trim), "culture did not reach the trim"
+    _, sn = _hair(dict(base, culture="north"))
+    _, sd = _hair(dict(base, culture="desert"))
+    assert sn.p["gloss"] != sd.p["gloss"], "culture did not reach grooming"
+
+
+def test_climate_reaches_skin_hair_and_feature_geometry_with_pinned_genes():
+    """Pinning every continuous gene must not turn climate into a label.
+
+    The same base colours, morphs and pigments still read differently in a cold,
+    dry, tropical or highland lineage: the colour script shifts, the nose/brow
+    construction shifts, and the hair sits differently.
+    """
+    base = _genes(31, **{key: 0.0 for key in dna.PIGMENT})
+    variants = {name: dict(base, climate=name) for name in demography.CLIMATES}
+    skins = {name: hues.from_genes(g).skin for name, g in variants.items()}
+    hairs = {name: hues.from_genes(g).hair for name, g in variants.items()}
+    assert len({tuple(np.round(c, 6)) for c in skins.values()}) == len(skins), \
+        "climate did not reach the skin"
+    assert len({tuple(np.round(c, 6)) for c in hairs.values()}) == len(hairs), \
+        "climate did not reach the hair colour"
+    styles = {name: _style(g) for name, g in variants.items()}
+    assert styles["arid"].nose_w > styles["arctic"].nose_w
+    assert styles["tropical"].mouth_w > styles["arctic"].mouth_w
+    assert styles["highland"].cheek_w > styles["temperate"].cheek_w
+    hair_params = {name: _hair(g)[1].p["vol"] for name, g in variants.items()}
+    assert len({round(v, 6) for v in hair_params.values()}) >= 3, \
+        "climate did not reach the hair mass"
+
 
 def test_age_greys_the_hair_colour_script_not_the_gene():
-    g = _genes(4, age="adult", **{key: 0.0 for key in dna.PIGMENT})
+    g = _genes(4, age="adult", climate="temperate", **{key: 0.0 for key in dna.PIGMENT})
     adult = hues.from_genes(g)
     grey = hues.from_genes(dict(g, age="elder"))
     assert np.allclose(adult.hair, palette.hex_to_srgb(g["hair"]))
@@ -865,6 +914,9 @@ def _assert_face_invariants(st, where: str) -> None:
     assert st.chin_w < st.jaw_w < st.cheek_w, f"{where}: jaw does not taper"
     assert st.eye_dx + st.eye_w * 0.5 + 0.045 <= st.head_w + 1e-9, \
         f"{where}: an eye hangs off the skull"
+    assert st.eye_w <= st.head_w * 0.50 + 1e-9, f"{where}: eye too wide for the skull"
+    assert st.eye_w <= st.cheek_w * 0.50 + 1e-9, f"{where}: eye too wide for the cheek"
+    assert st.eye_w <= st.eye_dx * 1.28 + 1e-9, f"{where}: eyes almost touching"
     assert st.neck_w < st.jaw_w, f"{where}: neck thicker than the jaw"
 
 

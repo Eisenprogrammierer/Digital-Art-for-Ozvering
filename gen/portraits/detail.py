@@ -444,57 +444,97 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
         return
     X, Y = canvas.grid()
 
-    # Fibre grain: a high-frequency multiplication over the hair mass.  Hair is
-    # not a painted sheet, and a few percent of directional texture is enough to
-    # break up the large fills without reading as noise at icon size.
-    fibre = noise.fbm(X, Y, seed=301, freq=26.0, octaves=3) - 0.5
-    factor = 1.0 + fibre[..., None] * mass[..., None] * 0.20
+    # Roots are deeper in the mass and tips catch more light.  A gentle value
+    # ramp along the fall is the difference between a coloured sheet and a
+    # volume; it is deliberately too small to read as a gradient.
+    fall = np.clip((0.34 - Y) / 0.55, 0.0, 1.0)
+    canvas.rgb[:] = np.clip(
+        canvas.rgb * (1.0 + (0.955 + 0.075 * fall - 1.0)[..., None] * mass[..., None]),
+        0.0, 1.0)
+
+    # Fibre grain: a *vertical* stretch of low-frequency noise, not an isotropic
+    # static field.  At 20 % the old grain was the straw; hair reads as hair when
+    # the texture runs with the fall and barely changes the value.
+    fibre = noise.fbm(X * 2.6, Y * 0.72, seed=301, freq=15.0, octaves=3) - 0.5
+    factor = 1.0 + fibre[..., None] * mass[..., None] * 0.12
     canvas.rgb[:] = np.clip(canvas.rgb * factor, 0.0, 1.0)
 
-    # Flow bands across the whole mass: the back curtain is the largest single
-    # fill in a long-haired portrait, and a few broad, slightly curved bands give
-    # it the fall of hair without turning it into stripes.
-    for i in range(9):
-        u = (i + 0.5) / 9.0
-        x = (u - 0.5) * float(st.head_w) * 1.62
-        y0 = 0.18 - 0.12 * float(rng.random())
-        band = S.lock([(x, y0), (x * 1.07, y0 - 0.28), (x * 1.16, y0 - 0.62)],
-                      w0=0.022, w1=0.008, bulge=0.012, per_segment=5, resample=22)
+    # Broad light and shade following the fall.  These are wide and soft on
+    # purpose: a highlight is a plane catching the light, not a painted stripe,
+    # and the narrow arcs in ``Hair.shine`` are the specular core inside it.
+    for i in range(6):
+        u = (i + 0.5) / 6.0
+        x = (u - 0.5) * float(st.head_w) * 1.54
+        y0 = 0.16 - 0.10 * float(rng.random())
+        band = S.lock([(x, y0), (x * 1.05, y0 - 0.30), (x * 1.12, y0 - 0.68)],
+                      w0=0.052, w1=0.018, bulge=0.022, per_segment=5, resample=22)
         brush.paint(canvas, band, h.hair_shadow, clip=mass,
-                    alpha=0.11 if i % 2 else 0.08, soft=1.8)
-        if i % 3 == 0:
-            brush.paint(canvas, S.lock([(x + 0.012, y0 - 0.02),
-                                        (x * 1.07 + 0.014, y0 - 0.30),
-                                        (x * 1.16 + 0.018, y0 - 0.58)],
-                                       w0=0.003, w1=0.001, per_segment=4),
-                        h.hair_fine, clip=mass, alpha=0.20, soft=0.5)
+                    alpha=0.105 if i % 2 else 0.075, soft=3.2)
+    # The cap is one smooth shape, so it needs a few broad clump shadows of its
+    # own.  They are much wider and softer than a strand: at this width the eye
+    # reads a change of plane, not a wire.
+    cap = brush.mask(canvas, hs.cap)
+    if cap.max() > 0.0:
+        for i in range(6):
+            u = (i + float(rng.uniform(0.18, 0.82))) / 6.0
+            x = (u - 0.5) * float(st.head_w) * 1.32
+            sway = float(rng.uniform(-0.025, 0.025))
+            top = 0.46 - 0.050 * float(rng.random())
+            bottom = 0.16 + 0.025 * float(rng.random())
+            width = 0.032 + 0.026 * float(rng.random())
+            band = S.lock([(x * 0.62, top), (x + sway, (top + bottom) * 0.5),
+                           (x * 1.12 + sway, bottom)],
+                          w0=width, w1=width * 0.30, bulge=0.014,
+                          per_segment=5, resample=24)
+            brush.paint(canvas, band, h.hair_deep if i % 2 else h.hair_shadow,
+                        clip=cap, alpha=0.220 + 0.110 * float(rng.random()), soft=1.7)
+            # A light edge beside the shadow turns a stripe into a rounded clump.
+            lit = S.lock([((x - width * 0.35) * 0.66, top),
+                          (x + sway - width * 0.35, (top + bottom) * 0.5),
+                          (x * 1.10 + sway - width * 0.30, bottom)],
+                         w0=width * 0.34, w1=width * 0.10, bulge=0.010,
+                         per_segment=5, resample=24)
+            brush.paint(canvas, lit, h.hair_fine, clip=cap, alpha=0.070, soft=1.5)
 
-    # A part line and its root shadow, on one side of the crown.
-    part_x = -0.025
-    part = S.lock([(part_x, head.hairline_y(st) + 0.03), (part_x + 0.006, 0.36),
-                   (part_x + 0.002, 0.47)], w0=0.0022, w1=0.0035,
-                  per_segment=4, resample=20)
-    brush.paint(canvas, part, h.hair_deep, clip=mass, alpha=0.26, soft=0.6)
+        part = hs.p.get("part")
+        if part is not None:
+            px = float(part) * float(st.head_w) * 0.70
+            part_line = S.lock([(px * 0.80, 0.46), (px, 0.30), (px * 1.08, 0.17)],
+                               w0=0.012, w1=0.005, bulge=0.006,
+                               per_segment=5, resample=24)
+            brush.paint(canvas, part_line, h.hair_root, clip=cap,
+                        alpha=0.200, soft=1.0)
+
+    # A default part and its root shadow when the genome did not choose one.
+    # Drawing both this and the gene's part above would give the head two
+    # partings, which reads as a mistake at any size.
+    if hs.p.get("part") is None:
+        part_x = -0.025
+        part_shadow = S.lock([(part_x, head.hairline_y(st) + 0.03),
+                              (part_x + 0.006, 0.36), (part_x + 0.002, 0.47)],
+                             w0=0.0022, w1=0.0035, per_segment=4, resample=20)
+        brush.paint(canvas, part_shadow, h.hair_deep, clip=mass,
+                    alpha=0.26, soft=0.6)
 
     # Broad strand shadows: the painted locks under the cap.  These are what make
     # the crown read as hair rather than as a smooth shell; the fine lines below
     # are the hairs inside those locks.
-    for i in range(9):
-        u = (i + 0.5) / 9.0
+    for i in range(5):
+        u = (i + 0.5) / 5.0
         th = np.pi * (0.16 + 0.68 * u)
         x0 = float(st.head_w) * 0.70 * np.cos(th)
         y0 = 0.32 + 0.08 * np.sin(th)
         drop = float(rng.uniform(0.28, 0.52))
         band = S.lock([(x0, y0), (x0 * 1.08, y0 - drop * 0.5),
-                       (x0 * 1.16, y0 - drop)], w0=0.018, w1=0.006,
-                      bulge=0.008, per_segment=5, resample=24)
+                       (x0 * 1.16, y0 - drop)], w0=0.028, w1=0.010,
+                      bulge=0.012, per_segment=5, resample=24)
         brush.paint(canvas, band, h.hair_shadow, clip=mass,
-                    alpha=0.13 if i % 2 else 0.09, soft=1.4)
+                    alpha=0.105 if i % 2 else 0.075, soft=2.4)
 
     # Internal strands: roots on the crown, tips down the length, clipped to the
     # hair mass so a strand can never draw on skin.
-    for i in range(18):
-        u = (i + 0.5) / 18.0
+    for i in range(12):
+        u = (i + 0.5) / 12.0
         th = np.pi * (0.12 + 0.76 * u)
         x0 = float(st.head_w) * 0.78 * np.cos(th)
         # Stagger the roots: a row of lines all starting at the same height reads
@@ -505,11 +545,33 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
         p0 = (x0, y0)
         p1 = (x0 * 1.06 + sway, y0 - drop * 0.48)
         p2 = (x0 * 1.10 + sway * 1.7, y0 - drop)
-        line = S.lock([p0, p1, p2], w0=0.0018, w1=0.0006, bulge=0.005,
+        line = S.lock([p0, p1, p2], w0=0.0200, w1=0.0070, bulge=0.012,
                       per_segment=5, resample=24)
         colour = h.hair_fine if i % 3 else h.hair_shadow
-        alpha = 0.16 if i % 3 else 0.12
-        brush.paint(canvas, line, colour, clip=mass, alpha=alpha, soft=0.5)
+        alpha = 0.20 if i % 3 else 0.14
+        brush.paint(canvas, line, colour, clip=mass, alpha=alpha, soft=0.9)
+
+    # Broad clump shadows over the whole fall, not just the cap.  At avatar size
+    # the narrow strands disappear; these wide, soft planes are what keep a long
+    # sidelock from reading as a flat strip of cloth.
+    for i in range(4):
+        u = (i + float(rng.uniform(0.20, 0.80))) / 4.0
+        x = (u - 0.5) * float(st.head_w) * 1.62
+        top = 0.24 - 0.12 * float(rng.random())
+        width = 0.045 + 0.030 * float(rng.random())
+        band = S.lock([(x * 0.82, top), (x * 1.02, -0.16), (x * 1.12, -0.66)],
+                      w0=width, w1=width * 0.28, bulge=0.020,
+                      per_segment=5, resample=24)
+        brush.paint(canvas, band, h.hair_shadow, clip=mass,
+                    alpha=0.140 + 0.070 * float(rng.random()), soft=2.0)
+
+    for i in range(2):
+        u = (i + float(rng.uniform(0.25, 0.75))) / 2.0
+        x = (u - 0.5) * float(st.head_w) * 1.28
+        band = S.lock([(x * 0.82, 0.28), (x * 1.02, -0.12), (x * 1.10, -0.56)],
+                      w0=0.032, w1=0.011, bulge=0.014,
+                      per_segment=5, resample=24)
+        brush.paint(canvas, band, h.hair_hi, clip=mass, alpha=0.085, soft=2.6)
 
     # Baby hairs at the hairline: the short, fine hairs that keep the edge of a
     # fringe from looking cut with scissors.  They are on the skin side of the

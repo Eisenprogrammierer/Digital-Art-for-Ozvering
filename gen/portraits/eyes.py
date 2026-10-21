@@ -49,8 +49,12 @@ def placement(st, side: int, turn: float = 0.0):
     """
     t = float(turn)
     cx, _ = head.turn_point(side * st.eye_dx, st.eye_y, t, st)
-    scale = float(np.cos(t)) * (1.0 - 0.08 * side * np.sin(t))
-    return float(cx), float(np.clip(scale, 0.80, 1.0))
+    # Both eyes lie on the same face plane, so the only difference between them
+    # is the few percent of perspective a real pair has.  A larger coefficient
+    # made the far eye read as a different size even before the skull curvature
+    # was involved, which is the asymmetry a viewer notices first.
+    scale = float(np.cos(t)) * (1.0 - 0.04 * side * np.sin(t))
+    return float(cx), float(np.clip(scale, 0.84, 1.0))
 
 
 def shapes(st, expr: dict) -> dict:

@@ -382,6 +382,17 @@ def _clamp_params(p: dict) -> dict:
     because :meth:`gen.portraits.style.Style` derives it from gaps; this pass only
     keeps the *gaps* in a sensible band.
     """
+    # Eye size is a *relationship*, not a free slider.  A wide eye and a narrow
+    # inter-eye distance are two legal genes that together put the eyes almost
+    # touching, and a wide eye on a narrow head is the "huge eyes" tell.  Keep
+    # at least half an eye width between the openings, cap the width against both
+    # the skull and the cheekbones, and leave room for a temple outside the outer
+    # corner before the head is fitted to the features.
+    p["eye_w"] = min(max(float(p["eye_w"]), 0.10), 0.36)
+    p["eye_w"] = max(0.10, min(float(p["eye_w"]),
+                               float(p["head_w"]) * 0.50,
+                               float(p["cheek_w"]) * 0.50,
+                               float(p["eye_dx"]) * 1.28))
     # The head may not be narrower than the features it has to contain.
     reach = float(p["eye_dx"]) + float(p["eye_w"]) * 0.5 + 0.045
     p["head_w"] = max(float(p["head_w"]), reach)
@@ -403,7 +414,6 @@ def _clamp_params(p: dict) -> dict:
     p["head_d"] = float(np.clip(p["head_d"], 0.85, 1.32))
 
     # Feature sizes, and the features fitting inside the face.
-    p["eye_w"] = min(max(float(p["eye_w"]), 0.10), 0.36)
     p["eye_up"] = min(max(float(p["eye_up"]), 0.035), 0.18)
     p["eye_down"] = min(max(float(p["eye_down"]), 0.028), 0.15)
     # Opening height is a proportion, not a free slider.  A narrow eye and a
@@ -412,7 +422,7 @@ def _clamp_params(p: dict) -> dict:
     # the opening between a narrow adult eye and a round one, scaling both lids
     # together so the upper/lower ratio the genome chose survives.
     opening = float(p["eye_up"]) + float(p["eye_down"])
-    low, high = float(p["eye_w"]) * 0.58, float(p["eye_w"]) * 1.08
+    low, high = float(p["eye_w"]) * 0.58, float(p["eye_w"]) * 0.96
     if opening < low:
         k = low / max(opening, 1e-9)
         p["eye_up"] = float(p["eye_up"]) * k
@@ -421,7 +431,7 @@ def _clamp_params(p: dict) -> dict:
         k = high / opening
         p["eye_up"] = float(p["eye_up"]) * k
         p["eye_down"] = float(p["eye_down"]) * k
-    p["iris_r"] = min(float(p["iris_r"]), float(p["eye_w"]) * 0.55)
+    p["iris_r"] = min(float(p["iris_r"]), float(p["eye_w"]) * 0.48)
     p["pupil_r"] = min(float(p["pupil_r"]), float(p["iris_r"]) * 0.62)
     p["hl_r"] = min(float(p["hl_r"]), float(p["iris_r"]) * 0.62)
     p["brow_dx"] = max(float(p["brow_dx"]), float(p["eye_dx"]))
@@ -437,8 +447,13 @@ def _clamp_params(p: dict) -> dict:
     mouth_room = nose_y - (float(p["chin_y"]) + 0.065)
     p["mouth_gap"] = float(np.clip(p["mouth_gap"], 0.030, min(0.140, max(0.030, mouth_room))))
     p["blush_gap"] = float(np.clip(p["blush_gap"], 0.028, 0.115))
+    p["mouth_w"] = float(np.clip(p["mouth_w"], 0.080, float(p["jaw_w"]) * 0.78))
+    # The nose and mouth are neighbours; one gene can otherwise make a tiny nose
+    # over a wide mouth or a bulb over a rosebud.  Keep the nose between a third
+    # and a little over half the mouth width, which is the range a face reads in.
     p["nose_w"] = float(np.clip(p["nose_w"], 0.030, 0.105))
-    p["mouth_w"] = float(np.clip(p["mouth_w"], 0.080, float(p["jaw_w"]) * 0.82))
+    p["nose_w"] = float(np.clip(p["nose_w"], 0.32 * float(p["mouth_w"]),
+                                0.58 * float(p["mouth_w"])))
     p["lip_full"] = float(np.clip(p.get("lip_full", 0.0), -0.12, 0.85))
     p["ear_size"] = float(np.clip(p.get("ear_size", 1.0), 0.65, 1.40))
 

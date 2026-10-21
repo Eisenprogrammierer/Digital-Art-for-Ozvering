@@ -33,7 +33,7 @@ import numpy as np
 
 from core.canvas import Canvas
 
-from . import brush, cel, detail, dna, expression, eyes, face, hair, head, hues
+from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues
 from . import style as style_mod
 
 __all__ = ["FRAME", "canvas", "compose", "render", "render_seed", "describe", "colors"]
@@ -110,7 +110,7 @@ def compose(genes: dict, size=384, background: bool = True) -> Canvas:
     bust.bands(c, [h.cloth_shadow], (0.40,), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
                bevel=0.05, soft=1.8)
     bust.stroke(c, st.ink_w * st.line * 0.85, h.cloth_line, inset=st.ink_w * st.line * 0.42)
-    neck_kind = ("v", "scoop", "crew")[dna.seed_of(genes) % 3]
+    neck_kind = demography.collar(genes)
     bust_cov = bust.full_coverage(c)
     detail.paint_bust(c, st, h, genes, neck_kind, bust_cov)
 
