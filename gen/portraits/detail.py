@@ -636,6 +636,7 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         return
     lw = float(st.ink_w) * float(st.line)
     culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
+    attire = str(genes.get("attire", "civil"))
     X, Y = canvas.grid()
     nw = float(st.neck_w)
     top = float(st.neck_y)
@@ -658,31 +659,41 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
 
     # The opening.  The skin inside the neckline is what makes the line read as
     # an edge of cloth, and the depth is the only difference between the cuts.
+    # A service tunic does not open: it closes at the throat, and the regalia pass
+    # draws the stand collar over the seam.  Painting the civilian V and covering
+    # it later would leave a ghost of the skin through the collar.
     x0 = min(nw * 1.16, float(st.shoulder_w) * 0.285)
-    # A passport shirt closes at the throat.  A deep V reads as a t-shirt
-    # neckline; the opening is only wide enough to show the base of the neck.
     depth = {"v": 0.056, "scoop": 0.050, "crew": 0.042}.get(kind, 0.050)
-    # The opening is only the throat, not the whole chest.  A shirt collar
-    # closes below it: the skin V ends at the top button, and the collar leaves
-    # lie on the cloth underneath.  Making the opening chest-deep was what made
-    # every previous collar read as a V-neck t-shirt.
-    opening = S.poly([(-x0, top + 0.035), (0.0, top - depth), (x0, top + 0.035)],
-                     resample=38)
-    brush.paint(canvas, opening, h.skin, clip=clip, alpha=0.97, soft=0.4)
-    brush.paint(canvas, opening & S.ellipse(x0 * 0.82, 0.060, 0.0, top + 0.020),
-                h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
-    brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
-                h.skin_light, clip=clip, alpha=0.12, soft=2.8)
+    if attire == "civil":
+        # The opening is only the throat, not the whole chest.  A shirt collar
+        # closes below it: the skin V ends at the top button, and the collar leaves
+        # lie on the cloth underneath.  Making the opening chest-deep was what made
+        # every previous collar read as a V-neck t-shirt.
+        opening = S.poly([(-x0, top + 0.035), (0.0, top - depth), (x0, top + 0.035)],
+                         resample=38)
+        brush.paint(canvas, opening, h.skin, clip=clip, alpha=0.97, soft=0.4)
+        brush.paint(canvas, opening & S.ellipse(x0 * 0.82, 0.060, 0.0, top + 0.020),
+                    h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
+        brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
+                    h.skin_light, clip=clip, alpha=0.12, soft=2.8)
 
-    # The sternal notch: the hollow where the clavicles meet, and the only piece
-    # of chest skeleton a shirt closed at the throat leaves visible.  It is also
-    # what makes the base of the neck sit *in* the chest instead of in front of
-    # it.  The clip is the opening, so it can never draw over the collar.
-    notch_y = top - depth * 0.62
-    brush.paint(canvas, S.ellipse(x0 * 0.20, 0.016, 0.0, notch_y),
-                h.skin_shadow, clip=opening, alpha=0.24, soft=1.1)
-    brush.paint(canvas, S.ellipse(x0 * 0.10, 0.008, 0.0, notch_y + 0.018),
-                h.skin_light, clip=opening, alpha=0.10, soft=1.0)
+        # The sternal notch: the hollow where the clavicles meet, and the only piece
+        # of chest skeleton a shirt closed at the throat leaves visible.  It is also
+        # what makes the base of the neck sit *in* the chest instead of in front of
+        # it.  The clip is the opening, so it can never draw over the collar.
+        notch_y = top - depth * 0.62
+        brush.paint(canvas, S.ellipse(x0 * 0.20, 0.016, 0.0, notch_y),
+                    h.skin_shadow, clip=opening, alpha=0.24, soft=1.1)
+        brush.paint(canvas, S.ellipse(x0 * 0.10, 0.008, 0.0, notch_y + 0.018),
+                    h.skin_light, clip=opening, alpha=0.10, soft=1.0)
+    else:
+        # A closed front: seam shadow where the collar will sit, and a single
+        # centre break.  The collar itself is regalia's job.
+        brush.paint(canvas, S.ellipse(x0 * 1.10, 0.040, 0.0, top + 0.010),
+                    h.cloth_shadow, clip=clip, alpha=0.22, soft=2.4)
+        brush.paint(canvas, S.lock([(0.0, top + 0.012), (0.0, top - 0.150)],
+                                   w0=0.0022, w1=0.0030, per_segment=4),
+                    h.cloth_line, clip=clip, alpha=0.24, soft=0.7)
 
     # The clavicles are under the shirt, but the cloth lies on them.  A soft
     # ridge from the collar's outer edge to the shoulder, with a hollow above it
@@ -700,73 +711,78 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                                       side * float(st.shoulder_w) * 0.30, top + 0.012),
                     h.cloth_shadow, clip=clip, alpha=0.10, soft=2.8)
 
-    # A folded collar is not a band floating across the throat.  The old stand
-    # was a shallow arc whose top outline ran almost horizontally over the neck
-    # and read as a shirt seam crossing the sitter's throat.  The collar here is
-    # the two leaves below: their inner edges follow the opening up the sides of
-    # the neck, which is the curve a collar actually makes.  The colour they are
-    # cut from is kept here for that pass.
-    collar_col = palette.lighten(palette.mix(h.cloth_hi, h.cloth_trim, 0.10), 0.085)
+    if attire == "civil":
+        # A folded collar is not a band floating across the throat.  The old stand
+        # was a shallow arc whose top outline ran almost horizontally over the neck
+        # and read as a shirt seam crossing the sitter's throat.  The collar here is
+        # the two leaves below: their inner edges follow the opening up the sides of
+        # the neck, which is the curve a collar actually makes.  The colour they are
+        # cut from is kept here for that pass.
+        collar_col = palette.lighten(palette.mix(h.cloth_hi, h.cloth_trim, 0.10), 0.085)
 
-    # Two collar leaves.  Their inner edges follow the V; their outer edges run
-    # from the shoulder to a point near the bottom of the opening.  This is the
-    # silhouette of a folded collar, not a ring around a t-shirt neck.
-    point_drop = {"v": 1.26, "scoop": 1.20, "crew": 1.12}.get(kind, 1.20)
-    for side in (+1, -1):
-        a = (side * x0 * 1.02, top + 0.065)
-        b = (side * x0 * 1.58, top + 0.010)
-        c = (side * x0 * 1.10, top - depth * 0.50)
-        d = (side * x0 * 0.14, top - depth * point_drop)
-        # The leaves close over the throat; only the narrow central notch shows
-        # skin.  Subtracting the whole opening made a V-neck, not a shirt collar.
-        leaf = S.poly([a, b, c, d], resample=32)
-        # A soft cast shadow under the free edge lifts the collar off the shirt.
-        shadow = leaf.offset(0.010).place(cy=-0.010) - leaf
-        brush.paint(canvas, shadow, h.cloth_shadow, clip=clip,
-                    alpha=0.30, soft=1.2)
-        brush.paint(canvas, leaf, collar_col, clip=clip, alpha=1.0, soft=0.30)
-        # A broad inner fold and a lit outer edge: the two planes of a collar.
-        fold = S.lock([a, d], w0=x0 * 0.18, w1=x0 * 0.08,
-                      bulge=x0 * 0.05, per_segment=5)
-        brush.paint(canvas, leaf & fold, h.cloth_shadow, clip=clip,
-                    alpha=0.22, soft=1.0)
-        brush.paint(canvas, leaf, h.cloth_trim, clip=clip, alpha=0.04, soft=0.8)
-        # The free edge is inked more firmly than the cloth: at avatar size the
-        # collar has to survive as a silhouette, not only as a value change.
-        brush.paint(canvas, leaf.outline(lw * 0.85), h.line, clip=clip,
-                    alpha=0.62, soft=0.20)
-        brush.paint(canvas, leaf.outline(lw * 1.25), collar_col, clip=clip,
-                    alpha=0.22, soft=0.7)
+        # Two collar leaves.  Their inner edges follow the V; their outer edges run
+        # from the shoulder to a point near the bottom of the opening.  This is the
+        # silhouette of a folded collar, not a ring around a t-shirt neck.
+        point_drop = {"v": 1.26, "scoop": 1.20, "crew": 1.12}.get(kind, 1.20)
+        for side in (+1, -1):
+            a = (side * x0 * 1.02, top + 0.065)
+            b = (side * x0 * 1.58, top + 0.010)
+            c = (side * x0 * 1.10, top - depth * 0.50)
+            d = (side * x0 * 0.14, top - depth * point_drop)
+            # The leaves close over the throat; only the narrow central notch shows
+            # skin.  Subtracting the whole opening made a V-neck, not a shirt collar.
+            leaf = S.poly([a, b, c, d], resample=32)
+            # A soft cast shadow under the free edge lifts the collar off the shirt.
+            shadow = leaf.offset(0.010).place(cy=-0.010) - leaf
+            brush.paint(canvas, shadow, h.cloth_shadow, clip=clip,
+                        alpha=0.30, soft=1.2)
+            brush.paint(canvas, leaf, collar_col, clip=clip, alpha=1.0, soft=0.30)
+            # A broad inner fold and a lit outer edge: the two planes of a collar.
+            fold = S.lock([a, d], w0=x0 * 0.18, w1=x0 * 0.08,
+                          bulge=x0 * 0.05, per_segment=5)
+            brush.paint(canvas, leaf & fold, h.cloth_shadow, clip=clip,
+                        alpha=0.22, soft=1.0)
+            brush.paint(canvas, leaf, h.cloth_trim, clip=clip, alpha=0.04, soft=0.8)
+            # The free edge is inked more firmly than the cloth: at avatar size the
+            # collar has to survive as a silhouette, not only as a value change.
+            brush.paint(canvas, leaf.outline(lw * 0.85), h.line, clip=clip,
+                        alpha=0.62, soft=0.20)
+            brush.paint(canvas, leaf.outline(lw * 1.25), collar_col, clip=clip,
+                        alpha=0.22, soft=0.7)
 
-    # The collar band: a strip that runs up the sides of the neck and closes at
-    # the throat.  This is the line that has to *follow* the opening.  The old
-    # flat stand crossed the throat; a band along the V reads as a collar and
-    # lets the shirt's own edge hide behind it.
-    band_spine = [(-x0 * 0.98, top + 0.050),
-                  (0.0, top - depth * point_drop + 0.010),
-                  (x0 * 0.98, top + 0.050)]
-    band = S.lock(band_spine, w0=0.020, w1=0.020, bulge=0.009,
-                  per_segment=6, resample=32)
-    brush.paint(canvas, band, collar_col, clip=clip, alpha=0.98, soft=0.35)
-    brush.paint(canvas, band.outline(lw * 0.42), h.cloth_line, clip=clip,
-                alpha=0.55, soft=0.25)
-    brush.paint(canvas, S.lock([(p[0], p[1] + 0.007) for p in band_spine],
-                               w0=0.003, w1=0.003, bulge=0.002,
-                               per_segment=6, resample=32),
-                h.cloth_hi, clip=clip, alpha=0.38, soft=0.6)
+        # The collar band: a strip that runs up the sides of the neck and closes at
+        # the throat.  This is the line that has to *follow* the opening.  The old
+        # flat stand crossed the throat; a band along the V reads as a collar and
+        # lets the shirt's own edge hide behind it.
+        band_spine = [(-x0 * 0.98, top + 0.050),
+                      (0.0, top - depth * point_drop + 0.010),
+                      (x0 * 0.98, top + 0.050)]
+        band = S.lock(band_spine, w0=0.020, w1=0.020, bulge=0.009,
+                      per_segment=6, resample=32)
+        brush.paint(canvas, band, collar_col, clip=clip, alpha=0.98, soft=0.35)
+        brush.paint(canvas, band.outline(lw * 0.42), h.cloth_line, clip=clip,
+                    alpha=0.55, soft=0.25)
+        brush.paint(canvas, S.lock([(p[0], p[1] + 0.007) for p in band_spine],
+                                   w0=0.003, w1=0.003, bulge=0.002,
+                                   per_segment=6, resample=32),
+                    h.cloth_hi, clip=clip, alpha=0.38, soft=0.6)
 
-    # The notch between the two collar points: a small dark wedge, not a gap
-    # all the way down to the placket.
-    notch_y = top - depth * point_drop + 0.012
-    notch = S.poly([(-0.011, notch_y + 0.010), (0.0, notch_y - 0.004),
-                    (0.011, notch_y + 0.010)], resample=18)
-    brush.paint(canvas, notch, h.cloth_shadow, alpha=0.62, soft=0.5)
+        # The notch between the two collar points: a small dark wedge, not a gap
+        # all the way down to the placket.
+        notch_y = top - depth * point_drop + 0.012
+        notch = S.poly([(-0.011, notch_y + 0.010), (0.0, notch_y - 0.004),
+                        (0.011, notch_y + 0.010)], resample=18)
+        brush.paint(canvas, notch, h.cloth_shadow, alpha=0.62, soft=0.5)
 
     # A short placket begins at the bottom of the V and runs down the chest.  It
     # is the one seam a collared shirt is allowed to have here, and it must start
-    # *below* the collar rather than run through it.
-    placket_top = top - depth * point_drop - 0.006
-    placket_bottom = placket_top - 0.120
+    # *below* the collar rather than run through it.  A tunic closes higher, so
+    # its button front begins at the stand collar's lower edge.
+    if attire == "civil":
+        placket_top = top - depth * point_drop - 0.006
+    else:
+        placket_top = top + 0.004
+    placket_bottom = placket_top - (0.120 if attire == "civil" else 0.165)
     placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
                      w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
     brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.40, soft=0.8)
@@ -795,9 +811,18 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         brush.paint(canvas, seam, h.cloth_line, clip=clip, alpha=0.28, soft=0.7)
 
     # Fastenings: a clasp for the cultures that pin a collar, buttons for the
-    # others.  Both are deliberately small; the bust should not become a costume
-    # diagram.
-    if culture in ("north", "steppe", "coast"):
+    # others.  A service tunic always buttons, and a tunic front has more than a
+    # shirt's two.  The fastenings stay deliberately small; the bust should not
+    # become a costume diagram.
+    if attire != "civil":
+        count = {"naval": 0, "clerical": 1}.get(attire, 4)
+        for k in range(count):
+            y = placket_top - 0.026 - 0.046 * k
+            brush.paint(canvas, S.circle(0.0085, 0.0, y), h.metal, clip=clip,
+                        alpha=0.88, soft=0.28)
+            brush.paint(canvas, S.circle(0.0085, 0.0, y).outline(0.0024),
+                        h.cloth_line, clip=clip, alpha=0.52, soft=0.2)
+    elif culture in ("north", "steppe", "coast"):
         y = placket_top - 0.020
         disc = S.circle(0.014, 0.0, y)
         brush.paint(canvas, disc, h.metal, clip=clip, alpha=0.92, soft=0.2)
@@ -813,8 +838,9 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                         h.cloth_line, clip=clip, alpha=0.55, soft=0.2)
 
     # A row of tiny embroidered diamonds under the collar, in the culture's
-    # accent.  Three is enough to read as a border at 256 px.
-    if culture in ("steppe", "desert", "highland"):
+    # accent.  Three is enough to read as a border at 256 px.  Service dress has
+    # its own marks, so the folk border belongs to civilian clothing only.
+    if attire == "civil" and culture in ("steppe", "desert", "highland"):
         y = top - 0.175
         for k in (-1, 0, 1):
             x = k * nw * 0.55
@@ -884,12 +910,12 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
     # kept light and feathered -- a full-weight, opaque hairline is what made the
     # styles read as a hard helmet -- and a soft tone just outside the mass breaks
     # the boundary into the background.
-    lw = float(st.ink_w) * float(st.line) * 0.72
+    lw = float(st.ink_w) * float(st.line) * 0.66
     outline = brush.Surface(canvas, front, pad=3.2 * lw)
     outline.stroke(canvas, lw, palette.mix(h.line_hair, h.hair_shadow, 0.30),
-                   inset=lw * 0.42, alpha=0.46, soft=0.9)
-    feather = np.clip(render.gaussian_blur(mask, 2.2) - mask, 0.0, 1.0)
-    canvas.over(palette.srgb_to_linear(h.hair_shadow), feather * 0.16)
+                   inset=lw * 0.42, alpha=0.38, soft=1.1)
+    feather = np.clip(render.gaussian_blur(mask, 2.6) - mask, 0.0, 1.0)
+    canvas.over(palette.srgb_to_linear(h.hair_shadow), feather * 0.13)
 
     # A few hairs at the hairline and outside the silhouette.  They are kept
     # sparse on purpose: a rim of them is a haircut, a fringe of them is a mop.

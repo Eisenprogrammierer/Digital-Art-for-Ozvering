@@ -84,6 +84,7 @@ from gen.textures import wang as tex_wang  # noqa: E402
 from gen.portraits import demography as portrait_demography  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import phenotype as portrait_phenotype  # noqa: E402
+from gen.portraits import regalia as portrait_regalia  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as portrait_style  # noqa: E402
 from gen.ui import frame as ui_frame  # noqa: E402
@@ -977,14 +978,16 @@ def _apply_overrides(genes: dict, overrides: dict | None) -> dict:
 
 def _phenotype_overrides(args) -> dict:
     """The curated phenotype flags plus every ``--gene`` pair, as one dict."""
-    out = {key: getattr(args, key) for key in portrait_phenotype.CATEGORIES
+    keys = (*portrait_phenotype.CATEGORIES, *portrait_regalia.CATEGORIES)
+    out = {key: getattr(args, key) for key in keys
            if getattr(args, key, None) is not None}
     out.update(_parse_gene_pairs(getattr(args, "gene", None)))
     return out
 
 
 def _add_phenotype_args(parser) -> None:
-    for key, choices in portrait_phenotype.CATEGORIES.items():
+    for key, choices in (*portrait_phenotype.CATEGORIES.items(),
+                         *portrait_regalia.CATEGORIES.items()):
         parser.add_argument("--" + key.replace("_", "-"), default=None,
                             choices=list(choices), help=f"{key.replace('_', ' ')} family")
     parser.add_argument("--gene", action="append", default=[], metavar="KEY=VALUE",

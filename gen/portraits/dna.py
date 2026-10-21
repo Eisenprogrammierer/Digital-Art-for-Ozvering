@@ -25,12 +25,12 @@ import numpy as np
 
 from core import palette
 
-from . import demography, phenotype
+from . import demography, phenotype, regalia
 from . import style as style_mod
 
 __all__ = [
     "GENES", "CATEGORICAL", "LEGACY_CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
-    "DEMOGRAPHIC", "MORPH", "PIGMENT", "PHENOTYPE_CATEGORIES",
+    "DEMOGRAPHIC", "MORPH", "PIGMENT", "PHENOTYPE_CATEGORIES", "REGALIA_CATEGORIES",
     "random_genes", "quantise", "encode", "decode", "breed", "mutate",
     "apply_to", "describe", "EXPRESSIONS", "HAIR_STYLES",
 ]
@@ -61,13 +61,16 @@ SHAPE_GENES = (
 #: gene is still required.
 DEMOGRAPHIC = ("sex", "age", "climate", "culture")
 PHENOTYPE_CATEGORIES = tuple(phenotype.CATEGORIES)
+REGALIA_CATEGORIES = tuple(regalia.CATEGORIES)
 MORPH = phenotype.MORPH
 PIGMENT = phenotype.PIGMENT
-CATEGORICAL = LEGACY_CATEGORICAL + PHENOTYPE_CATEGORIES
+CATEGORICAL = LEGACY_CATEGORICAL + PHENOTYPE_CATEGORIES + REGALIA_CATEGORIES
 #: Appended order is the compatibility contract: the first four groups are the
-#: old genome, and every new gene after them is optional when decoding.
+#: old genome, and every new gene after them is optional when decoding.  The
+#: regalia layer is the newest and therefore last: an old string has no outfit
+#: and decodes to civilian dress.
 GENES = (LEGACY_CATEGORICAL + COLOUR_GENES + SHAPE_GENES + DEMOGRAPHIC
-         + PHENOTYPE_CATEGORIES + MORPH + PIGMENT)
+         + PHENOTYPE_CATEGORIES + MORPH + PIGMENT + REGALIA_CATEGORIES)
 
 #: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
 _SHAPE_MODS = {
@@ -244,6 +247,24 @@ def random_genes(seed=0) -> dict:
     # the sex and age it reads.
     if g["sex"] != "male" or g["age"] == "child":
         g["facial_hair"] = "none"
+    # The outfit is a state, not a face: it is drawn after every phenotype gene so
+    # an old seed keeps every face it had.  The gates are the ones a dress code
+    # actually has -- a child is not decorated, and a civilian shirt has no collar
+    # tabs or shoulder boards -- while an explicit saved genome may still ask for
+    # any combination and the painter will honour it.
+    g.update(regalia.random_values(rng))
+    if g["age"] == "child":
+        g["awards"] = "none"
+        g["insignia"] = "none"
+        if g["ornament"] == "aiguillette":
+            g["ornament"] = "none"
+    if g["attire"] == "civil":
+        g["insignia"] = "none"
+        if g["ornament"] == "aiguillette":
+            g["ornament"] = "chain"
+    if g["attire"] == "clerical":
+        g["insignia"] = "none"
+        g["awards"] = "none"
     return g
 
 
@@ -260,7 +281,13 @@ def encode(genes: dict) -> str:
 
 
 def decode(text: str) -> dict:
-    """Parse :func:`encode`; every unknown or missing key is an error, not a guess."""
+    """Parse :func:`encode`; unknown keys are errors, the optional tails default.
+
+    The legacy genes and the four base colours are mandatory, because a string
+    missing one of them is a damaged genome rather than an old one.  Every gene
+    appended after them -- demographic, phenotype, outfit -- may be absent, and a
+    save from before that layer existed still decodes to a complete portrait.
+    """
     out = {}
     for item in str(text).strip().split(";"):
         if not item:
@@ -287,6 +314,8 @@ def decode(text: str) -> dict:
         out.setdefault(key, value)
     for key, value in phenotype.DEFAULTS.items():
         out.setdefault(key, value)
+    for key, value in regalia.DEFAULTS.items():
+        out.setdefault(key, value)
     if out["style"] not in style_mod.names():
         raise ValueError(f"unknown style {out['style']!r}")
     if out["hair_style"] not in HAIR_STYLES:
@@ -302,6 +331,7 @@ def decode(text: str) -> dict:
     if out["culture"] not in demography.CULTURES:
         raise ValueError(f"unknown culture {out['culture']!r}")
     phenotype.validate(out)
+    regalia.validate(out)
     return out
 
 
@@ -361,6 +391,8 @@ def mutate(genes: dict, seed=0, amount: float = 0.30, rate: float = 0.35) -> dic
                 pool = HAIR_STYLES
             elif key == "expression":
                 pool = EXPRESSIONS
+            elif key in regalia.CATEGORIES:
+                pool = regalia.CATEGORIES[key]
             else:
                 pool = phenotype.CATEGORIES[key]
             out[key] = str(rng.choice(pool))
@@ -519,6 +551,11 @@ def describe(genes: dict) -> str:
     nose = genes.get("nose_shape", phenotype.DEFAULTS["nose_shape"])
     facial = genes.get("facial_hair", phenotype.CATEGORY_DEFAULTS["facial_hair"])
     facial = "" if facial == "none" else f" \u00b7 {facial.replace('_', ' ')}"
+    attire = genes.get("attire", regalia.DEFAULTS["attire"])
+    awards = genes.get("awards", regalia.DEFAULTS["awards"])
+    dress = "" if attire == "civil" else f" \u00b7 {attire}"
+    if awards != "none":
+        dress += f" ({awards})"
     return (
         f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
         f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
@@ -526,7 +563,7 @@ def describe(genes: dict) -> str:
         f" \u00b7 {genes.get('sex', demography.DEFAULTS['sex'])}"
         f" {genes.get('age', demography.DEFAULTS['age'])}"
         f" \u00b7 {genes.get('climate', demography.DEFAULTS['climate'])}"
-        f" \u00b7 {genes.get('culture', demography.DEFAULTS['culture'])}"
+        f" \u00b7 {genes.get('culture', demography.DEFAULTS['culture'])}{dress}"
         f" \u00b7 {genes['expression']}"
     )
 

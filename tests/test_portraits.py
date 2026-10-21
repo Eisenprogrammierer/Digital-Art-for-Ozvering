@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import palette  # noqa: E402
 from gen.portraits import cel, demography, dna, expression, face, hair, head, hues, eyes  # noqa: E402
 from gen.portraits import phenotype  # noqa: E402
+from gen.portraits import regalia  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
 from gen.portraits import style as style_mod  # noqa: E402
 from gen.portraits.shape import Shape  # noqa: E402
@@ -829,11 +830,13 @@ def test_old_genomes_default_the_demographic_and_phenotype_genes():
     truncated string still loses a leg, so the legacy genes stay mandatory.
     """
     g = dna.random_genes(21)
-    optional = set(dna.DEMOGRAPHIC) | set(dna.PHENOTYPE_CATEGORIES) | set(dna.MORPH) | set(dna.PIGMENT)
+    optional = (set(dna.DEMOGRAPHIC) | set(dna.PHENOTYPE_CATEGORIES) | set(dna.MORPH)
+                | set(dna.PIGMENT) | set(dna.REGALIA_CATEGORIES))
     old = ";".join(item for item in dna.encode(g).split(";")
                    if item.partition("=")[0] not in optional)
     out = dna.decode(old)
-    for key, value in {**demography.DEFAULTS, **dna.phenotype.DEFAULTS}.items():
+    for key, value in {**demography.DEFAULTS, **dna.phenotype.DEFAULTS,
+                       **regalia.DEFAULTS}.items():
         assert out[key] == value, f"{key} did not default"
     text = dna.encode(out)
     assert [item.partition("=")[0] for item in text.split(";")] == list(dna.GENES)
@@ -1137,6 +1140,90 @@ def test_facial_hair_is_gated_on_the_sitter():
     clean = painted(dict(base, sex="male", age="adult", facial_hair="none"))
     bearded = painted(dict(base, sex="male", age="adult", facial_hair="full_beard"))
     assert clean != bearded, "an adult man's beard never reached the canvas"
+
+
+# ------------------------------------------------------------------ regalia
+def test_the_outfit_is_an_optional_tail_of_the_wire_format():
+    """An old dynasty string has no outfit and must decode to civilian dress.
+
+    The legacy genes stay mandatory -- the outfit is an appended layer, not a
+    replacement for the face -- so this removes only the regalia keys.
+    """
+    g = dna.random_genes(21)
+    optional = set(dna.REGALIA_CATEGORIES)
+    old = ";".join(item for item in dna.encode(g).split(";")
+                   if item.partition("=")[0] not in optional)
+    out = dna.decode(old)
+    for key, value in regalia.DEFAULTS.items():
+        assert out[key] == value, f"{key} did not default to {value!r}"
+    tail = [item.partition("=")[0] for item in dna.encode(out).split(";")]
+    assert tail[-len(dna.REGALIA_CATEGORIES):] == list(dna.REGALIA_CATEGORIES)
+
+
+def test_regalia_categories_are_inherited_as_categories():
+    for seed in range(30):
+        a, b = dna.random_genes(seed), dna.random_genes(seed + 900)
+        child = dna.breed(a, b, seed=seed)
+        for key in dna.REGALIA_CATEGORIES:
+            assert child[key] in (a[key], b[key]), f"{key} was not inherited as a category"
+
+
+def test_every_dress_code_reaches_the_pixels():
+    """A dress code is a collar and a cloth colour, not a label on the genome."""
+    base = _neutral_phenotype(_genes(7))
+    base.update(sex="female", age="adult", insignia="none", awards="none",
+                ornament="none", faith="none")
+    hashes = {name: _hash(portraitlib.render(dict(base, attire=name), size=96))
+              for name in regalia.ATTIRE}
+    assert len(set(hashes.values())) == len(hashes), "the dress codes share a picture"
+    again = _hash(portraitlib.render(dict(base, attire="military"), size=96))
+    assert again == hashes["military"], "the dress code is not deterministic"
+
+
+def test_insignia_awards_and_faith_reach_the_pixels():
+    """The marks are geometry, so each family must change the bust."""
+    base = _neutral_phenotype(_genes(44))
+    base.update(sex="female", age="adult", attire="military", ornament="none",
+                faith="none", awards="none", insignia="none")
+    for key, values in (("insignia", regalia.INSIGNIA),
+                        ("awards", regalia.AWARDS),
+                        ("faith", regalia.FAITH)):
+        hashes = {value: _hash(portraitlib.render(dict(base, **{key: value}), size=112))
+                  for value in values}
+        assert len(set(hashes.values())) == len(hashes), f"{key} values are only labels"
+
+
+def test_earrings_are_painted_on_the_ear_before_the_hair():
+    """Earrings are the one ornament the hair may legitimately hide.
+
+    Painting them in the bust pass would draw them through a bob; painting them
+    on the ear and letting the front hair cover the ear is the correct order.
+    This drives the ear pass directly, so a hairstyle cannot confuse the test.
+    """
+    base = _neutral_phenotype(_genes(63))
+    base.update(sex="female", age="adult", attire="civil")
+
+    def ears(ornament: str) -> str:
+        genes = dict(base, ornament=ornament)
+        c = portraitlib.canvas(96, background=(0.9, 0.9, 0.9))
+        st = _style(genes)
+        h = hues.from_genes(genes)
+        regalia.paint_ears(c, st, h, genes, 0.0, None)
+        return _hash(c)
+
+    assert ears("none") != ears("earrings"), "the earring never reached the ear"
+
+
+def test_regalia_is_gated_on_the_sitter():
+    """A child is not decorated, a civilian shirt has no boards, clergy no medals."""
+    for seed in range(120):
+        g = dna.random_genes(seed)
+        if g["age"] == "child":
+            assert g["awards"] == "none" and g["insignia"] == "none", f"seed {seed}"
+        if g["attire"] == "civil":
+            assert g["insignia"] == "none", f"seed {seed}"
+        if g["attire"] == "clerical":
+            assert g["awards"] == "none" and g["insignia"] == "none", f"seed {seed}"
 
 
 if __name__ == "__main__":

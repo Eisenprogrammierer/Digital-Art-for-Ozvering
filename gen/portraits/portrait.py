@@ -41,7 +41,7 @@ import numpy as np
 from core.canvas import Canvas
 from core import palette
 
-from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues
+from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues, regalia
 from . import style as style_mod
 from .shape import union_all
 
@@ -113,6 +113,8 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     """
     st = dna.apply_to(style_mod.get(genes["style"]), genes)
     h = hues.from_genes(genes)
+    kit = regalia.build(genes, h)
+    dh = regalia.dress(kit, h)
     expr_name = genes["expression"] if expression_name is None else expression_name
     expr = expression.get(expr_name)
     fst = expression.warp(st, expr)
@@ -149,13 +151,14 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     brush.paint_cov(c, cast, h.skin_deep, soft=1.2, alpha=0.80)
 
     bust = brush.Surface(c, head.shoulders(st))
-    bust.paint(c, h.cloth)
-    bust.bands(c, [h.cloth_shadow], (0.40,), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
+    bust.paint(c, dh.cloth)
+    bust.bands(c, [dh.cloth_shadow], (0.40,), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
                bevel=0.05, soft=1.8)
-    bust.stroke(c, st.ink_w * st.line * 0.85, h.cloth_line, inset=st.ink_w * st.line * 0.42)
+    bust.stroke(c, st.ink_w * st.line * 0.85, dh.cloth_line, inset=st.ink_w * st.line * 0.42)
     neck_kind = demography.collar(genes)
     bust_cov = bust.full_coverage(c)
-    detail.paint_bust(c, st, h, genes, neck_kind, bust_cov)
+    detail.paint_bust(c, st, dh, genes, neck_kind, bust_cov)
+    regalia.paint_bust(c, st, dh, genes, kit, neck_kind, bust_cov)
 
     # The locks rooted at the temples hang in front of the shoulder and behind
     # the jaw, so they belong between the body and the head.
@@ -166,17 +169,18 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),
                      bevel=0.055, soft=1.6)
     face.paint_ears(c, st, h, turn, clip=skull)
+    regalia.paint_ears(c, st, h, genes, turn, skull)
     detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
     lw = st.ink_w * st.line
     # The outer contour is the one line the eye traces first, so a hard, opaque,
     # full-weight stroke turns the whole head into a cut-out sticker.  It is drawn
     # a little lighter than the features, in a softened ink, and feathered, so the
     # silhouette reads as a surface meeting the light rather than as a border.
-    skull_surf.stroke(c, lw * 0.90,
-                      palette.mix(h.line, h.line_soft, 0.35),
-                      inset=lw * 0.42,
+    skull_surf.stroke(c, lw * 0.86,
+                      palette.mix(h.line, h.line_soft, 0.45),
+                      inset=lw * 0.45,
                       taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34),
-                      alpha=0.72, soft=0.55)
+                      alpha=0.60, soft=0.85)
     detail.paint_facial_hair(c, st, h, genes, turn, skull_cov, rng)
     face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 

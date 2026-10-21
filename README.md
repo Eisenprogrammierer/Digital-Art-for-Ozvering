@@ -92,6 +92,7 @@ python cli.py factions --name "Kingdom of Alder"       # a name, its coat and it
 python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portrait   --seed 5 --sex female --age elder --climate arid --out out/one.png
+python cli.py portrait   --seed 7 --sex male --attire military --insignia both --awards medal --out out/colonel.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py portraits  --seed 7 --count 8 --sex male --age middle
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
@@ -114,7 +115,7 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 47 tests
+python tests/test_portraits.py                  # 59 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
@@ -1072,6 +1073,38 @@ holds it still and asserts that collar, cloth, trim and hair grooming differ whi
 the face signature does not. The colour-script and age-greying tests pin
 `climate="temperate"`, because a non-temperate climate is now *supposed* to shift
 the base colours.
+
+### The outfit is a second heritable layer
+
+Clothing is a state, not a face, so it lives in its own module and its own tail of
+the wire format. `gen/portraits/regalia.py` adds five categorical genes:
+
+* `attire` -- `civil`, `military`, `police`, `naval`, `ceremonial` or `clerical`.
+  A service dress replaces the civilian shirt collar with a stand collar and the
+  whole bust with the service cloth; `clerical` is a white Roman collar with a
+  black tab; `naval` adds a double-breasted button front; `ceremonial` adds a sash.
+* `insignia` -- `none`, `collar`, `shoulder` or `both`: collar tabs (петлицы) and
+  shoulder boards (погоны), with the rank stars derived from the decorations.
+* `awards` -- `none`, `ribbon`, `medal`, `order` or `armband`: a ribbon bar, two
+  medals, an order sash with an eight-point breast star, or a brassard on the
+  visible upper arm.
+* `ornament` -- `none`, `aiguillette`, `chain`, `brooch` or `earrings`: a braided
+  shoulder cord, a pocket-watch chain, a jewelled pin, or a hoop and drop on the
+  earlobe (painted on the ear, under the front hair).
+* `faith` -- `none`, `cross` or `amulet`: a pendant, metal or bone, on a chain or
+  a cord.
+
+The painter is still geometry: a medal is a disc, a ribbon is a rectangle, a star
+is eight points, an aiguillette is three parallel tapered locks. Every mark is
+clipped to the thing it sits on -- the bust, the collar, the skull -- so a
+decoration cannot float in the background or move a feature. Service colours are a
+mix of a fixed dress colour and the sitter's own `cloth` gene, so a regiment has a
+uniform without every soldier sharing the same fabric; the branch colour comes from
+the culture gene. The layer is append-only and drawn after the phenotype layer, so
+an old string decodes to civilian dress, and a generated genome is gated like a
+real dress code: a child is not decorated, a civilian shirt has no boards, and a
+Roman collar has no collar tabs. Forcing a gene can still produce a deliberate
+combination.
 
 ### What the tests hold down
 

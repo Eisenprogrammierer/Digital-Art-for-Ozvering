@@ -355,11 +355,39 @@ from their table. `facial_hair` is a paint pattern rather than a shape: it is la
 over the jaw, chin and upper lip, and it is gated on the sitter -- an adult who
 is not female draws it, a woman or a child renders as if the gene said `none`.
 
+The outfit is a second, independent layer. `gen/portraits/regalia.py` adds five
+categorical genes, all appended after the phenotype layer:
+
+| gene | values | what it draws |
+| --- | --- | --- |
+| `--attire` | `civil`, `military`, `police`, `naval`, `ceremonial`, `clerical` | The dress code. A service dress replaces the shirt collar with a stand collar and the cloth with the service colour; `clerical` is a white Roman collar with a black tab; `naval` adds a double-breasted button front; `ceremonial` adds a sash and a breast star. |
+| `--insignia` | `none`, `collar`, `shoulder`, `both` | Collar tabs and shoulder boards, with rank stars derived from the awards. |
+| `--awards` | `none`, `ribbon`, `medal`, `order`, `armband` | A ribbon bar, two medals, an order sash with an eight-point star, or a brassard on the visible upper arm. |
+| `--ornament` | `none`, `aiguillette`, `chain`, `brooch`, `earrings` | A braided shoulder cord, a pocket-watch chain, a jewelled pin, or an earlobe hoop with a drop. |
+| `--faith` | `none`, `cross`, `amulet` | A metal cross or a bone-disc amulet on a chain or cord. |
+
+Every mark is geometry clipped to the bust, the collar or the skull, so a medal is
+a disc and a star is eight points, not a texture. Service colour is a mix of a
+fixed dress colour and the sitter's own `cloth` gene, so a regiment shares a
+uniform without sharing one fabric; the branch colour comes from `culture`. The
+gates are part of generation: a child gets no awards or insignia, a civilian shirt
+gets no boards, and a Roman collar gets no tabs. Force the genes when you want a
+deliberate exception:
+
+```bash
+python cli.py portrait --out out/colonel.png --seed 7 --sex male --age middle \
+                        --attire military --insignia both --awards medal
+python cli.py portrait --out out/priest.png --seed 7 \
+                        --attire clerical --faith cross
+python cli.py portrait --out out/decorated.png --seed 7 \
+                        --attire civil --awards ribbon --ornament chain --faith amulet
+```
+
 `--gene KEY=VALUE` pins any genome axis, including the older shape and colour genes;
 repeat it for more than one. A DNA string written before the phenotype genes existed
-still loads: missing demographic and phenotype genes take their documented defaults,
-while a missing shape or colour gene is still an error. The new genes are appended to
-the wire format, not inserted, so a saved dynasty keeps its order.
+still loads: missing demographic, phenotype and outfit genes take their documented
+defaults, while a missing shape or colour gene is still an error. The new genes are
+appended to the wire format, not inserted, so a saved dynasty keeps its order.
 
 Portrait proportions are guarded rather than left to independent sliders. Eye width
 is capped at half the skull width, half the cheekbone width and `1.28` times the
