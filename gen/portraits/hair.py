@@ -64,24 +64,24 @@ _CULTURE_HAIR = {
 #: Per-hairstyle parameters.  ``drop`` values are in head units, measured down
 #: from the root; a drop of 1.0 hangs a full head height below the crown.
 HAIR_STYLES = {
-    "short":  dict(vol=0.072, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.220, sdrop=0.300, near=False,
+    "short":  dict(vol=0.058, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.220, sdrop=0.300, near=False,
                    back=8, kw=0.300, kdrop=0.180, crest=0, spike=0, cap_r=2.40, flare=1.02),
-    "bob":    dict(vol=0.084, bangs=7, bw=0.260, blen=0.75, sides=3, sw=0.290, sdrop=0.620,
+    "bob":    dict(vol=0.078, bangs=7, bw=0.260, blen=0.75, sides=3, sw=0.290, sdrop=0.620,
                    back=9, kw=0.345, kdrop=0.740, crest=0, spike=0, cap_r=1.70, flare=1.18),
-    "long":   dict(vol=0.094, bangs=7, bw=0.275, blen=0.60, sides=3, sw=0.260, sdrop=1.250,
+    "long":   dict(vol=0.090, bangs=7, bw=0.275, blen=0.60, sides=3, sw=0.260, sdrop=1.250,
                    back=10, kw=0.360, kdrop=1.100, crest=0, spike=0, cap_r=1.25, flare=1.36),
-    "hime":   dict(vol=0.084, bangs=9, bw=0.240, blen=0.82, sides=3, sw=0.270, sdrop=1.150,
+    "hime":   dict(vol=0.080, bangs=9, bw=0.240, blen=0.82, sides=3, sw=0.270, sdrop=1.150,
                    back=10, kw=0.350, kdrop=1.000, crest=0, spike=0, cap_r=1.30, flare=1.30,
                    straight=True),
-    "twin":   dict(vol=0.084, bangs=7, bw=0.245, blen=0.65, sides=0, sw=0.270, sdrop=0.900, near=False,
+    "twin":   dict(vol=0.076, bangs=7, bw=0.245, blen=0.65, sides=0, sw=0.270, sdrop=0.900, near=False,
                    back=9, kw=0.320, kdrop=0.240, crest=0, spike=0, cap_r=1.60, flare=1.10,
                    twin=2),
-    "pony":   dict(vol=0.080, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.260, sdrop=0.450, near=False,
+    "pony":   dict(vol=0.068, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.260, sdrop=0.450, near=False,
                    back=8, kw=0.310, kdrop=0.200, crest=1, spike=0, cap_r=2.20, flare=1.04),
-    "spiky":  dict(vol=0.066, bangs=8, bw=0.215, blen=0.30, sides=0, sw=0.220, sdrop=0.320, near=False,
+    "spiky":  dict(vol=0.054, bangs=8, bw=0.215, blen=0.30, sides=0, sw=0.220, sdrop=0.320, near=False,
                    back=8, kw=0.300, kdrop=0.170, crest=0, spike=6, cap_r=2.00, flare=1.04,
                    sl=0.100),
-    "wild":   dict(vol=0.092, bangs=8, bw=0.215, blen=0.45, sides=0, sw=0.260, sdrop=0.520, near=False,
+    "wild":   dict(vol=0.080, bangs=8, bw=0.215, blen=0.45, sides=0, sw=0.260, sdrop=0.520, near=False,
                    back=9, kw=0.315, kdrop=0.220, crest=0, spike=8, cap_r=1.45, flare=1.08,
                    sl=0.130),
 }
@@ -280,7 +280,7 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
             edge = 1.0 - 0.18 * abs(uu - 0.5) * 2.0
             # A combed fringe has uneven ends; a row of identical tips is a
             # sawtooth, but a row of identical *lengths* is a bowl.
-            jitter, tip_w = float(rng.uniform(0.72, 1.30)), 0.0
+            jitter, tip_w = float(rng.uniform(0.60, 1.35)), 0.0
         sweep = float(np.clip((uu - part_u) * 2.20, -0.85, 0.85))
         # The fringe stops *above* the brow.  A swept fringe should leave one
         # side of the forehead visible and cross the other side diagonally; a
@@ -303,6 +303,13 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
         # temples and reads as the same curtain with a notch in it.
         longness = sweep if part_u < 0.5 else -sweep
         local_fill = fill if straight else float(np.clip(fill + 0.60 * longness, 0.08, 0.98))
+        if not straight:
+            # A layered fringe: alternate clumps are cut to different hems, so the
+            # bottom edge is a series of steps.  Without this every clump lands in
+            # the same narrow band (the brow ceiling) and the row reads as a level
+            # curtain however uneven the jitter is.
+            tier = 1.0 if i % 2 == 0 else 0.34
+            local_fill = float(np.clip(local_fill * 0.55 + tier * 0.45, 0.08, 0.98))
         length = (short + (long - short) * local_fill) * jitter * edge
         # Even a full fringe is allowed to sit near the brow, never below it.
         length = min(length, max(root[1] - long_y, 0.04))
@@ -311,8 +318,8 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
                         root[1] - length])
         mid = np.array([root[0] * 1.05 + sway * 0.40 + sweep * 0.050,
                         root[1] - length * 0.50])
-        out.append(S.lock([root, mid, tip], w0=bw * float(rng.uniform(1.10, 1.40)),
-                          w1=tip_w, bulge=bw * 0.09, per_segment=7, resample=32))
+        out.append(S.lock([root, mid, tip], w0=bw * float(rng.uniform(0.32, 0.50)),
+                          w1=tip_w, bulge=bw * 0.045, per_segment=7, resample=32))
         roots.append(float(root[1]))
         # Ink is the clump eroded by a hair, not a second spine: the clump's
         # bulge means a straight centre line can leave the silhouette at the tip.
@@ -672,10 +679,21 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
         # bbox[1] is the *lower* edge.  The base must reach behind the whole
         # fringe, stopping just above the longest tips: stopping at the shortest
         # clump left a bolt of forehead skin through the parting.
-        base_bottom = min(float(clump.bbox[1]) for clump in bangs) + 0.015
-        # The base is a filler behind the fringe, not a second fringe.  If it
-        # reaches the brow it restores the bowl even when the clumps themselves
-        # stop well above it.  Only the blunt hime fringe is allowed down there.
+        tips = sorted(float(clump.bbox[1]) for clump in bangs)
+        if p.get("straight"):
+            # A hime cut is blunt on purpose: the base reaches the hem so the row
+            # of clumps reads as one level edge.
+            base_bottom = tips[0] + 0.015
+        else:
+            # Otherwise the base is a *filler behind* the fringe, not a second
+            # fringe: it stops above the longer clumps, so their tips draw a
+            # layered hem.  Reaching the longest tip (as this used to) filled
+            # every notch between two clumps and turned the fringe into a level
+            # slab with its points hidden inside it.
+            base_bottom = float(np.percentile(tips, 70))
+        # The base is a filler behind the fringe.  If it reaches the brow it
+        # restores the bowl even when the clumps stop well above it; only the
+        # blunt hime fringe is allowed down there.
         base_bottom = min(base_bottom, float(st.brow_y) +
                           (0.075 if p.get("straight") else 0.125))
         base_top = hairline + 0.060

@@ -760,3 +760,30 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
                          bulge=0.003, per_segment=4, resample=20)
             brush.paint(canvas, fly, h.hair_fine, clip=outside,
                         alpha=0.30, soft=0.4)
+
+        # The fringe hem is the edge the eye reads first, and a row of clumps
+        # leaves it a clean line.  A few stray hairs falling below the hem break
+        # it without turning into a mop: short, thin, and never below the brow,
+        # so they cannot cross an eye.  Their length follows the hem's own local
+        # height, which is what makes them look grown rather than pasted on.
+        fcov = brush.mask(canvas, hs.front_mass)
+        if fcov.max() > 0.0:
+            Xc, Yc = canvas.grid()
+            floor = float(st.brow_y) + 0.018
+            for i in range(7):
+                u = (i + 0.5) / 7.0
+                x = (u - 0.5) * float(st.head_w) * 1.14
+                col = int(np.argmin(np.abs(Xc[0] - x)))
+                ys = Yc[:, col][fcov[:, col] > 0.40]
+                if ys.size == 0:
+                    continue
+                hem = float(ys.min())
+                if hem < floor + 0.010:
+                    continue
+                tip_y = max(hem - float(rng.uniform(0.022, 0.052)), floor)
+                tip = (x + float(rng.uniform(-0.018, 0.018)), tip_y)
+                wisp = S.lock([(x, hem + 0.006), tip], w0=0.0018, w1=0.0004,
+                              per_segment=3)
+                colour = h.hair_shadow if i % 2 else h.hair_fine
+                brush.paint(canvas, wisp, colour, clip=skull_mask,
+                            alpha=0.34, soft=0.35)
