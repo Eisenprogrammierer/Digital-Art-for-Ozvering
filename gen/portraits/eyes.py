@@ -138,6 +138,23 @@ def shapes(st, expr: dict) -> dict:
         low_lash.append(S.lock([p, p + np.array([0.008, ln])],
                                w0=st.lash * 0.12, w1=0.0, per_segment=3))
 
+    # Two or three conjunctival vessels, kept inside the opening.  They are not
+    # red enough to read as irritation: they are the faint directional grain that
+    # separates a living sclera from a white sticker at 384 px.  The fine lines
+    # run from the corners towards the iris and fade before they reach it.
+    vessels = []
+    for root, tip, bend, width in (
+        (np.array([-hw * 0.88, -down * 0.10]),
+         np.array([-hw * 0.36, -down * 0.42]), down * 0.020, 0.0010),
+        (np.array([hw * 0.90, -down * 0.08]),
+         np.array([hw * 0.42, -down * 0.46]), down * 0.024, 0.0011),
+        (np.array([hw * 0.76, -down * 0.02]),
+         np.array([hw * 0.34, -down * 0.24]), down * 0.016, 0.0007),
+    ):
+        mid = (root + tip) * 0.5 + np.array([bend, -bend * 0.35])
+        vessels.append(S.lock([root, mid, tip], w0=width, w1=0.0,
+                              per_segment=3))
+
     closed = S.lock(S.arc(inner, outer, up * 0.62, 0.5, 14),
                     w0=0.22 * st.lash, w1=0.0, bulge=0.88 * st.lash, per_segment=4)
     closed_crease = S.lock(S.arc(inner + np.array([hw * 0.08, up * 0.32]),
@@ -152,7 +169,7 @@ def shapes(st, expr: dict) -> dict:
         lash=lash, spikes=spikes, lid_line=lid_line, lower_water=lower_water,
         crease=crease, crease_soft=crease_soft, socket=socket,
         inner_shade=inner_shade, outer_shade=outer_shade, tear=tear,
-        lash_fine=lash_fine, low_lash=low_lash,
+        lash_fine=lash_fine, low_lash=low_lash, vessels=vessels,
         closed=closed, closed_crease=closed_crease, up=up, down=down, hw=hw,
     )
 
@@ -251,6 +268,10 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
                 clip=clip, alpha=0.46, soft=1.4)
     brush.paint(canvas, P(g["outer_shade"]) & opening, h.sclera_shadow,
                 clip=clip, alpha=0.38, soft=1.2)
+    for vessel in g["vessels"]:
+        brush.paint(canvas, P(vessel) & opening,
+                    palette.mix(h.sclera_shadow, h.blush, 0.34),
+                    clip=clip, alpha=0.16, soft=0.22)
     iv = G(g["iris_v"]) & opening
     y0, y1 = iv.bbox[1], iv.bbox[3]
     brush.paint(canvas, iv, None, clip=clip,

@@ -77,6 +77,26 @@ function addField(field) {
     node.name = field.name;
     node.rows = 2;
     node.value = field.default || "";
+  } else if (field.type === "color") {
+    const line = el("span", "colorline");
+    const picker = document.createElement("input");
+    picker.type = "color";
+    picker.value = field.default || "#b07a5a";
+    node = document.createElement("input");
+    node.type = "text";
+    node.name = field.name;
+    node.value = field.default || "";
+    node.placeholder = field.optional ? "#rrggbb or empty" : "#rrggbb";
+    picker.addEventListener("input", () => { node.value = picker.value; });
+    node.addEventListener("input", () => {
+      if (/^#[0-9a-f]{6}$/i.test(node.value)) picker.value = node.value;
+    });
+    line.appendChild(picker);
+    line.appendChild(node);
+    wrap.appendChild(line);
+    if (field.help) wrap.appendChild(el("span", "hint", field.help));
+    $("form").appendChild(wrap);
+    return;
   } else if (field.type === "text") {
     node = document.createElement("input");
     node.type = "text";

@@ -59,6 +59,8 @@ from gen.icons import badge as icon_badge  # noqa: E402
 from gen.icons import livery as icon_livery  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
+from gen.wardrobe import awards as wardrobe_awards  # noqa: E402
+from gen.wardrobe import garment as wardrobe_garment  # noqa: E402
 from gen.maps import autotile as map_autotile  # noqa: E402
 from gen.maps import campaign as map_campaign  # noqa: E402
 from gen.maps import grid as map_grid  # noqa: E402
@@ -81,6 +83,7 @@ from gen.textures import reaction as tex_reaction  # noqa: E402
 from gen.textures import tile as tilelib  # noqa: E402
 from gen.textures import truchet as tex_truchet  # noqa: E402
 from gen.textures import wang as tex_wang  # noqa: E402
+from gen.portraits import accessories as portrait_accessories  # noqa: E402
 from gen.portraits import demography as portrait_demography  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import phenotype as portrait_phenotype  # noqa: E402
@@ -507,6 +510,117 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
              ligatures={"".join(parts): ch
                         for ch, parts in text_skeleton.LIGATURES.items()},
              faces=metric)
+    return _report(out)
+
+
+# --------------------------------------------------------------------------
+# wardrobe and decorations: the outfit as an object, not as a bust
+# --------------------------------------------------------------------------
+def _garment_specs(seed: int, count: int, cut=None, pattern=None,
+                   cloth=None, trim=None, metal=None) -> list:
+    pins = {"pattern": pattern, "cloth": cloth, "trim": trim, "metal": metal}
+    pins = {k: v for k, v in pins.items() if v}
+    specs = []
+    if cut is None:
+        base = wardrobe_garment.random_spec(seed)
+        for i, name in enumerate(wardrobe_garment.CUTS):
+            spec = wardrobe_garment.random_spec(seed + i * 17, cut=name)
+            spec.update({k: base[k] for k in ("cloth", "trim", "metal")})
+            spec.update(pins)
+            specs.append(wardrobe_garment.clamp(spec))
+    for i in range(count):
+        spec = wardrobe_garment.random_spec(seed + 101 + i * 23, cut=cut)
+        spec.update(pins)
+        specs.append(wardrobe_garment.clamp(spec))
+    return specs
+
+
+def demo_wardrobe(out: Path, seed: int = 3, count: int = 6, size: int = 256,
+                  cols: int = 5, cut=None, pattern=None, cloth=None,
+                  trim=None, metal=None) -> Path:
+    """A sheet of garment cuts: the canonical set, then seeded variants.
+
+    The canonical row is one wardrobe: the same cloth, trim and metal across every
+    cut, because a set should look like it came from one tailor.  The seeded tiles
+    are the generator: each one draws its own palette, collar and pattern.  Pinning
+    a colour applies it to both blocks, which is how a game gets a faction's coat
+    without abandoning the cut vocabulary.
+    """
+    count = max(1, int(count))
+    specs = _garment_specs(seed, count, cut=cut, pattern=pattern,
+                           cloth=cloth, trim=trim, metal=metal)
+    tiles = []
+    canon = len(wardrobe_garment.CUTS) if cut is None else 0
+    for i, spec in enumerate(specs):
+        label = spec["cut"] if i < canon else f"{spec['cut']} {seed + 101 + (i - canon) * 23}"
+        tiles.append((label, wardrobe_garment.render(spec, size)))
+    canvases = [c for _, c in tiles]
+    # A caption sits under its tile; the gap has to be tall enough for the
+    # caption or the last row's labels are cut off by the sheet's own margin.
+    gap = 26
+    sheet = render.sheet(canvases, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, (label, tile) in enumerate(tiles):
+        tx, ty, _, _ = _grid_pos(canvases, cols, gap, i)
+        _label(img, (tx + 4, ty + tile.h + 3), label)
+    img.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:gen.wardrobe.garment",
+             cuts=list(wardrobe_garment.CUTS),
+             seeded=[seed + 101 + i * 23 for i in range(count)],
+             specs=[wardrobe_garment.clamp(s) for s in specs])
+    return _report(out)
+
+
+def demo_decorations(out: Path, seed: int = 3, count: int = 6, size: int = 256,
+                     cols: int = 5, kind=None, metal=None, motif=None,
+                     bars=None, rosette: bool = False) -> Path:
+    """A sheet of awards: the kind families, then seeded decorations.
+
+    An award is read ribbon first, metal second, motif third.  The canonical set
+    therefore keeps the ribbon and metal constant while the *kind* changes; the
+    seeded block is where the generator varies all three.
+    """
+    count = max(1, int(count))
+    pins = {"metal": metal, "motif": motif}
+    if bars is not None:
+        pins["bars"] = int(bars)
+    if rosette:
+        pins["rosette"] = True
+    pins = {k: v for k, v in pins.items() if v is not None and v != ""}
+    specs = []
+    if kind is None:
+        base = wardrobe_awards.random_spec(seed)
+        for i, name in enumerate(wardrobe_awards.KINDS):
+            spec = wardrobe_awards.random_spec(seed + i * 19, kind=name)
+            spec.update({"ribbon": base["ribbon"], "ribbon2": base["ribbon2"],
+                         "metal": base["metal"]})
+            spec.update(pins)
+            specs.append(wardrobe_awards.clamp(spec))
+    for i in range(count):
+        spec = wardrobe_awards.random_spec(seed + 211 + i * 29, kind=kind)
+        spec.update(pins)
+        specs.append(wardrobe_awards.clamp(spec))
+    tiles = []
+    canon = len(wardrobe_awards.KINDS) if kind is None else 0
+    for i, spec in enumerate(specs):
+        label = spec["kind"] if i < canon else f"{spec['kind']} {seed + 211 + (i - canon) * 29}"
+        tiles.append((label, wardrobe_awards.render(spec, size)))
+    canvases = [c for _, c in tiles]
+    # A caption sits under its tile; the gap has to be tall enough for the
+    # caption or the last row's labels are cut off by the sheet's own margin.
+    gap = 26
+    sheet = render.sheet(canvases, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
+    sheet.save(out)
+    img = png.to_image(sheet)
+    for i, (label, tile) in enumerate(tiles):
+        tx, ty, _, _ = _grid_pos(canvases, cols, gap, i)
+        _label(img, (tx + 4, ty + tile.h + 3), label)
+    img.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:gen.wardrobe.awards",
+             kinds=list(wardrobe_awards.KINDS),
+             seeded=[seed + 211 + i * 29 for i in range(count)],
+             specs=[wardrobe_awards.clamp(s) for s in specs])
     return _report(out)
 
 
@@ -978,18 +1092,34 @@ def _apply_overrides(genes: dict, overrides: dict | None) -> dict:
 
 def _phenotype_overrides(args) -> dict:
     """The curated phenotype flags plus every ``--gene`` pair, as one dict."""
-    keys = (*portrait_phenotype.CATEGORIES, *portrait_regalia.CATEGORIES)
+    keys = (*portrait_phenotype.CATEGORIES, *portrait_regalia.CATEGORIES,
+            *portrait_accessories.CATEGORIES)
     out = {key: getattr(args, key) for key in keys
            if getattr(args, key, None) is not None}
+    for gene, attr in (("skin", "skin_color"), ("hair", "hair_color"),
+                       ("iris", "iris_color"), ("cloth", "cloth_color")):
+        value = getattr(args, attr, None)
+        if value:
+            palette.hex_to_srgb(value)
+            out[gene] = value
     out.update(_parse_gene_pairs(getattr(args, "gene", None)))
     return out
 
 
 def _add_phenotype_args(parser) -> None:
     for key, choices in (*portrait_phenotype.CATEGORIES.items(),
-                         *portrait_regalia.CATEGORIES.items()):
+                         *portrait_regalia.CATEGORIES.items(),
+                         *portrait_accessories.CATEGORIES.items()):
         parser.add_argument("--" + key.replace("_", "-"), default=None,
                             choices=list(choices), help=f"{key.replace('_', ' ')} family")
+    for gene, attr, label in (
+            ("skin", "skin_color", "base skin colour"),
+            ("hair", "hair_color", "base hair colour"),
+            ("iris", "iris_color", "base iris colour"),
+            ("cloth", "cloth_color", "base cloth colour")):
+        parser.add_argument("--" + attr.replace("_", "-"), "--" + attr.replace("_", "-").replace("color", "colour"),
+                            dest=attr, default=None, metavar="#RRGGBB",
+                            help=f"pin the {label} directly")
     parser.add_argument("--gene", action="append", default=[], metavar="KEY=VALUE",
                         help="pin any genome axis, e.g. skin_melanin=-0.4 or face_shape=heart; "
                              "repeat for more than one")
@@ -2197,6 +2327,30 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--name", action="append", default=None,
                    help="a faction name to dress the set in (repeatable)")
 
+    wd = sub.add_parser("wardrobe", help="garment cuts and seeded wardrobe variants")
+    wd.add_argument("--out", default="out/wardrobe.png", type=Path)
+    wd.add_argument("--seed", type=int, default=3)
+    wd.add_argument("--count", type=int, default=6, help="seeded variants after the cut set")
+    wd.add_argument("--size", type=int, default=256)
+    wd.add_argument("--cols", type=int, default=5)
+    wd.add_argument("--cut", default=None, choices=wardrobe_garment.CUTS)
+    wd.add_argument("--pattern", default=None, choices=wardrobe_garment.PATTERNS)
+    wd.add_argument("--cloth", default=None, metavar="#RRGGBB")
+    wd.add_argument("--trim", default=None, metavar="#RRGGBB")
+    wd.add_argument("--metal", default=None, metavar="#RRGGBB")
+
+    dc = sub.add_parser("decorations", help="award families and seeded decorations")
+    dc.add_argument("--out", default="out/decorations.png", type=Path)
+    dc.add_argument("--seed", type=int, default=3)
+    dc.add_argument("--count", type=int, default=6)
+    dc.add_argument("--size", type=int, default=256)
+    dc.add_argument("--cols", type=int, default=5)
+    dc.add_argument("--kind", default=None, choices=wardrobe_awards.KINDS)
+    dc.add_argument("--metal", default=None, choices=wardrobe_awards.METALS)
+    dc.add_argument("--motif", default=None, choices=wardrobe_awards.MOTIFS)
+    dc.add_argument("--bars", type=int, default=None, help="ribbon rack rows (1-4)")
+    dc.add_argument("--rosette", action="store_true")
+
     s = sub.add_parser("shapes", help="reference sheet of SDF primitives")
     s.add_argument("--out", default="out/shapes.png", type=Path)
     s.add_argument("--size", type=int, default=160)
@@ -2413,6 +2567,14 @@ def main(argv=None) -> int:
         demo_icons(args.out, seed=args.seed, count=args.count, size=args.size,
                    cols=args.cols, sweep=_ints(args.sizes), atlas=not args.no_atlas,
                    factions=args.name)
+    elif args.cmd == "wardrobe":
+        demo_wardrobe(args.out, seed=args.seed, count=args.count, size=args.size,
+                      cols=args.cols, cut=args.cut, pattern=args.pattern,
+                      cloth=args.cloth, trim=args.trim, metal=args.metal)
+    elif args.cmd == "decorations":
+        demo_decorations(args.out, seed=args.seed, count=args.count, size=args.size,
+                         cols=args.cols, kind=args.kind, metal=args.metal,
+                         motif=args.motif, bars=args.bars, rosette=args.rosette)
     elif args.cmd == "shapes":
         demo_shapes(args.out, size=args.size, cols=args.cols)
     elif args.cmd == "texture":

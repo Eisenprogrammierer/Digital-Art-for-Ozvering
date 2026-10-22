@@ -351,3 +351,15 @@ footer {
   header { align-items: flex-start; flex-direction: column; }
   .header-note { text-align: left; }
 }
+
+.colorline { display: flex; align-items: stretch; gap: 0.4rem; }
+.colorline input[type="color"] {
+  width: 2.6rem;
+  min-width: 2.6rem;
+  padding: 0.18rem;
+  background: #121418;
+  border: 1px solid #343941;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.colorline input[type="text"] { flex: 1; min-width: 0; }

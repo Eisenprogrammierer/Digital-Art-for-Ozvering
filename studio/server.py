@@ -132,6 +132,12 @@ def _value(field: dict, raw):
         if any(ord(ch) < 32 and ch not in "\n\t" for ch in text):
             raise ValueError(f"{field['label']} has a control character")
         return text
+    if kind == "color":
+        if text == "" and field.get("optional"):
+            return ""
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", text):
+            raise ValueError(f"{field['label']} is a colour like #aabbcc")
+        return text
     raise ValueError(f"unknown field type: {kind}")
 
 

@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
-from gen.portraits import cel, demography, dna, expression, face, garments, hair, head, hues, eyes, humanize  # noqa: E402
+from gen.portraits import accessories, cel, demography, dna, expression, face, garments, hair, head, hues, eyes, humanize  # noqa: E402
 from gen.portraits import phenotype  # noqa: E402
 from gen.portraits import regalia  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
@@ -152,7 +152,8 @@ def test_breeding_produces_a_valid_genome():
         # the child's own wire format allows.
         for key in dna.SHAPE_GENES + dna.MORPH + dna.PIGMENT:
             assert -1.0 <= child[key] <= 1.0
-        for key in dna.PHENOTYPE_CATEGORIES:
+        for key in (*dna.PHENOTYPE_CATEGORIES, *dna.REGALIA_CATEGORIES,
+                    *dna.ACCESSORY_CATEGORIES):
             assert child[key] in (a[key], b[key]), f"{key} was not inherited as a category"
 
 
@@ -190,6 +191,7 @@ def test_face_seed_is_independent_of_the_outfit_and_mood():
         dict(g, hair_style="long"),
         dict(g, hair_volume=0.42, fringe_length=-0.30),
         dict(g, hair_gloss=0.40, facial_hair="beard"),
+        dict(g, eyewear="monocle", scar="cheek"),
     )
     for variant in variants:
         assert dna.face_seed(variant) == seed, "the outfit or mood reseeded the face"
@@ -246,6 +248,104 @@ def test_adult_proportions_leave_the_doll_face_behind():
     assert adult.jaw_w > child.jaw_w
     assert adult.chin_w > child.chin_w
     assert adult.neck_w > child.neck_w
+
+
+def test_adult_sexes_differ_in_more_than_the_jaw():
+    """A male and a female adult of the same genome must read as two people.
+
+    The old deltas moved the jaw and the neck by a few thousandths and left the
+    eyes, the lower face, the brow and the shoulder line almost untouched.  The
+    pair now moves the whole head: a longer male lower face, a shorter female one,
+    larger female eyes, a fuller female mouth and a stronger male neck/shoulder.
+    """
+    base = _genes(7, sex="male", age="adult")
+    male = _style(dict(base, sex="male"))
+    female = _style(dict(base, sex="female"))
+    assert male.jaw_w > female.jaw_w + 0.030
+    assert male.chin_w > female.chin_w + 0.020
+    assert male.neck_w > female.neck_w + 0.020
+    assert male.shoulder_w > female.shoulder_w + 0.100
+    assert male.eye_w < female.eye_w - 0.010
+    assert male.lip_full < female.lip_full - 0.070
+    assert male.chin_y < female.chin_y
+    assert male.hairline_gap == female.hairline_gap
+    # The simplest image-level check: the two renders are not one face with a
+    # description.  The face seed is shared, so this is the sex change alone.
+    a = portraitlib.render(dict(base, sex="male"), size=192).to_uint8().astype(np.int16)
+    b = portraitlib.render(dict(base, sex="female"), size=192).to_uint8().astype(np.int16)
+    diff = np.abs(a - b).max(axis=2)
+    assert int((diff >= 6).sum()) > 1200, "sex barely reached the pixels"
+
+
+def test_age_is_a_life_stage_not_a_colour_swatch():
+    """Age changes the silhouette and the hairline, not only the hair colour."""
+    base = _genes(17, sex="male", age="adult")
+    adult = _style(base)
+    middle = _style(dict(base, age="middle"))
+    elder = _style(dict(base, age="elder"))
+    assert middle.hairline_gap > adult.hairline_gap
+    assert elder.hairline_gap > middle.hairline_gap
+    assert elder.jaw_y > middle.jaw_y > adult.jaw_y
+    assert elder.nose_h > middle.nose_h > adult.nose_h
+    assert elder.ear_size > adult.ear_size
+    assert elder.lip_full < adult.lip_full
+
+
+def test_clean_shaven_men_still_carry_a_beard_shadow():
+    """Male dimorphism is not only a wider jaw: the follicle leaves a shadow."""
+    g = _genes(13, sex="male", age="adult", facial_hair="none")
+    lit = portraitlib.render(g, size=192).to_uint8().astype(np.int16)
+    original = portraitlib.detail.paint_facial_hair
+    portraitlib.detail.paint_facial_hair = lambda *args, **kwargs: None
+    try:
+        bare = portraitlib.render(g, size=192).to_uint8().astype(np.int16)
+    finally:
+        portraitlib.detail.paint_facial_hair = original
+    diff = np.abs(lit - bare).max(axis=2)
+    assert diff.max() >= 4
+    assert int((diff >= 3).sum()) > 220, "the clean shave did not reach the lower face"
+
+
+def test_accessories_are_optional_and_do_not_reseed_the_face():
+    """Glasses and scars are removable states, not a different person."""
+    base = _genes(11, eyewear="none", scar="none")
+    bare = portraitlib.render(base, size=160).to_uint8()
+    variants = {
+        "spectacles": dict(base, eyewear="spectacles"),
+        "round": dict(base, eyewear="round"),
+        "monocle": dict(base, eyewear="monocle", eyewear_side="left"),
+        "pince": dict(base, eyewear="pince_nez"),
+        "sun": dict(base, eyewear="sunglasses"),
+        "brow": dict(base, scar="brow"),
+        "cheek": dict(base, scar="cheek"),
+        "lip": dict(base, scar="lip"),
+        "chin": dict(base, scar="chin"),
+        "multiple": dict(base, scar="multiple"),
+    }
+    for name, genes in variants.items():
+        assert dna.face_seed(genes) == dna.face_seed(base), f"{name} reseeded the face"
+        out = portraitlib.render(genes, size=160).to_uint8()
+        assert not np.array_equal(out, bare), f"{name} did not reach the picture"
+        assert portraitlib.render(genes, size=160).to_uint8().tobytes() == out.tobytes(), \
+            f"{name} was not deterministic"
+    # An explicit empty genome decodes to the old bare face.
+    old = ";".join(item for item in dna.encode(base).split(";")
+                   if item.partition("=")[0] not in dna.ACCESSORY_CATEGORIES)
+    restored = dna.decode(old)
+    assert restored["eyewear"] == "none" and restored["scar"] == "none"
+    assert portraitlib.render(restored, size=160).to_uint8().tobytes() == bare.tobytes()
+
+
+def test_accessory_sides_are_configurable_and_stable():
+    base = _genes(19, eyewear="monocle", scar="cheek")
+    left = dict(base, eyewear_side="left", scar_side="left")
+    right = dict(base, eyewear_side="right", scar_side="right")
+    assert accessories._side(left, "eyewear_side", humanize.asymmetry(left)) == +1
+    assert accessories._side(right, "eyewear_side", humanize.asymmetry(right)) == -1
+    assert accessories._side(dict(base, eyewear_side="auto"), "eyewear_side",
+                             humanize.asymmetry(base)) in (+1, -1)
+    assert portraitlib.render(left, size=128).to_uint8().tobytes() != \
+        portraitlib.render(right, size=128).to_uint8().tobytes()
 
 
 def test_quantise_is_the_wire_format_precision():
@@ -932,12 +1032,13 @@ def test_old_genomes_default_the_demographic_and_phenotype_genes():
     """
     g = dna.random_genes(21)
     optional = (set(dna.DEMOGRAPHIC) | set(dna.PHENOTYPE_CATEGORIES) | set(dna.MORPH)
-                | set(dna.PIGMENT) | set(dna.REGALIA_CATEGORIES))
+                | set(dna.PIGMENT) | set(dna.REGALIA_CATEGORIES)
+                | set(dna.ACCESSORY_CATEGORIES))
     old = ";".join(item for item in dna.encode(g).split(";")
                    if item.partition("=")[0] not in optional)
     out = dna.decode(old)
     for key, value in {**demography.DEFAULTS, **dna.phenotype.DEFAULTS,
-                       **regalia.DEFAULTS}.items():
+                       **regalia.DEFAULTS, **accessories.DEFAULTS}.items():
         assert out[key] == value, f"{key} did not default"
     text = dna.encode(out)
     assert [item.partition("=")[0] for item in text.split(";")] == list(dna.GENES)
@@ -1258,7 +1359,11 @@ def test_the_outfit_is_an_optional_tail_of_the_wire_format():
     for key, value in regalia.DEFAULTS.items():
         assert out[key] == value, f"{key} did not default to {value!r}"
     tail = [item.partition("=")[0] for item in dna.encode(out).split(";")]
-    assert tail[-len(dna.REGALIA_CATEGORIES):] == list(dna.REGALIA_CATEGORIES)
+    # Accessories are the newest appended layer, so the outfit sits immediately
+    # before them in the wire format rather than at the absolute end.
+    n_acc = len(dna.ACCESSORY_CATEGORIES)
+    assert tail[-n_acc:] == list(dna.ACCESSORY_CATEGORIES)
+    assert tail[-n_acc - len(dna.REGALIA_CATEGORIES):-n_acc] == list(dna.REGALIA_CATEGORIES)
 
 
 def test_regalia_categories_are_inherited_as_categories():
@@ -1328,10 +1433,12 @@ def test_regalia_is_gated_on_the_sitter():
 
 
 # ------------------------------------------------------------------ garments
-def test_the_garment_is_the_last_gene_and_defaults_to_auto():
-    """The cut is appended after faith, so old wire strings still decode."""
-    assert dna.GENES[-1] == "garment"
-    assert dna.CATEGORICAL[-1] == "garment"
+def test_the_garment_is_the_last_outfit_gene_and_defaults_to_auto():
+    """The cut is appended after faith; accessories are the newer tail."""
+    n_acc = len(dna.ACCESSORY_CATEGORIES)
+    assert dna.GENES[-n_acc - 1] == "garment"
+    assert dna.CATEGORICAL[-n_acc - 1] == "garment"
+    assert list(dna.GENES[-n_acc:]) == list(dna.ACCESSORY_CATEGORIES)
     g = dna.random_genes(31)
     assert g["garment"] in garments.CUTS
     old = ";".join(item for item in dna.encode(g).split(";")
@@ -1344,7 +1451,7 @@ def test_the_garment_is_the_last_gene_and_defaults_to_auto():
     assert garments.base_cut("civil", "mantle") == "shirt"
     assert garments.base_cut("clerical", "habit") == "robe"
     assert garments.neckline("civil", "blouse", "v") == "scoop"
-    assert dna.encode(out).split(";")[-1].startswith("garment=")
+    assert dna.encode(out).split(";")[-n_acc - 1].startswith("garment=")
     for cut in garments.CUTS:
         regalia.validate(dict(g, garment=cut))
     try:

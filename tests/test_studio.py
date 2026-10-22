@@ -125,6 +125,30 @@ def test_a_render_writes_the_picture_the_sidecar_and_the_command():
             assert bundle[:2] == b"PK"
 
 
+def test_colour_fields_are_validated_and_optional():
+    """A colour control is a text field with a hex contract, not a free string."""
+    field = {"name": "skin_color", "label": "Skin colour", "type": "color",
+             "default": "", "optional": True, "flag": "--skin-color"}
+    assert server._value(field, "") == ""
+    assert server._value(field, "#A1b2C3") == "#A1b2C3"
+    for bad in ("red", "#abc", "#aabbccdd", "aabbcc"):
+        try:
+            server._value(field, bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad!r} should not be a colour")
+
+
+def test_the_portrait_form_exposes_outfit_accessories_and_colours():
+    """The browser is not a narrower editor than the command line."""
+    fields = server._fields(server.catalog.BY_ID["portrait"])
+    for name in ("garment", "awards", "eyewear", "scar", "skin_color",
+                 "hair_color", "iris_color", "cloth_color", "gene"):
+        assert name in fields, name
+    for name in ("wardrobe", "decorations"):
+        assert name in server.catalog.BY_ID
+
+
 def test_the_studio_refuses_an_unknown_generator_and_a_bad_field():
     """A form is not a parser, but it is still a boundary: refuse what cannot mean."""
     with tempfile.TemporaryDirectory() as tmp:

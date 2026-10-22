@@ -91,40 +91,59 @@ def modify(p: dict, genes: dict) -> dict:
     climate = str(genes.get("climate", DEFAULTS["climate"]))
 
     if sex == "male":
-        # The skeleton is a *relationship*, not a mood.  The old male deltas were
-        # so small that the jaw, brow and shoulders only separated from the
-        # androgynous baseline at full resolution; a headshot has to read at a
-        # glance, so the mandible, brow shelf, neck and shoulder girdle now move
-        # together and by a visible amount.  The harmony clamp in ``dna`` still
-        # keeps the jaw inside the cheekbones.
-        p["jaw_w"] = float(p["jaw_w"]) + 0.020
-        p["chin_w"] = float(p["chin_w"]) + 0.014
-        p["cheek_w"] = float(p["cheek_w"]) + 0.005
-        p["brow_thick"] = float(p["brow_thick"]) + 0.007
-        p["brow_arch"] = float(p["brow_arch"]) - 0.004
-        p["neck_w"] = float(p["neck_w"]) + 0.016
-        p["shoulder_w"] = float(p["shoulder_w"]) + 0.075
-        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) - 0.20
-        p["eye_w"] = float(p["eye_w"]) - 0.003
-        p["lash"] = float(p["lash"]) - 0.004
-        p["lip_full"] = float(p["lip_full"]) - 0.020
-        p["line"] = float(p["line"]) + 0.05
+        # The skeleton is a *relationship*, not a mood.  A headshot has to read
+        # at a glance, so the mandible, brow shelf, nose, neck and shoulder girdle
+        # move together.  This is still a drawing in the same tradition: the
+        # values are hundredths of a head, not a photographic skull.
+        p["head_w"] = float(p["head_w"]) + 0.012
+        p["top_w"] = float(p["top_w"]) + 0.007
+        p["wide_y"] = float(p.get("wide_y", 0.100)) + 0.004
+        p["cheek_w"] = float(p["cheek_w"]) + 0.016
+        p["cheek_y"] = float(p["cheek_y"]) - 0.007
+        p["jaw_w"] = float(p["jaw_w"]) + 0.040
+        p["chin_w"] = float(p["chin_w"]) + 0.024
+        p["jaw_y"] = float(p["jaw_y"]) - 0.014
+        p["chin_y"] = float(p["chin_y"]) - 0.012
+        p["brow_thick"] = float(p["brow_thick"]) + 0.012
+        p["brow_arch"] = float(p["brow_arch"]) - 0.007
+        p["nose_w"] = float(p["nose_w"]) + 0.006
+        p["nose_h"] = float(p["nose_h"]) + 0.008
+        p["mouth_w"] = float(p["mouth_w"]) + 0.006
+        p["neck_w"] = float(p["neck_w"]) + 0.038
+        p["shoulder_w"] = float(p["shoulder_w"]) + 0.110
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) - 0.26
+        p["eye_w"] = float(p["eye_w"]) - 0.010
+        p["iris_r"] = float(p["iris_r"]) - 0.003
+        p["lash"] = float(p["lash"]) - 0.006
+        p["lip_full"] = float(p["lip_full"]) - 0.040
+        p["line"] = float(p["line"]) + 0.07
     elif sex == "female":
-        # Narrower mandible and chin, a higher brow arch, a slimmer neck, a more
-        # sloped shoulder line and a fuller lip: the same skeleton, read the other
-        # way.  The cheek stays full rather than merely narrow.
-        p["jaw_w"] = float(p["jaw_w"]) - 0.016
-        p["chin_w"] = float(p["chin_w"]) - 0.011
-        p["cheek_w"] = float(p["cheek_w"]) + 0.002
-        p["brow_thick"] = float(p["brow_thick"]) - 0.004
-        p["brow_arch"] = float(p["brow_arch"]) + 0.003
-        p["neck_w"] = float(p["neck_w"]) - 0.010
-        p["shoulder_w"] = float(p["shoulder_w"]) - 0.045
-        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.22
-        p["eye_w"] = float(p["eye_w"]) + 0.005
-        p["lash"] = float(p["lash"]) + 0.005
-        p["lip_full"] = float(p["lip_full"]) + 0.050
-        p["blush"] = float(p["blush"]) + 0.040
+        # The other reading of the same skeleton: a narrower mandible and chin, a
+        # shorter lower face, higher cheek apples, a slimmer neck, more shoulder
+        # slope, larger eyes and fuller lips.  The differences are deliberately
+        # redundant -- shape, detail and colour all repeat the same cue -- so the
+        # pair still reads as two people when the style is a chibi.
+        p["head_w"] = float(p["head_w"]) - 0.008
+        p["top_w"] = float(p["top_w"]) - 0.006
+        p["cheek_w"] = float(p["cheek_w"]) + 0.010
+        p["cheek_y"] = float(p["cheek_y"]) + 0.008
+        p["jaw_w"] = float(p["jaw_w"]) - 0.030
+        p["chin_w"] = float(p["chin_w"]) - 0.020
+        p["jaw_y"] = float(p["jaw_y"]) + 0.008
+        p["chin_y"] = float(p["chin_y"]) + 0.010
+        p["brow_thick"] = float(p["brow_thick"]) - 0.008
+        p["brow_arch"] = float(p["brow_arch"]) + 0.006
+        p["nose_w"] = float(p["nose_w"]) - 0.005
+        p["nose_h"] = float(p["nose_h"]) - 0.005
+        p["mouth_w"] = float(p["mouth_w"]) - 0.008
+        p["neck_w"] = float(p["neck_w"]) - 0.022
+        p["shoulder_w"] = float(p["shoulder_w"]) - 0.070
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.30
+        p["eye_w"] = float(p["eye_w"]) + 0.010
+        p["iris_r"] = float(p["iris_r"]) + 0.003
+        p["lash"] = float(p["lash"]) + 0.009
+        p["lip_full"] = float(p["lip_full"]) + 0.085
+        p["blush"] = float(p["blush"]) + 0.070
     # ``androgynous`` is the baseline, not half of the binary.
 
     if age == "child":
@@ -143,6 +162,10 @@ def modify(p: dict, genes: dict) -> dict:
         p["mouth_w"] = float(p["mouth_w"]) - 0.009
         p["mouth_gap"] = float(p["mouth_gap"]) - 0.002
         p["lip_full"] = float(p["lip_full"]) + 0.020
+        p["head_w"] = float(p["head_w"]) + 0.010
+        p["cheek_w"] = float(p["cheek_w"]) + 0.012
+        p["chin_y"] = float(p["chin_y"]) + 0.010
+        p["ear_size"] = float(p.get("ear_size", 1.0)) - 0.050
         p["neck_w"] = float(p["neck_w"]) - 0.015
         p["shoulder_w"] = float(p["shoulder_w"]) - 0.080
         p["blush"] = float(p["blush"]) + 0.120
@@ -195,37 +218,51 @@ def modify(p: dict, genes: dict) -> dict:
         p["brow_thick"] = float(p["brow_thick"]) + 0.001
         p["blush"] = float(p["blush"]) - 0.030
     elif age == "middle":
-        p["eye_y"] = float(p["eye_y"]) + 0.004
+        p["eye_y"] = float(p["eye_y"]) + 0.006
         p["jaw_w"] = float(p["jaw_w"]) + 0.004
+        p["jaw_y"] = float(p["jaw_y"]) + 0.008
         p["chin_w"] = float(p["chin_w"]) + 0.004
+        p["chin_y"] = float(p["chin_y"]) + 0.002
         p["eye_w"] = float(p["eye_w"]) - 0.008
         p["eye_up"] = float(p["eye_up"]) - 0.004
         p["eye_down"] = float(p["eye_down"]) - 0.0025
         p["iris_r"] = float(p["iris_r"]) - 0.004
         p["pupil_r"] = float(p["pupil_r"]) - 0.001
         p["brow_thick"] = float(p["brow_thick"]) + 0.002
+        p["brow_gap"] = float(p["brow_gap"]) + 0.003
         p["nose_w"] = float(p["nose_w"]) + 0.004
-        p["nose_h"] = float(p["nose_h"]) + 0.003
+        p["nose_h"] = float(p["nose_h"]) + 0.005
         p["nose_gap"] = float(p["nose_gap"]) + 0.001
         p["mouth_w"] = float(p["mouth_w"]) + 0.003
         p["mouth_gap"] = float(p["mouth_gap"]) + 0.002
-        p["lip_full"] = float(p["lip_full"]) - 0.010
+        p["lip_full"] = float(p["lip_full"]) - 0.020
+        p["ear_size"] = float(p.get("ear_size", 1.0)) + 0.030
+        p["hairline_gap"] = float(p.get("hairline_gap", 0.300)) + 0.012
+        p["neck_w"] = float(p["neck_w"]) + 0.006
         p["blush"] = float(p["blush"]) - 0.040
         p["lash"] = float(p["lash"]) - 0.002
-        p["lid_shadow"] = float(p["lid_shadow"]) + 0.030
+        p["lid_shadow"] = float(p["lid_shadow"]) + 0.050
     elif age == "elder":
         p["jaw_w"] = float(p["jaw_w"]) - 0.008
+        p["jaw_y"] = float(p["jaw_y"]) + 0.014
         p["chin_w"] = float(p["chin_w"]) - 0.004
+        p["chin_y"] = float(p["chin_y"]) + 0.008
         # Eyes read a little smaller with age even after the width is capped by
         # the cheek, so the child-to-elder relationship survives the harmony clamp.
         p["eye_w"] = float(p["eye_w"]) - 0.020
         p["eye_up"] = float(p["eye_up"]) - 0.007
         p["eye_down"] = float(p["eye_down"]) - 0.004
+        p["eye_y"] = float(p["eye_y"]) + 0.010
         p["brow_thick"] = float(p["brow_thick"]) + 0.003
-        p["nose_w"] = float(p["nose_w"]) + 0.005
-        p["nose_h"] = float(p["nose_h"]) + 0.004
-        p["mouth_w"] = float(p["mouth_w"]) - 0.006
+        p["brow_gap"] = float(p["brow_gap"]) + 0.005
+        p["brow_arch"] = float(p["brow_arch"]) - 0.002
+        p["nose_w"] = float(p["nose_w"]) + 0.006
+        p["nose_h"] = float(p["nose_h"]) + 0.012
+        p["mouth_w"] = float(p["mouth_w"]) - 0.008
         p["mouth_curve"] = float(p["mouth_curve"]) - 0.002
+        p["lip_full"] = float(p["lip_full"]) - 0.030
+        p["ear_size"] = float(p.get("ear_size", 1.0)) + 0.060
+        p["hairline_gap"] = float(p.get("hairline_gap", 0.300)) + 0.028
         p["blush"] = float(p["blush"]) - 0.080
         p["lash"] = float(p["lash"]) - 0.004
         p["neck_w"] = float(p["neck_w"]) - 0.005
@@ -242,15 +279,6 @@ def modify(p: dict, genes: dict) -> dict:
         p["brow_thick"] = float(p["brow_thick"]) - 0.001
         p["eye_up"] = float(p["eye_up"]) - 0.002
         p["neck_w"] = float(p["neck_w"]) + 0.012
-        if sex == "male":
-            p["jaw_w"] = float(p["jaw_w"]) + 0.004
-            p["chin_w"] = float(p["chin_w"]) + 0.006
-            p["neck_w"] = float(p["neck_w"]) + 0.004
-            p["eye_w"] = float(p["eye_w"]) - 0.006
-            p["eye_up"] = float(p["eye_up"]) - 0.003
-            p["eye_down"] = float(p["eye_down"]) - 0.002
-            p["iris_r"] = float(p["iris_r"]) - 0.004
-            p["nose_w"] = float(p["nose_w"]) + 0.003
         p["shoulder_w"] = float(p["shoulder_w"]) + 0.020
         p["blush"] = float(p["blush"]) + 0.030
     elif climate == "arid":

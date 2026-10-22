@@ -40,7 +40,7 @@ the seed and the parameters that made it, so any picture can be rebuilt or argue
 
 The families are:
 
-- **Characters** — figure sprite sheets, portraits, portrait sheets, lineage.
+- **Characters** — figure sprite sheets, portraits, portrait sheets, lineage, wardrobe and decorations.
 - **Heraldry** — coats of arms, flags, flag animations, faction sheets.
 - **World** — strategic hex maps, campaign data, site close-ups, isometric boards.
 - **Materials** — ground materials, tiling textures, the core material sheet.
@@ -175,6 +175,8 @@ older than seven days and keeps at most the newest two hundred.
 | Materials | `grounds` | `grounds.png` | Six ground materials and atlas. |
 | Materials | `tiles` | `tiles.png` | Truchet, Wang, reaction-diffusion, boards. |
 | Materials | `texture` | `texture.png` | The core fBm/marble/wood/stone sheet. |
+| Characters | `wardrobe` | `wardrobe.png` | Garment cuts as objects: nine cuts, collars, patterns, cloth and trim. |
+| Characters | `decorations` | `decorations.png` | Awards as objects: medals, crosses, stars, ribbons, badges, armbands. |
 | Interface | `icons` | `icons.png` | Set, size sweep, badges, faction plate, atlas. |
 | Interface | `ui` | `ui.png` | Nine-slice UI kit sheet; optional SVG. |
 | Interface | `text` | `text.png` | Type specimen and metrics; slow. |
@@ -388,13 +390,43 @@ python cli.py portrait --out out/novice.png --seed 7 --sex female \
                         --attire clerical --garment habit --faith cross
 python cli.py portrait --out out/coat.png --seed 7 --sex male \
                         --attire military --garment coat --insignia both
+python cli.py portrait --out out/face.png --seed 7 --eyewear spectacles \
+                        --scar cheek --skin-color '#b98262'
 ```
+
+The face itself has a small, removable accessory layer appended after the outfit:
+`--eyewear` (`none`, `spectacles`, `round`, `monocle`, `pince_nez`,
+`sunglasses`), `--eyewear-side`, `--scar` (`none`, `brow`, `cheek`, `lip`, `chin`,
+`multiple`) and `--scar-side`. `auto` follows the sitter's own lean; neither
+category is part of `face_seed`, so glasses cannot restyle the face or hair. Scars
+are painted under the fringe, temple arms over it. The four base materials also
+have direct controls -- `--skin-color`, `--hair-color`, `--iris-color`,
+`--cloth-color` -- while the pigment genes still move their expression.
 
 `--gene KEY=VALUE` pins any genome axis, including the older shape and colour genes;
 repeat it for more than one. A DNA string written before the phenotype genes existed
 still loads: missing demographic, phenotype and outfit genes take their documented
 defaults, while a missing shape or colour gene is still an error. The new genes are
 appended to the wire format, not inserted, so a saved dynasty keeps its order.
+
+### Garments and decorations as objects
+
+The portrait clips a coat to a bust. A game also needs the coat itself, and the
+award beside a name. They are separate commands, not portrait flags:
+
+```bash
+python cli.py wardrobe    --out out/wardrobe.png --seed 3 --count 6 --size 256
+python cli.py decorations --out out/decorations.png --seed 3 --count 6 --size 256
+python cli.py wardrobe --cut coat --cloth '#26364a' --trim '#c5a55a'
+python cli.py decorations --kind star --metal silver --motif laurel --rosette
+```
+
+`gen/wardrobe/garment.py` draws a flat-lay body with sleeves, a collar, a placket,
+closures, seams and folds, from nine cuts and five patterns. `gen/wardrobe/awards.py`
+draws the complete object with ribbon, suspension, metal, motif and back: six kinds,
+three metals, five motifs and a ribbon rack. Both take a plain spec, clamp unknown
+names, render deterministically at any size, and write a sheet with a sidecar. They
+are in the studio under **Characters**.
 
 Portrait proportions are guarded rather than left to independent sliders. Eye width
 is capped at half the skull width, half the cheekbone width and `1.28` times the

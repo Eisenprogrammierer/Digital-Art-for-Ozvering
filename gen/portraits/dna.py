@@ -25,12 +25,13 @@ import numpy as np
 
 from core import palette
 
-from . import demography, phenotype, regalia
+from . import accessories, demography, phenotype, regalia
 from . import style as style_mod
 
 __all__ = [
     "GENES", "CATEGORICAL", "LEGACY_CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
     "DEMOGRAPHIC", "MORPH", "PIGMENT", "PHENOTYPE_CATEGORIES", "REGALIA_CATEGORIES",
+    "ACCESSORY_CATEGORIES",
     "random_genes", "quantise", "encode", "decode", "breed", "mutate",
     "apply_to", "describe", "seed_of", "face_seed", "EXPRESSIONS", "HAIR_STYLES",
 ]
@@ -62,15 +63,18 @@ SHAPE_GENES = (
 DEMOGRAPHIC = ("sex", "age", "climate", "culture")
 PHENOTYPE_CATEGORIES = tuple(phenotype.CATEGORIES)
 REGALIA_CATEGORIES = tuple(regalia.CATEGORIES)
+ACCESSORY_CATEGORIES = tuple(accessories.CATEGORIES)
 MORPH = phenotype.MORPH
 PIGMENT = phenotype.PIGMENT
-CATEGORICAL = LEGACY_CATEGORICAL + PHENOTYPE_CATEGORIES + REGALIA_CATEGORIES
+CATEGORICAL = (LEGACY_CATEGORICAL + PHENOTYPE_CATEGORIES + REGALIA_CATEGORIES
+               + ACCESSORY_CATEGORIES)
 #: Appended order is the compatibility contract: the first four groups are the
 #: old genome, and every new gene after them is optional when decoding.  The
-#: regalia layer is the newest and therefore last: an old string has no outfit
-#: and decodes to civilian dress.
+#: outfit and accessory layers are the newest tails: an old string has neither,
+#: so it decodes to civilian dress and a bare face.
 GENES = (LEGACY_CATEGORICAL + COLOUR_GENES + SHAPE_GENES + DEMOGRAPHIC
-         + PHENOTYPE_CATEGORIES + MORPH + PIGMENT + REGALIA_CATEGORIES)
+         + PHENOTYPE_CATEGORIES + MORPH + PIGMENT + REGALIA_CATEGORIES
+         + ACCESSORY_CATEGORIES)
 
 #: How each shape gene deforms the preset: a list of ``(parameter, scale)`` pairs.
 _SHAPE_MODS = {
@@ -265,6 +269,13 @@ def random_genes(seed=0) -> dict:
     if g["attire"] == "clerical":
         g["insignia"] = "none"
         g["awards"] = "none"
+    # Accessories are a state, like the coat: they are drawn after the outfit so
+    # every older genome keeps its old face.  A monocle is an adult affectation,
+    # not a child's toy, so the random draw gates it; an explicit genome may
+    # still override the gate.
+    g.update(accessories.random_values(rng))
+    if g["age"] == "child" and g["eyewear"] == "monocle":
+        g["eyewear"] = "none"
     return g
 
 
@@ -320,6 +331,8 @@ def decode(text: str) -> dict:
         out.setdefault(key, value)
     for key, value in regalia.DEFAULTS.items():
         out.setdefault(key, value)
+    for key, value in accessories.DEFAULTS.items():
+        out.setdefault(key, value)
     if out["style"] not in style_mod.names():
         raise ValueError(f"unknown style {out['style']!r}")
     if out["hair_style"] not in HAIR_STYLES:
@@ -336,6 +349,7 @@ def decode(text: str) -> dict:
         raise ValueError(f"unknown culture {out['culture']!r}")
     phenotype.validate(out)
     regalia.validate(out)
+    accessories.validate(out)
     return out
 
 
@@ -397,6 +411,8 @@ def mutate(genes: dict, seed=0, amount: float = 0.30, rate: float = 0.35) -> dic
                 pool = EXPRESSIONS
             elif key in regalia.CATEGORIES:
                 pool = regalia.CATEGORIES[key]
+            elif key in accessories.CATEGORIES:
+                pool = accessories.CATEGORIES[key]
             else:
                 pool = phenotype.CATEGORIES[key]
             out[key] = str(rng.choice(pool))
@@ -501,7 +517,7 @@ def _clamp_params(p: dict) -> dict:
     # The nose and mouth are neighbours; one gene can otherwise make a tiny nose
     # over a wide mouth or a bulb over a rosebud.  Keep the nose between a third
     # and a little over half the mouth width, which is the range a face reads in.
-    p["nose_w"] = float(np.clip(p["nose_w"], 0.030, 0.105))
+    p["nose_w"] = float(np.clip(p["nose_w"], 0.030, 0.118))
     p["nose_w"] = float(np.clip(p["nose_w"], 0.32 * float(p["mouth_w"]),
                                 0.58 * float(p["mouth_w"])))
     p["lip_full"] = float(np.clip(p.get("lip_full", 0.0), -0.12, 0.85))
@@ -558,12 +574,21 @@ def describe(genes: dict) -> str:
     attire = genes.get("attire", regalia.DEFAULTS["attire"])
     awards = genes.get("awards", regalia.DEFAULTS["awards"])
     garment = genes.get("garment", regalia.DEFAULTS["garment"])
+    eyewear = genes.get("eyewear", accessories.DEFAULTS["eyewear"])
+    scar = genes.get("scar", accessories.DEFAULTS["scar"])
     dress = ("" if attire == "civil" and garment == "auto"
              else f" \u00b7 {attire}")
     if garment != "auto":
         dress += f" / {garment}"
     if awards != "none":
         dress += f" ({awards})"
+    worn = []
+    if eyewear != "none":
+        worn.append(eyewear.replace("_", "-"))
+    if scar != "none":
+        worn.append(f"{scar} scar")
+    if worn:
+        dress += " · " + ", ".join(worn)
     return (
         f"{genes['style']} \u00b7 {genes['hair_style']} hair {genes['hair']}"
         f" \u00b7 iris {genes['iris']} \u00b7 skin {skin}"
@@ -589,7 +614,8 @@ def seed_of(genes: dict) -> int:
     # the hair.  The rest of the outfit stays in the hash, so a genome saved before
     # this gene existed keeps the hair it had; the hash is still over the wire
     # form and remains pure and reproducible.
-    seed_genes = tuple(key for key in GENES if key != "garment")
+    seed_genes = tuple(key for key in GENES
+                       if key != "garment" and key not in ACCESSORY_CATEGORIES)
     digest = hashlib.sha256(_wire(genes, seed_genes).encode("utf-8")).hexdigest()
     return int(digest[:12], 16)
 
@@ -599,7 +625,7 @@ def seed_of(genes: dict) -> int:
 #: coat, smiling, or turning the head cannot move a cheekbone.  ``style`` stays
 #: because it is the skull's own proportion table, and the base colours stay
 #: because they are part of the sitter rather than of the painting.
-_FACE_SEED_EXCLUDE = frozenset(REGALIA_CATEGORIES) | {
+_FACE_SEED_EXCLUDE = frozenset(REGALIA_CATEGORIES) | frozenset(ACCESSORY_CATEGORIES) | {
     "expression", "turn", "hair_style", "hair", "cloth", "hair_len", "bang_n",
     "hair_volume", "fringe_length", "fringe_part", "side_lock", "hair_gloss",
     "hair_melanin", "hair_warmth", "hair_redness", "facial_hair",

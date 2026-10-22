@@ -65,7 +65,7 @@ _CULTURE_HAIR = {
 #: from the root; a drop of 1.0 hangs a full head height below the crown.
 HAIR_STYLES = {
     "short":  dict(vol=0.058, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.220, sdrop=0.300, near=False,
-                   back=8, kw=0.300, kdrop=0.180, crest=0, spike=0, cap_r=2.40, flare=1.02),
+                   back=8, kw=0.300, kdrop=0.180, crest=0, spike=0, cap_r=1.78, flare=1.02),
     "bob":    dict(vol=0.078, bangs=7, bw=0.260, blen=0.75, sides=3, sw=0.290, sdrop=0.620,
                    back=9, kw=0.345, kdrop=0.740, crest=0, spike=0, cap_r=1.70, flare=1.18),
     "long":   dict(vol=0.090, bangs=7, bw=0.275, blen=0.60, sides=3, sw=0.260, sdrop=1.250,
@@ -136,7 +136,10 @@ def _params(name: str, st, genes: dict) -> dict:
     if age in ("adult", "middle"):
         factor = 0.58 if age == "adult" else 0.56
         if name == "short" and not p.get("straight"):
-            factor = 0.15 if age == "adult" else 0.24
+            # A short cut still has a fringe; it is simply cut close.  The old
+            # 0.15 factor removed the fringe almost entirely and left the cap's
+            # smooth arc as the visible hairline, which is the bowl cut.
+            factor = 0.26 if age == "adult" else 0.40
         p["blen"] = float(np.clip(p["blen"] * factor, 0.06, 1.18))
     p["sw"] = float(np.clip(p["sw"], 0.12, 0.42))
     p["sdrop"] = float(np.clip(p["sdrop"], 0.16, 1.70))
@@ -684,6 +687,33 @@ def _eye_clearance(st, turn: float, expr=None, asym=None):
     return out
 
 
+def _hairline_tufts(st, p: dict, rng, turn: float) -> Shape | None:
+    """A row of short cut ends along the forehead hairline.
+
+    The cap is a smooth shell.  On a short cut that shell is also the only thing
+    at the hairline, so its arc is read as a bowl rim.  Real cropped hair ends in
+    a slightly ragged line: a few locks sit a little lower than their neighbours,
+    and that is enough to break the arc without adding side lobes (the earlier
+    outward tufts made ears when they were applied to a short cut).
+    """
+    hairline = head.hairline_y(st)
+    vol = float(p["vol"])
+    out = []
+    for i in range(9):
+        u = (i + 0.5) / 9.0
+        x = (u - 0.5) * 2.0 * float(st.head_w) * 0.78
+        jitter = float(rng.uniform(-0.012, 0.012))
+        root = head.turn_point(x, hairline + 0.014, turn, st, vol=vol)
+        tip_x = x + jitter + float(rng.uniform(-0.010, 0.010))
+        length = float(rng.uniform(0.018, 0.042))
+        tip = head.turn_point(tip_x, hairline - length, turn, st, vol=vol * 0.55)
+        mid = ((root[0] + tip[0]) * 0.5,
+               (root[1] + tip[1]) * 0.5 + 0.005)
+        out.append(S.lock([root, mid, tip], w0=0.0060, w1=0.0008,
+                          bulge=0.0022, per_segment=4, resample=16))
+    return union_all(out)
+
+
 def _cap(st, p: dict, turn: float, hairline: float, skull: Shape | None = None,
          clearance: Shape | None = None) -> Shape:
     """The skull cap: the head's own outline grown by ``vol``, minus the face.
@@ -817,6 +847,11 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     cap = _cap(st, p, turn, hairline, skull, clearance=clear)
     if tufts is not None:
         cap = cap | tufts
+    if name == "short":
+        # Break the cap's level hairline without turning the cut into a bob.
+        fringe = _hairline_tufts(st, p, rng, turn)
+        if fringe is not None:
+            cap = (cap | fringe) - clear
     return Hair(
         name=name,
         p=p,

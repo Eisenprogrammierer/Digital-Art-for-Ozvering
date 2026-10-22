@@ -41,7 +41,7 @@ sidecar хранит функцию, сид и параметры, поэтом�
 
 Семейства:
 
-- **Персонажи** — спрайт-листы фигур, портреты, листы портретов, lineage.
+- **Персонажи** — спрайт-листы фигур, портреты, листы портретов, lineage, гардероб и награды.
 - **Геральдика** — гербы, флаги, анимации флагов, листы фракций.
 - **Мир** — стратегические гекс-карты, данные кампании, крупные планы (site),
   изометрические доски.
@@ -177,6 +177,8 @@ out/studio/20261020-201325-1a2b3c/
 | Materials | `grounds` | `grounds.png` | Шесть ground-материалов и атлас. |
 | Materials | `tiles` | `tiles.png` | Truchet, Wang, reaction-diffusion, доски. |
 | Materials | `texture` | `texture.png` | Базовый лист fBm/мрамор/дерево/камень. |
+| Characters | `wardrobe` | `wardrobe.png` | Одежда как объект: девять покроев, воротники, узоры, ткань и отделка. |
+| Characters | `decorations` | `decorations.png` | Награды как объект: медали, кресты, звезды, колодки, значки, повязки. |
 | Interface | `icons` | `icons.png` | Набор, размеры, бейджи, ливрея, атлас. |
 | Interface | `ui` | `ui.png` | Nine-slice UI-кит; опционально SVG. |
 | Interface | `text` | `text.png` | Образец шрифта и метрики; медленно. |
@@ -389,7 +391,18 @@ python cli.py portrait --out out/novice.png --seed 7 --sex female \
                         --attire clerical --garment habit --faith cross
 python cli.py portrait --out out/coat.png --seed 7 --sex male \
                         --attire military --garment coat --insignia both
+python cli.py portrait --out out/face.png --seed 7 --eyewear spectacles \
+                        --scar cheek --skin-color '#b98262'
 ```
+
+У лица есть небольшой съёмный слой аксессуаров, дописанный после одежды:
+`--eyewear` (`none`, `spectacles`, `round`, `monocle`, `pince_nez`,
+`sunglasses`), `--eyewear-side`, `--scar` (`none`, `brow`, `cheek`, `lip`, `chin`,
+`multiple`) и `--scar-side`. `auto` следует наклону самого портретируемого; ни одна
+категория не входит в `face_seed`, поэтому очки не меняют лицо или причёску. Шрамы
+рисуются под чёлкой, дужки очков — поверх неё. Четыре базовых материала также имеют
+прямые флаги — `--skin-color`, `--hair-color`, `--iris-color`, `--cloth-color`, —
+а пигментные гены по-прежнему двигают их выражение.
 
 `--gene KEY=VALUE` закрепляет любую ось генома, включая старые гены формы и цвета;
 повторите флаг для нескольких. Строка ДНК, записанная до появления фенотипических
@@ -397,6 +410,25 @@ python cli.py portrait --out out/coat.png --seed 7 --sex male \
 одежды получают документированные значения по умолчанию, а пропущенный ген формы
 или цвета — ошибка. Новые гены дописываются в конец формата, а не вставляются,
 поэтому порядок сохранённой династии не меняется.
+
+### Одежда и награды как объекты
+
+Портрет обрезает пальто по бюсту. Игре нужно и само пальто, и награда рядом с
+именем. Это отдельные команды, а не флаги портрета:
+
+```bash
+python cli.py wardrobe    --out out/wardrobe.png --seed 3 --count 6 --size 256
+python cli.py decorations --out out/decorations.png --seed 3 --count 6 --size 256
+python cli.py wardrobe --cut coat --cloth '#26364a' --trim '#c5a55a'
+python cli.py decorations --kind star --metal silver --motif laurel --rosette
+```
+
+`gen/wardrobe/garment.py` рисует разложенную одежду: корпус, рукава, воротник,
+планку, застёжки, швы и складки — девять покроев и пять узоров.
+`gen/wardrobe/awards.py` рисует законченный объект с лентой, подвесом, металлом,
+мотивом и обратной стороной: шесть видов, три металла, пять мотивов и колодку.
+Оба принимают обычный spec, заменяют неизвестные имена, детерминированы при любом
+размере и пишут лист с sidecar. В студии они лежат в группе **Characters**.
 
 Пропорции портрета защищены, а не отданы независимым ползункам. Ширина глаза
 ограничена половиной ширины черепа, половиной ширины скул и `1,28` расстояния между

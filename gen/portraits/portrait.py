@@ -41,7 +41,8 @@ import numpy as np
 from core.canvas import Canvas
 from core import palette
 
-from . import brush, cel, demography, detail, dna, expression, eyes, face, garments, hair, head, hues, humanize, regalia
+from . import (accessories, brush, cel, demography, detail, dna, expression, eyes,
+              face, garments, hair, head, hues, humanize, regalia)
 from . import style as style_mod
 from .shape import union_all
 
@@ -223,11 +224,15 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     for side in (+1, -1):
         eyes.paint(c, fst, h, side, turn, expr, clip=skull, asym=asym)
     face.paint_brows(c, fst, h, turn, expr, clip=skull, asym=asym)
+    accessories.paint_scars(c, fst, h, genes, turn, clip=skull, asym=asym)
 
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
     detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov, asym=asym)
     garments.paint_veil(c, st, h, kit, turn)
+    # Glasses sit on the face and their temples lie over the hair.  Painting them
+    # last is what keeps a strand from growing through a lens.
+    accessories.paint_eyewear(c, fst, h, genes, turn, asym=asym)
     return c
 
 

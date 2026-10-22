@@ -16,11 +16,15 @@ from __future__ import annotations
 
 from gen.figures import figure
 from gen.portraits import demography as portrait_demography
+from gen.portraits import accessories as portrait_accessories
 from gen.portraits import dna as portrait_dna
 from gen.portraits import phenotype as portrait_phenotype
+from gen.portraits import regalia as portrait_regalia
 from gen.portraits import style as portrait_style
 from gen.text import pen as text_pen
 from gen.ui import style as ui_style
+from gen.wardrobe import awards as wardrobe_awards
+from gen.wardrobe import garment as wardrobe_garment
 
 #: The cloth's hangings, as ``cli.py`` spells them.  "bar" is a crossbar; the
 #: command line has always used the short name.
@@ -60,6 +64,11 @@ def _bool(name: str, label: str, flag: str, default: bool = False,
           help: str = "") -> dict:
     return {"name": name, "label": label, "type": "bool", "default": bool(default),
             "flag": flag, "help": help}
+
+
+def _colour(name: str, label: str, help: str = "") -> dict:
+    return {"name": name, "label": label, "type": "color", "default": "",
+            "help": help, "flag": _flag(name), "optional": True}
 
 
 def _text(name: str, label: str, default: str = "", help: str = "",
@@ -150,6 +159,46 @@ GENERATORS = [
             _choice("freckles", "Freckles", "",
                     [""] + list(portrait_phenotype.FRECKLE_PATTERNS),
                     "empty = the seed's own freckle pattern", optional=True),
+            _choice("facial_hair", "Facial hair", "",
+                    [""] + list(portrait_phenotype.FACIAL_HAIR),
+                    "empty = the seed's own; adult male presentation", optional=True),
+            _choice("attire", "Dress code", "",
+                    [""] + list(portrait_regalia.ATTIRE),
+                    "empty = the seed's own outfit", optional=True),
+            _choice("insignia", "Insignia", "",
+                    [""] + list(portrait_regalia.INSIGNIA),
+                    "empty = the seed's own rank marks", optional=True),
+            _choice("awards", "Awards", "",
+                    [""] + list(portrait_regalia.AWARDS),
+                    "empty = the seed's own decorations", optional=True),
+            _choice("ornament", "Ornament", "",
+                    [""] + list(portrait_regalia.ORNAMENT),
+                    "empty = the seed's own personal ornament", optional=True),
+            _choice("faith", "Pendant", "",
+                    [""] + list(portrait_regalia.FAITH),
+                    "empty = the seed's own pendant", optional=True),
+            _choice("garment", "Garment cut", "",
+                    [""] + list(portrait_regalia.CATEGORIES["garment"]),
+                    "empty = resolved from the dress code", optional=True),
+            _choice("eyewear", "Eyewear", "",
+                    [""] + list(portrait_accessories.EYEWEAR),
+                    "empty = the seed's own; glasses, monocle or dark glasses", optional=True),
+            _choice("eyewear_side", "Eyewear side", "",
+                    [""] + list(portrait_accessories.SIDES),
+                    "monocle or scar side; auto follows the face", optional=True),
+            _choice("scar", "Scar", "",
+                    [""] + list(portrait_accessories.SCAR),
+                    "empty = the seed's own; old scars, not a wound", optional=True),
+            _choice("scar_side", "Scar side", "",
+                    [""] + list(portrait_accessories.SIDES),
+                    "auto follows the same lean as the monocle", optional=True),
+            _colour("skin_color", "Skin colour", "base skin, #rrggbb"),
+            _colour("hair_color", "Hair colour", "base hair, #rrggbb"),
+            _colour("iris_color", "Iris colour", "base iris, #rrggbb"),
+            _colour("cloth_color", "Cloth colour", "base cloth, #rrggbb"),
+            _text("gene", "Genome overrides", "",
+                  "key=value, comma separated; every axis is available, e.g. "
+                  "skin_melanin=-0.3,hair_gloss=0.4", optional=True, repeat=True),
         ],
     },
     {
@@ -190,6 +239,24 @@ GENERATORS = [
                     "empty = the sheet samples the range", optional=True),
             _choice("freckles", "Pin freckles", "",
                     [""] + list(portrait_phenotype.FRECKLE_PATTERNS),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("facial_hair", "Pin facial hair", "",
+                    [""] + list(portrait_phenotype.FACIAL_HAIR),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("attire", "Pin dress code", "",
+                    [""] + list(portrait_regalia.ATTIRE),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("awards", "Pin awards", "",
+                    [""] + list(portrait_regalia.AWARDS),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("garment", "Pin garment", "",
+                    [""] + list(portrait_regalia.CATEGORIES["garment"]),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("eyewear", "Pin eyewear", "",
+                    [""] + list(portrait_accessories.EYEWEAR),
+                    "empty = the sheet samples the range", optional=True),
+            _choice("scar", "Pin scar", "",
+                    [""] + list(portrait_accessories.SCAR),
                     "empty = the sheet samples the range", optional=True),
         ],
     },
@@ -453,6 +520,55 @@ GENERATORS = [
             _bool("no_atlas", "No packed atlas", "--no-atlas"),
             _text("name", "Dress in a faction", "",
                   "one name; empty = the kind's own hue", optional=True, repeat=True),
+        ],
+    },
+    {
+        "id": "wardrobe",
+        "group": "Characters",
+        "title": "Wardrobe",
+        "blurb": "Garments as objects: nine cuts, collars, patterns, cloth and trim, "
+                 "and a seeded set beside the canonical wardrobe.",
+        "base": ["wardrobe"],
+        "out": "wardrobe.png",
+        "slow": True,
+        "timeout": 240,
+        "fields": [
+            _int("seed", "Seed", 3, 0, 2**31 - 1),
+            _int("count", "Seeded variants", 6, 0, 20),
+            _int("size", "Cell (px)", 256, 64, 512),
+            _int("cols", "Columns", 5, 1, 10),
+            _choice("cut", "Pin a cut", "", [""] + list(wardrobe_garment.CUTS),
+                    "empty = the canonical set plus seeded cuts", optional=True),
+            _choice("pattern", "Pin a pattern", "", [""] + list(wardrobe_garment.PATTERNS),
+                    "empty = each spec chooses", optional=True),
+            _colour("cloth", "Cloth colour", "pin the base cloth, #rrggbb"),
+            _colour("trim", "Trim colour", "pin the collar, piping and sash"),
+            _colour("metal", "Metal colour", "pin the buttons and clasps"),
+        ],
+    },
+    {
+        "id": "decorations",
+        "group": "Characters",
+        "title": "Decorations",
+        "blurb": "Awards as objects: medals, crosses, order stars, ribbon racks, badges "
+                 "and armbands, with metal, ribbon and motif controls.",
+        "base": ["decorations"],
+        "out": "decorations.png",
+        "slow": True,
+        "timeout": 240,
+        "fields": [
+            _int("seed", "Seed", 3, 0, 2**31 - 1),
+            _int("count", "Seeded variants", 6, 0, 20),
+            _int("size", "Cell (px)", 256, 64, 512),
+            _int("cols", "Columns", 5, 1, 10),
+            _choice("kind", "Pin a kind", "", [""] + list(wardrobe_awards.KINDS),
+                    "empty = the canonical set plus seeded awards", optional=True),
+            _choice("metal", "Metal", "", [""] + list(wardrobe_awards.METALS),
+                    "empty = each spec chooses", optional=True),
+            _choice("motif", "Motif", "", [""] + list(wardrobe_awards.MOTIFS),
+                    "empty = each spec chooses", optional=True),
+            _int("bars", "Ribbon rack rows", 1, 1, 4),
+            _bool("rosette", "Add a rosette", "--rosette"),
         ],
     },
     {

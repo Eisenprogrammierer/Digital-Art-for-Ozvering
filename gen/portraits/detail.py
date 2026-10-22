@@ -376,6 +376,23 @@ def _paint_age_lines(canvas, st, h, genes, turn, clip) -> None:
                           w0=0.0018, w1=0.0008, per_segment=3)
             brush.paint(canvas, foot, h.skin_shadow, clip=clip,
                         alpha=0.075 * strength, soft=0.8)
+    # The lid and the cheek lose their seal with age: a soft puff under each eye
+    # and a crease at its lower edge.  The crease is a lock, not a circle, so it
+    # follows the lower lid instead of drawing a second eye.
+    for side in (+1, -1):
+        a = _face_point(st, side, st.eye_dx - st.eye_w * 0.30,
+                        st.eye_y - st.eye_down - 0.020, turn)
+        b = _face_point(st, side, st.eye_dx + st.eye_w * 0.56,
+                        st.eye_y - st.eye_down - 0.030, turn)
+        bag = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 - 0.009), b],
+                     w0=0.0020, w1=0.0010, bulge=0.003, per_segment=4)
+        brush.paint(canvas, bag, h.skin_shadow, clip=clip,
+                    alpha=0.060 + 0.070 * strength, soft=1.2)
+        puff = S.ellipse(st.eye_w * 0.34, 0.020,
+                         float((a[0] + b[0]) * 0.5),
+                         float((a[1] + b[1]) * 0.5 + 0.012))
+        brush.paint(canvas, puff, h.skin_cool, clip=clip,
+                    alpha=0.040 + 0.040 * strength, soft=2.0)
 
 
 def _fp(st, turn: float, side: int, x: float, y: float):
@@ -459,14 +476,11 @@ def paint_facial_hair(canvas, st, h, genes: dict, turn: float, clip, rng) -> Non
     shape of the jaw.
     """
     kind = str(genes.get("facial_hair", "none"))
-    if kind not in phenotype.FACIAL_HAIR or kind == "none":
-        return
-    if str(genes.get("sex", demography.DEFAULTS["sex"])) == "female":
-        return
+    if kind not in phenotype.FACIAL_HAIR:
+        kind = "none"
+    sex = str(genes.get("sex", demography.DEFAULTS["sex"]))
     age = demography.age_t(genes)
-    if age < 0.24:
-        return
-    if clip is None:
+    if sex == "female" or age < 0.24 or clip is None:
         return
     density = float(np.clip(0.70 + 0.30 * age, 0.70, 1.0))
     X, Y = canvas.grid()
@@ -496,6 +510,31 @@ def paint_facial_hair(canvas, st, h, genes: dict, turn: float, clip, rng) -> Non
         jaw = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), b],
                      w0=0.032, w1=0.017, bulge=0.025, per_segment=5)
         _paint(jaw, h.skin_cool, 0.055 * density, soft=2.3)
+
+    if kind == "none":
+        # A clean-shaven adult man is not a woman with a wide jaw: the beard
+        # follicle leaves a cool five-o'clock shadow over the jaw, chin and
+        # upper lip even when no hair is drawn.  It is the single cheapest sex
+        # cue in a headshot, and it is a *detail* pass mark -- it never moves a
+        # feature.  Female and androgynous faces keep the jaw plane only.
+        if sex != "male":
+            return
+        shadow = _beard_band(st, turn, 0.06)
+        _paint(shadow, palette.mix(h.skin_cool, h.hair_deep, 0.30),
+               0.105 * density, soft=2.6)
+        # The upper lip and the chin carry the densest follicles.  Two soft
+        # ellipses make the clean shave read as skin under hair rather than as
+        # a bruise along the jaw.
+        mx, my = head.turn_point(0.0, st.mouth_y + st.mouth_w * 0.090, turn, st)
+        _paint(S.ellipse(st.mouth_w * 0.34, st.mouth_w * 0.060,
+                         float(mx), float(my)),
+               palette.mix(h.skin_cool, h.hair_deep, 0.24),
+               0.080 * density, soft=2.0)
+        cx, cy = head.turn_point(0.0, st.chin_y + 0.095, turn, st)
+        _paint(S.ellipse(st.chin_w * 0.62, 0.045, float(cx), float(cy)),
+               palette.mix(h.skin_cool, h.hair_deep, 0.22),
+               0.060 * density, soft=2.2)
+        return
 
     if kind == "stubble":
         # A stubble is a texture, not a beard: a cool tint over the lower face,

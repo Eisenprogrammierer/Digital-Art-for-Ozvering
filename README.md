@@ -94,6 +94,9 @@ python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portrait   --seed 5 --sex female --age elder --climate arid --out out/one.png
 python cli.py portrait   --seed 7 --sex male --attire military --insignia both --awards medal --out out/colonel.png
 python cli.py portrait   --seed 7 --sex female --attire clerical --garment habit --faith cross --out out/novice.png
+python cli.py portrait   --seed 7 --eyewear spectacles --scar cheek --skin-color '#b98262' --out out/face.png
+python cli.py wardrobe   --out out/wardrobe.png --seed 3 --count 6 --size 256
+python cli.py decorations --out out/decorations.png --seed 3 --count 6 --size 256
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py portraits  --seed 7 --count 8 --sex male --age middle
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
@@ -116,7 +119,7 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 70 tests
+python tests/test_portraits.py                  # 75 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
@@ -125,7 +128,8 @@ python tests/test_icons.py                      # 33 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 28 tests
 python tests/test_gallery.py                    # 21 tests
-python tests/test_studio.py                     # 6 tests -- the form over the CLI
+python tests/test_studio.py                     # 8 tests -- the form over the CLI
+python tests/test_wardrobe.py                   # 6 tests -- garments and awards as objects
 ```
 
 Every one of those runs on every push as well -- every suite in `tests/` (the workflow
@@ -807,6 +811,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `eyes`, `face`, `hair`, `expression` | The features themselves, and the warp that moves the whole face for a mood. |
 | `demography`, `humanize` | Age/sex proportion rules and the outfit-independent asymmetry, skin life, hair cast and contour masks that finish a person rather than a mirror. |
 | `regalia`, `garments` | The outfit layer: a dress code and its marks, then the cut or overgarment worn over it. The cut is a state, so it is appended to the wire format and never reseeds the face; a genome saved before the cut existed keeps its hair. |
+| `accessories` | Removable face marks: spectacles, round glasses, a monocle, a pince-nez, dark glasses, and a scar on the brow, cheek, lip, chin or several. Appended after the outfit, kept out of the face seed, and painted at the right layer -- scars before the hair, temples over it. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing and layer order: passport `compose`/`render`/`render_seed`, plus the opt-in `compose_posed`/`render_posed` study. |
 
@@ -1102,7 +1107,8 @@ the base colours.
 
 Clothing is a state, not a face, so it lives in its own modules and its own tail of
 the wire format. `gen/portraits/regalia.py` adds five categorical genes for the dress
-code and its marks; `gen/portraits/garments.py` adds a sixth for the cut itself:
+code and its marks; `gen/portraits/garments.py` adds a sixth for the cut itself. The
+outfit genes are:
 
 * `attire` -- `civil`, `military`, `police`, `naval`, `ceremonial` or `clerical`.
   A service dress replaces the civilian shirt collar with a stand collar and the
@@ -1134,11 +1140,51 @@ clipped to the thing it sits on -- the bust, the collar, the skull -- so a
 decoration cannot float in the background or move a feature. Service colours are a
 mix of a fixed dress colour and the sitter's own `cloth` gene, so a regiment has a
 uniform without every soldier sharing the same fabric; the branch colour comes from
-the culture gene. The layer is append-only and drawn after the phenotype layer, so
-an old string decodes to civilian dress, and a generated genome is gated like a
+the culture gene. The outfit is append-only and drawn after the phenotype layer; accessories are
+appended after the outfit. An old string decodes to civilian dress, and a generated genome is gated like a
 real dress code: a child is not decorated, a civilian shirt has no boards, and a
 Roman collar has no collar tabs. Forcing a gene can still produce a deliberate
 combination.
+
+### Removable marks and direct colour
+
+`gen/portraits/accessories.py` is the newest tail of the wire format, deliberately
+after the outfit: `eyewear` (`none`, `spectacles`, `round`, `monocle`, `pince_nez`,
+`sunglasses`), `eyewear_side`, `scar` (`none`, `brow`, `cheek`, `lip`, `chin`,
+`multiple`) and `scar_side`. Both side genes use `auto`, which follows the sitter's
+`face_seed` lean, so the monocle and the scar stay on the same side of the same
+person. Neither category is in `face_seed` or `seed_of`: putting on glasses cannot
+change a cheekbone or reseed the hair. The paint pass is ordered as a real face is:
+a scar is under the fringe, an eyewear temple arm is over it.
+
+The four material colours are also first-class controls rather than a scavenger hunt
+through pigment genes: `--skin-color`, `--hair-color`, `--iris-color` and
+`--cloth-color` take `#rrggbb` and pin the base material, while the twelve pigment
+axes still move its expression. `--gene KEY=VALUE` remains the complete override for
+anything without a flag.
+
+### Garments and awards outside a portrait
+
+A coat is not always worn. `cli.py wardrobe` and `cli.py decorations` are separate
+generators for the object itself, in the same spirit as the icon set: a flat-lay
+garment with a body, sleeves, a collar, closures, seams and folds, and a complete
+award with a ribbon, suspension, metal and motif. The portrait versions are clipped
+to a bust; these are not, because an inventory thumbnail has no shoulders in it.
+
+```bash
+python cli.py wardrobe    --out out/wardrobe.png --seed 3 --count 6 --size 256
+python cli.py decorations --out out/decorations.png --seed 3 --count 6 --size 256
+python cli.py wardrobe --cut coat --cloth '#26364a' --trim '#c5a55a' --metal '#d0b060'
+python cli.py decorations --kind star --metal silver --motif laurel --rosette
+```
+
+`gen/wardrobe/garment.py` has nine cuts (`shirt`, `blouse`, `tunic`, `jacket`,
+`coat`, `dress`, `robe`, `mantle`, `habit`), seven collar families and five woven
+patterns. `gen/wardrobe/awards.py` has six kinds (`medal`, `cross`, `star`,
+`ribbon`, `badge`, `armband`), three metals, five motifs and a ribbon rack. Both take
+a plain spec dictionary, clamp unknown names, render deterministically at any size,
+and write a sheet plus a sidecar that lists every spec. They are in the studio under
+**Characters**, with the same choices as flags.
 
 ### What the tests hold down
 
