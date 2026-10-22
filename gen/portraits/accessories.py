@@ -93,7 +93,7 @@ def random_values(rng: np.random.Generator) -> dict:
     monocle and a scar on the same cheek, and the painter will honour it; the
     random draw only keeps a contact sheet from turning into a costume party.
     """
-    eyewear = str(rng.choice(EYEWEAR, p=(0.62, 0.14, 0.09, 0.035, 0.025, 0.09)))
+    eyewear = str(rng.choice(EYEWEAR, p=(0.76, 0.13, 0.08, 0.010, 0.010, 0.010)))
     scar = str(rng.choice(SCAR, p=(0.86, 0.035, 0.050, 0.020, 0.015, 0.020)))
     return {
         "eyewear": eyewear,
@@ -122,8 +122,11 @@ def _eye_centre(st, side: int, turn: float, asym):
 def _lens_box(st, side: int, turn: float, asym, style: str):
     """A lens around one opening: centre, half-width and half-height."""
     cx, cy = _eye_centre(st, side, turn, asym)
-    hw = float(st.eye_w) * (0.62 if style != "monocle" else 0.64)
-    hh = float(st.eye_w) * (0.47 if style != "round" else 0.51)
+    hw = float(st.eye_w) * (0.60 if style != "monocle" else 0.62)
+    # A spectacle lens is wider than it is tall.  The old 0.47 ratio drew a
+    # near-square frame that circled the eye like a pair of goggles; 0.36 leaves
+    # the brow and the lower lid visible inside the lens.
+    hh = float(st.eye_w) * (0.36 if style not in ("round", "monocle") else 0.48)
     # A spectacle lens sits a little above the lower lid and a little below the
     # brow; the eye's own lid heights already encode the style.
     cy += float(st.eye_up - st.eye_down) * 0.10
@@ -137,7 +140,7 @@ def _lens(cx: float, cy: float, hw: float, hh: float, style: str) -> S.Shape:
         return S.ellipse(hw * 0.88, hh * 0.82, cx, cy)
     # A spectacle lens is a soft rectangle, not a clinical rectangle.  The
     # positive radius keeps the shape in the same drawing language as the eye.
-    return S.box(hw, hh, hw * 0.26, cx, cy)
+    return S.box(hw, hh, hw * 0.46, cx, cy)
 
 
 def _frame_colour(h):
@@ -145,7 +148,7 @@ def _frame_colour(h):
     # Acetate or a dark metal, with only a trace of the outfit's metal.  A gold
     # frame on a warm face is beautiful at 640 px and invisible at 128 px; the
     # dark frame is the one that survives both sizes.
-    return palette.mix((0.045, 0.045, 0.052), h.metal, 0.19)
+    return palette.mix((0.070, 0.064, 0.060), h.metal, 0.42)
 
 
 def _temple_anchor(st, side: int, turn: float):
@@ -277,19 +280,19 @@ def paint_eyewear(canvas, st, h, genes: dict, turn: float = 0.0, asym=None) -> N
             end = (ax, ay - 0.008)
             arm = S.lock([start, ((start[0] + end[0]) * 0.5,
                                   (start[1] + end[1]) * 0.5 + 0.004), end],
-                         w0=0.0056, w1=0.0030, per_segment=4)
-            brush.paint(canvas, arm, frame, alpha=0.96, soft=0.30)
-            brush.paint(canvas, S.lock([start, end], w0=0.0014, w1=0.0009,
+                         w0=0.0040, w1=0.0022, per_segment=4)
+            brush.paint(canvas, arm, frame, alpha=0.92, soft=0.25)
+            brush.paint(canvas, S.lock([start, end], w0=0.0010, w1=0.0007,
                                        per_segment=3),
-                        frame_hi, alpha=0.65, soft=0.18)
+                        frame_hi, alpha=0.55, soft=0.16)
 
     for s, cx, cy, hw, hh, lens in lenses:
         if style == "sunglasses":
             tint = palette.mix(h.lid_shadow, h.iris_dark, 0.72)
             alpha = 0.34
         else:
-            tint = palette.mix(h.sclera, h.lid_shadow, 0.28)
-            alpha = 0.105
+            tint = palette.mix(h.sclera, h.lid_shadow, 0.24)
+            alpha = 0.060
         brush.paint(canvas, lens, tint, alpha=alpha, soft=0.35)
         # A single diagonal reflection, clipped to the lens, is enough to say
         # glass without painting a window over the eye.
@@ -301,12 +304,12 @@ def paint_eyewear(canvas, st, h, genes: dict, turn: float = 0.0, asym=None) -> N
                     alpha=0.20, soft=0.45)
         # The rim is an outline *inside* the lens plus a narrow dark band, so
         # the frame has thickness and cannot look like a thick pen line.
-        brush.paint(canvas, lens - lens.offset(-0.0110), frame,
-                    alpha=0.995, soft=0.20)
-        brush.paint(canvas, lens.outline(0.0024), frame_hi,
-                    alpha=0.70, soft=0.16)
-        brush.paint(canvas, lens.outline(0.0072), frame_sh,
-                    alpha=0.48, soft=0.34)
+        brush.paint(canvas, lens - lens.offset(-0.0060), frame,
+                    alpha=0.97, soft=0.18)
+        brush.paint(canvas, lens.outline(0.0018), frame_hi,
+                    alpha=0.60, soft=0.14)
+        brush.paint(canvas, lens.outline(0.0036), frame_sh,
+                    alpha=0.40, soft=0.26)
 
     # Bridge and nose pads.  A pince-nez pinches the bridge; spectacles have a
     # bridge above the nose; a monocle has a small loop at the inner corner.
@@ -330,10 +333,10 @@ def paint_eyewear(canvas, st, h, genes: dict, turn: float = 0.0, asym=None) -> N
         a = (left[0] + left[2] * 0.92, left[1] + left[3] * 0.12)
         b = (right[0] - right[2] * 0.92, right[1] + right[3] * 0.12)
         bridge = S.lock([a, ((a[0] + b[0]) * 0.5, a[1] + 0.009), b],
-                        w0=0.0028, w1=0.0028, bulge=0.0018, per_segment=4)
-        brush.paint(canvas, bridge, frame, alpha=0.99, soft=0.22)
-        brush.paint(canvas, S.lock([a, b], w0=0.0014, w1=0.0014, per_segment=3),
-                    frame_hi, alpha=0.68, soft=0.14)
+                        w0=0.0022, w1=0.0022, bulge=0.0014, per_segment=4)
+        brush.paint(canvas, bridge, frame, alpha=0.96, soft=0.20)
+        brush.paint(canvas, S.lock([a, b], w0=0.0010, w1=0.0010, per_segment=3),
+                    frame_hi, alpha=0.58, soft=0.12)
     else:
         cx, cy, hw, hh = _lens_box(st, side, turn, asym, style)
         # The monocle's chain falls towards the collar.  It is clipped to nothing

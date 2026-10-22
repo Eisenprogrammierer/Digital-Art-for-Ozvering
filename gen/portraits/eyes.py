@@ -78,7 +78,7 @@ def shapes(st, expr: dict) -> dict:
     icx, icy = 0.0, -0.10 * up
     iris = S.ellipse(st.iris_r, st.iris_r * st.iris_squash, icx, icy)
     iris_v = iris & opening
-    rim = iris_v - iris.offset(-st.iris_r * 0.22)
+    rim = iris_v - iris.offset(-st.iris_r * 0.17)
     pupil = S.ellipse(st.pupil_r, st.pupil_r * 1.14, icx, icy + st.iris_r * 0.04)
 
     dy = float(st.lid_shadow) * (up + down) * 0.60
@@ -93,19 +93,22 @@ def shapes(st, expr: dict) -> dict:
     pupil_ring = (S.ellipse(st.pupil_r * 1.20, st.pupil_r * 1.34, icx, icy + st.iris_r * 0.04)
                   - pupil)
 
-    # The lash: the upper lid's own curve, extended past the outer corner into a wing.
+    # The lash: the upper lid's own curve, extended past the outer corner into a
+    # short wing.  The wing used to be half an eye wide, which turns a neutral
+    # face into a mascara advert; it is now a flick the width of the outer
+    # corner, and the individual hairs below carry the softness.
     upper = S.arc(inner, outer, up, 0.44, 16)
-    wing = outer + np.array([hw * 0.34, up * 0.52], dtype=np.float64)
+    wing = outer + np.array([hw * 0.255, up * 0.36], dtype=np.float64)
     lash = S.lock(np.vstack([upper, wing[None]]), w0=0.10 * st.lash * expr["lash_mul"],
-                  w1=0.0, bulge=0.95 * st.lash * expr["lash_mul"], per_segment=4)
-    spikes = S.lock([outer + np.array([hw * 0.06, up * 0.06]),
-                     outer + np.array([hw * 0.52, up * 0.34])],
-                    w0=0.45 * st.lash, w1=0.0, per_segment=3)
+                  w1=0.0, bulge=0.78 * st.lash * expr["lash_mul"], per_segment=4)
+    spikes = S.lock([outer + np.array([hw * 0.04, up * 0.05]),
+                     outer + np.array([hw * 0.40, up * 0.24])],
+                    w0=0.34 * st.lash, w1=0.0, per_segment=3)
 
     low = S.arc(inner, outer, -down, 0.48, 18)
     low_seg = np.ascontiguousarray(low[::-1][: max(4, int(0.62 * len(low)))])
-    lid_line = S.lock(low_seg, w0=st.lid_w, w1=0.0, per_segment=4)
-    lower_water = S.lock(low_seg, w0=st.lid_w * 1.8, w1=0.0, per_segment=4)
+    lid_line = S.lock(low_seg, w0=st.lid_w * 0.42, w1=0.0, per_segment=4)
+    lower_water = S.lock(low_seg, w0=st.lid_w * 0.55, w1=0.0, per_segment=4)
 
     crease = S.lock(S.arc(inner + np.array([hw * 0.10, up * 0.55]),
                           outer + np.array([hw * 0.16, up * 0.40]), up * 0.52, 0.5, 12),
@@ -116,27 +119,39 @@ def shapes(st, expr: dict) -> dict:
                          w0=st.crease_w * 1.5, w1=st.crease_w * 0.4,
                          bulge=st.crease_w * 1.2, per_segment=4)
 
-    # The socket: a soft pool of shade on the skin above the eye.
-    socket = S.ellipse(hw * 1.22, up * 1.30, 0.0, up * 1.35 + st.crease_w)
+    # The socket: an elongated orbital pool, not a ring around the eye.  It is
+    # wider than the opening and sits above it, so its lower edge dissolves into
+    # the cheek instead of drawing a dark circle under the lid.  The fine
+    # infraorbital puff is a separate, much softer shape; how much of it shows is
+    # a life-stage parameter, because a child has none and an elder has a bag.
+    socket = S.ellipse(hw * 1.58, up * 0.92, 0.0, up * 1.02)
+    socket_outer = S.ellipse(hw * 0.72, up * 0.82, hw * 0.58, up * 1.02)
+    under_eye = S.ellipse(hw * 0.80, down * 0.70, 0.0, -down * 1.34)
+    under_crease = S.lock(S.arc([-hw * 0.56, -down * 1.62],
+                                [hw * 0.66, -down * 1.48],
+                                -down * 0.34, 0.5, 14),
+                          w0=st.lid_w * 0.30, w1=0.0, per_segment=4)
     inner_shade = S.ellipse(hw * 0.22, down * 0.75, -hw * 0.86, -down * 0.08)
     outer_shade = S.ellipse(hw * 0.18, down * 0.55, hw * 0.88, -down * 0.04)
     tear = S.ellipse(hw * 0.075, down * 0.20, -hw * 0.91, -down * 0.12)
 
     # Separate lash hairs along the same upper arc.  They share the arc's own
-    # points, so they grow from the lid instead of floating above it.
+    # points, so they grow from the lid instead of floating above it.  Six hairs
+    # of unequal length read as a lash line; four equal ones read as a comb.
     lash_fine = []
-    for u, ln in ((0.22, 0.020), (0.40, 0.030), (0.58, 0.034), (0.74, 0.026)):
+    for u, ln in ((0.16, 0.015), (0.30, 0.022), (0.44, 0.030),
+                  (0.58, 0.032), (0.71, 0.027), (0.84, 0.020)):
         k = int(u * (len(upper) - 1))
         p = upper[k]
-        tip = p + np.array([-0.006 + 0.018 * u, ln], dtype=np.float64)
-        lash_fine.append(S.lock([p, tip], w0=st.lash * 0.22, w1=0.0,
+        tip = p + np.array([-0.004 + 0.014 * u, ln], dtype=np.float64)
+        lash_fine.append(S.lock([p, tip], w0=st.lash * 0.15, w1=0.0,
                                 per_segment=3))
     low_lash = []
-    for u, ln in ((0.68, -0.012), (0.82, -0.016)):
+    for u, ln in ((0.72, -0.010), (0.83, -0.014), (0.92, -0.010)):
         k = int(u * (len(low_seg) - 1))
         p = low_seg[k]
-        low_lash.append(S.lock([p, p + np.array([0.008, ln])],
-                               w0=st.lash * 0.12, w1=0.0, per_segment=3))
+        low_lash.append(S.lock([p, p + np.array([0.007, ln])],
+                               w0=st.lash * 0.09, w1=0.0, per_segment=3))
 
     # Two or three conjunctival vessels, kept inside the opening.  They are not
     # red enough to read as irritation: they are the faint directional grain that
@@ -168,6 +183,7 @@ def shapes(st, expr: dict) -> dict:
         hl_big=hl_big, hl_small=hl_small, hl_tiny=hl_tiny, iris_glow=iris_glow,
         lash=lash, spikes=spikes, lid_line=lid_line, lower_water=lower_water,
         crease=crease, crease_soft=crease_soft, socket=socket,
+        socket_outer=socket_outer, under_eye=under_eye, under_crease=under_crease,
         inner_shade=inner_shade, outer_shade=outer_shade, tear=tear,
         lash_fine=lash_fine, low_lash=low_lash, vessels=vessels,
         closed=closed, closed_crease=closed_crease, up=up, down=down, hw=hw,
@@ -249,9 +265,21 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
     H = lambda sh: sh.place(**hl_kw)  # noqa: E731
     opening = P(g["opening"])
 
-    # Pool of shade on the skin, under the eye's own ink.
+    # Pool of shade on the skin, under the eye's own ink.  The socket is broad
+    # and soft; a hard, darker ellipse here is what used to read as a pair of
+    # goggles.  The infraorbital puff is painted as light over shadow, so an
+    # adult has a living lower lid rather than a second dark ring.
     if not closed and h is not None:
-        brush.paint(canvas, P(g["socket"]), h.skin_shadow, clip=clip, alpha=0.30, soft=2.2)
+        under = float(np.clip(getattr(st, "under_eye", 0.26), 0.0, 0.9))
+        brush.paint(canvas, P(g["socket"]), h.skin_shadow, clip=clip,
+                    alpha=0.135, soft=3.1)
+        brush.paint(canvas, P(g["socket_outer"]), h.skin_shadow, clip=clip,
+                    alpha=0.065, soft=2.6)
+        if under > 0.02:
+            brush.paint(canvas, P(g["under_eye"]), h.skin_warm, clip=clip,
+                        alpha=0.105 * under, soft=2.2)
+            brush.paint(canvas, P(g["under_crease"]), h.skin_shadow, clip=clip,
+                        alpha=0.145 * under, soft=1.1)
 
     if closed:
         fill = h.lash if h is not None else ink.INK
@@ -263,7 +291,7 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
             brush.paint(canvas, P(lash), fill, clip=clip, alpha=0.80)
         return
 
-    brush.paint(canvas, opening, h.sclera, clip=clip)
+    brush.paint(canvas, opening, palette.mix(h.sclera, h.skin, 0.07), clip=clip)
     brush.paint(canvas, P(g["inner_shade"]) & opening, h.sclera_shadow,
                 clip=clip, alpha=0.46, soft=1.4)
     brush.paint(canvas, P(g["outer_shade"]) & opening, h.sclera_shadow,
@@ -278,7 +306,7 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
                 ramp=_ramp(h.iris_dark, h.iris, h.iris_light, y1, y0))
     brush.paint(canvas, iv, None, clip=clip, alpha=0.22,
                 ramp=_fiber_ramp(h, iv.bbox))
-    brush.paint(canvas, G(g["rim"]) & opening, h.iris_rim, clip=clip, alpha=0.90)
+    brush.paint(canvas, G(g["rim"]) & opening, h.iris_rim, clip=clip, alpha=0.84)
     brush.paint(canvas, G(g["pupil_ring"]) & opening, h.iris_rim, clip=clip, alpha=0.58)
     brush.paint(canvas, G(g["pupil"]) & opening, h.pupil, clip=clip)
     brush.paint(canvas, P(g["lid"]), h.lid_shadow, clip=clip, alpha=st.lid_shadow_alpha)
@@ -288,14 +316,14 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
     brush.paint(canvas, H(g["hl_big"]) & opening, hl, clip=clip)
     brush.paint(canvas, H(g["hl_small"]) & opening, hl, clip=clip, alpha=0.85)
     brush.paint(canvas, H(g["hl_tiny"]) & opening, hl, clip=clip, alpha=0.68)
-    brush.paint(canvas, P(g["lower_water"]), h.tear, clip=clip, alpha=0.38, soft=0.7)
-    brush.paint(canvas, P(g["lid_line"]), h.lash, clip=clip, alpha=0.78)
-    brush.paint(canvas, P(g["tear"]), h.tear, clip=clip, alpha=0.62, soft=0.8)
-    brush.paint(canvas, P(g["crease_soft"]), h.skin_shadow, clip=clip, alpha=0.20, soft=1.5)
-    brush.paint(canvas, P(g["crease"]), h.line_soft, clip=clip, alpha=0.64)
+    brush.paint(canvas, P(g["lower_water"]), h.tear, clip=clip, alpha=0.16, soft=0.7)
+    brush.paint(canvas, P(g["lid_line"]), h.lash, clip=clip, alpha=0.42)
+    brush.paint(canvas, P(g["tear"]), h.tear, clip=clip, alpha=0.45, soft=0.8)
+    brush.paint(canvas, P(g["crease_soft"]), h.skin_shadow, clip=clip, alpha=0.165, soft=1.8)
+    brush.paint(canvas, P(g["crease"]), h.line_soft, clip=clip, alpha=0.58)
     for lash in g["lash_fine"]:
-        brush.paint(canvas, P(lash), h.lash, clip=clip, alpha=0.82)
+        brush.paint(canvas, P(lash), h.lash, clip=clip, alpha=0.78)
     for lash in g["low_lash"]:
-        brush.paint(canvas, P(lash), h.lash, clip=clip, alpha=0.52)
-    brush.paint(canvas, P(g["spikes"]), h.lash, clip=clip, alpha=0.9)
+        brush.paint(canvas, P(lash), h.lash, clip=clip, alpha=0.36)
+    brush.paint(canvas, P(g["spikes"]), h.lash, clip=clip, alpha=0.82)
     brush.paint(canvas, P(g["lash"]), h.lash, clip=clip)

@@ -112,6 +112,7 @@ def modify(p: dict, genes: dict) -> dict:
         p["neck_w"] = float(p["neck_w"]) + 0.038
         p["shoulder_w"] = float(p["shoulder_w"]) + 0.110
         p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) - 0.26
+        p["under_eye"] = float(p.get("under_eye", 0.26)) + 0.030
         p["eye_w"] = float(p["eye_w"]) - 0.010
         p["iris_r"] = float(p["iris_r"]) - 0.003
         p["lash"] = float(p["lash"]) - 0.006
@@ -139,6 +140,7 @@ def modify(p: dict, genes: dict) -> dict:
         p["neck_w"] = float(p["neck_w"]) - 0.022
         p["shoulder_w"] = float(p["shoulder_w"]) - 0.070
         p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.30
+        p["under_eye"] = float(p.get("under_eye", 0.26)) - 0.020
         p["eye_w"] = float(p["eye_w"]) + 0.010
         p["iris_r"] = float(p["iris_r"]) + 0.003
         p["lash"] = float(p["lash"]) + 0.009
@@ -167,7 +169,9 @@ def modify(p: dict, genes: dict) -> dict:
         p["chin_y"] = float(p["chin_y"]) + 0.010
         p["ear_size"] = float(p.get("ear_size", 1.0)) - 0.050
         p["neck_w"] = float(p["neck_w"]) - 0.015
-        p["shoulder_w"] = float(p["shoulder_w"]) - 0.080
+        p["shoulder_w"] = float(p["shoulder_w"]) - 0.100
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.080
+        p["under_eye"] = 0.08
         p["blush"] = float(p["blush"]) + 0.120
         p["lash"] = float(p["lash"]) + 0.002
         p["line"] = float(p["line"]) - 0.05
@@ -183,6 +187,9 @@ def modify(p: dict, genes: dict) -> dict:
         p["chin_w"] = float(p["chin_w"]) - 0.003
         p["nose_w"] = float(p["nose_w"]) + 0.001
         p["mouth_w"] = float(p["mouth_w"]) + 0.002
+        p["shoulder_w"] = float(p["shoulder_w"]) - 0.018
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.020
+        p["under_eye"] = 0.17
         p["blush"] = float(p["blush"]) + 0.040
     elif age == "adult":
         # The adult pass is the single biggest anti-doll lever.  The eyes are
@@ -216,6 +223,7 @@ def modify(p: dict, genes: dict) -> dict:
             p["iris_r"] = float(p["iris_r"]) - 0.004
             p["nose_w"] = float(p["nose_w"]) + 0.003
         p["brow_thick"] = float(p["brow_thick"]) + 0.001
+        p["under_eye"] = 0.28
         p["blush"] = float(p["blush"]) - 0.030
     elif age == "middle":
         p["eye_y"] = float(p["eye_y"]) + 0.006
@@ -239,6 +247,9 @@ def modify(p: dict, genes: dict) -> dict:
         p["ear_size"] = float(p.get("ear_size", 1.0)) + 0.030
         p["hairline_gap"] = float(p.get("hairline_gap", 0.300)) + 0.012
         p["neck_w"] = float(p["neck_w"]) + 0.006
+        p["shoulder_w"] = float(p["shoulder_w"]) + 0.012
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.060
+        p["under_eye"] = 0.48
         p["blush"] = float(p["blush"]) - 0.040
         p["lash"] = float(p["lash"]) - 0.002
         p["lid_shadow"] = float(p["lid_shadow"]) + 0.050
@@ -266,6 +277,9 @@ def modify(p: dict, genes: dict) -> dict:
         p["blush"] = float(p["blush"]) - 0.080
         p["lash"] = float(p["lash"]) - 0.004
         p["neck_w"] = float(p["neck_w"]) - 0.005
+        p["shoulder_w"] = float(p["shoulder_w"]) - 0.010
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.100
+        p["under_eye"] = 0.70
         p["line"] = float(p["line"]) + 0.05
 
     # Climate is an adaptation, not a costume: the nose, brow, cheek and mouth

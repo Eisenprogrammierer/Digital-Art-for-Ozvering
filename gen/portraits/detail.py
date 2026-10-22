@@ -985,7 +985,7 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None,
     shadow = smooth((0.62 * nx - 0.50 * ny + 0.05) / 0.40)
     light = smooth((-0.55 * nx + 0.70 * ny - 0.05) / 0.38)
     factor = 1.0 + mask[..., None] * (
-        shadow[..., None] * (0.70 - 1.0) + light[..., None] * (1.16 - 1.0)
+        shadow[..., None] * (0.68 - 1.0) + light[..., None] * (1.20 - 1.0)
     )
     canvas.rgb[:] = np.clip(canvas.rgb * factor, 0.0, 1.0)
 
@@ -994,6 +994,16 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None,
     grain = noise.fbm(X * 2.6, Y * 0.72, seed=301, freq=15.0, octaves=3) - 0.5
     canvas.rgb[:] = np.clip(
         canvas.rgb * (1.0 + grain[..., None] * mask[..., None] * 0.05), 0.0, 1.0)
+
+    # A rim of light just inside the silhouette.  The outline alone draws the
+    # shape, but a dark cut against a light background has no roundness; the lit
+    # inside edge is what says the mass is a volume rather than a hole.  It is
+    # strongest on the upper left, where the key already falls, and it fades
+    # before the fringe hem so the clumps keep their own edge.
+    rim = np.clip(mask - render.gaussian_blur(mask, 4.5), 0.0, 1.0)
+    rim_lit = smooth((-0.55 * nx + 0.70 * ny - 0.02) / 0.46)
+    canvas.over(palette.srgb_to_linear(h.hair_fine),
+                rim * rim_lit * 0.48)
 
     # The parting is the one line that has to stay crisp.  It is a change of
     # plane at the scalp, so it gets a dark side and a narrow lit side.
@@ -1020,7 +1030,7 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None,
     outline = brush.Surface(canvas, front, pad=3.2 * lw)
     edge = humanize.hair_contour_mask(outline, st, asym) if asym is not None else None
     outline.stroke(canvas, lw, palette.mix(h.line_hair, h.hair_shadow, 0.30),
-                   inset=lw * 0.42, alpha=0.38, soft=1.1, mask=edge)
+                   inset=lw * 0.42, alpha=0.30, soft=1.3, mask=edge)
     feather = np.clip(render.gaussian_blur(mask, 2.6) - mask, 0.0, 1.0)
     canvas.over(palette.srgb_to_linear(h.hair_shadow), feather * 0.13)
 

@@ -164,12 +164,15 @@ def neck(st, turn: float = 0.0) -> Shape:
 
 
 def shoulders(st) -> Shape:
-    """The torso: a trapezius slope that leaves the frame, not a rounded box.
+    """The torso: a trapezius slope and a shoulder cap, not a rounded box.
 
     A box wide enough to leave the frame still reads as a pill, because its own
     corners are visible.  A trapezius is what makes a bust a *body*: the line
     rises from the outer edge up to where the neck emerges, and the neck is only
-    as wide as the notch between the shoulders.
+    as wide as the notch between the shoulders.  The outer end is a rounded
+    acromion and the upper arm drops from it; the frame crops the arm well below
+    the shoulder, so both ends of the body stay inside the picture instead of
+    turning the bust into a full-width band.
     """
     top = float(st.neck_y)
     bottom = float(st.shoulder_y)
@@ -179,7 +182,7 @@ def shoulders(st) -> Shape:
     # widening the body: a high shoulder line is a square silhouette, a low one
     # is a sloped neck into a narrow chest.  Positive drops the outer end.
     slope = float(getattr(st, "shoulder_slope", 0.0))
-    outer = top - 0.22 + 0.035 * slope
+    outer = top - 0.155 + 0.040 * slope
     crest = top - 0.010 * slope
     # The top edge is a *neckline*, not a shelf.  A straight edge across the
     # shoulders ran over the throat above the collar and read as a shirt seam
@@ -187,17 +190,19 @@ def shoulders(st) -> Shape:
     # sides and dips below the throat at the middle, so the cloth closes around
     # the neck and only the collar's own opening crosses it.
     pts = [
-        (-w, bottom),
-        (-w, outer),
-        (-w * 0.66, crest),
+        (-w * 1.02, bottom),
+        (-w * 1.03, outer - 0.135),
+        (-w * 0.965, outer - 0.030),
+        (-w * 0.745, crest),
         (-nw, top + 0.075),
         (0.0, top - 0.020),
         (nw, top + 0.075),
-        (w * 0.66, crest),
-        (w, outer),
-        (w, bottom),
+        (w * 0.745, crest),
+        (w * 0.965, outer - 0.030),
+        (w * 1.03, outer - 0.135),
+        (w * 1.02, bottom),
     ]
-    return S.poly(S.smooth_loop(pts, per_segment=8, resample=52))
+    return S.poly(S.smooth_loop(pts, per_segment=8, resample=60))
 
 
 def shoulder_edge_y(st, x: float) -> float:

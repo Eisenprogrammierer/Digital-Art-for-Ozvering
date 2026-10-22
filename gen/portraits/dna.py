@@ -521,6 +521,7 @@ def _clamp_params(p: dict) -> dict:
     p["nose_w"] = float(np.clip(p["nose_w"], 0.32 * float(p["mouth_w"]),
                                 0.58 * float(p["mouth_w"])))
     p["lip_full"] = float(np.clip(p.get("lip_full", 0.0), -0.12, 0.85))
+    p["under_eye"] = float(np.clip(p.get("under_eye", 0.26), 0.0, 0.90))
     p["ear_size"] = float(np.clip(p.get("ear_size", 1.0), 0.65, 1.40))
 
     # The hairline is an anchor on the skull, not a consequence of the eyes, but

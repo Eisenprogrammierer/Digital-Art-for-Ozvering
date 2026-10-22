@@ -229,6 +229,12 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
     detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov, asym=asym)
+    if hs.name in ("short", "spiky", "wild", "pony", "twin"):
+        # A crop, a spike or a pulled-back tail leaves the ear in front of the
+        # hair.  Without this, the cap ran straight over the temple and the cut
+        # ended in a black shell; the ear is the silhouette break the style asks
+        # for.  Long curtains deliberately cover it, so they do not call this.
+        face.paint_ear_over_hair(c, st, h, turn, clip=skull, asym=asym)
     garments.paint_veil(c, st, h, kit, turn)
     # Glasses sit on the face and their temples lie over the hair.  Painting them
     # last is what keeps a strand from growing through a lens.

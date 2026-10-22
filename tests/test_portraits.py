@@ -610,10 +610,15 @@ def test_the_hairline_has_no_gap():
     """
     for name in dna.HAIR_STYLES:
         for seed in range(8):
-            g = _genes(seed * 13 + 1, hair_style=name)
+            # The invariant is about the passport photograph: front-facing, and
+            # sampled inside *this* skull.  A fixed +-0.34 x-range and a random
+            # turn tested the silhouette of the frame rather than the hairline,
+            # and an M-shaped crop legitimately leaves the corners of the
+            # forehead bare.
+            g = _genes(seed * 13 + 1, hair_style=name, turn=0.0)
             st, h = _hair(g)
             hairline = head.hairline_y(st) - 0.02
-            xs = np.linspace(-0.34, 0.34, 25)
+            xs = np.linspace(-st.head_w * 0.86, st.head_w * 0.86, 25)
             above = h.cap.f(xs, np.full_like(xs, hairline + 0.035))
             below = h.front_mass.f(xs, np.full_like(xs, hairline - 0.030))
             gap = float(np.minimum(above, below).max())
@@ -1523,7 +1528,8 @@ def test_a_jacket_builds_a_body_and_a_coat_is_heavier():
     base.update(sex="female", age="adult", attire="civil", insignia="none",
                 awards="none", ornament="none", faith="none")
     st = _style(base)
-    x, y = -0.52, float(st.neck_y) - 0.10
+    # Sample on the body, not on the background outside the narrowed shoulder.
+    x, y = -float(st.shoulder_w) * 0.55, float(st.neck_y) - 0.16
     shirt = portraitlib.render(dict(base, garment="shirt"), size=128)
     jacket = portraitlib.render(dict(base, garment="jacket"), size=128)
     coat = portraitlib.render(dict(base, garment="coat"), size=128)
