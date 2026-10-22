@@ -41,7 +41,7 @@ import numpy as np
 from core.canvas import Canvas
 from core import palette
 
-from . import brush, cel, demography, detail, dna, expression, eyes, face, hair, head, hues, regalia
+from . import brush, cel, demography, detail, dna, expression, eyes, face, garments, hair, head, hues, regalia
 from . import style as style_mod
 from .shape import union_all
 
@@ -213,6 +213,7 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
     detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov)
+    garments.paint_veil(c, st, h, kit, turn)
     return c
 
 

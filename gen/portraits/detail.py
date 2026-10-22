@@ -24,7 +24,7 @@ import numpy as np
 
 from core import noise, palette, render
 
-from . import brush, demography, head, phenotype
+from . import brush, demography, garments, head, phenotype
 from . import shape as S
 
 __all__ = [
@@ -202,6 +202,9 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
     ey = float(st.eye_y)
     brow = float(st.brow_y)
     age = demography.age_t(genes)
+    sex = str(genes.get("sex", demography.DEFAULTS["sex"]))
+    male = 1.0 if sex == "male" else 0.0
+    female = 1.0 if sex == "female" else 0.0
     # ``skin_light`` is only a hair above the base skin -- it is a cel band, not
     # a highlight -- so painting it at low alpha is invisible.  The bones need a
     # value that actually reads as lit, and a slightly higher alpha, or the
@@ -212,24 +215,30 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
     # the two ridges from joining into a single bar across the forehead.
     gx, gy = head.turn_point(0.0, brow + 0.020, turn, st)
     brush.paint(canvas, S.ellipse(bw * 0.085, 0.030, float(gx), float(gy)),
-                light, clip=clip, alpha=0.080, soft=2.6)
+                light, clip=clip, alpha=0.080 + 0.022 * male, soft=2.6)
 
     for side in (+1, -1):
         # Supraorbital ridge: the brow's bony shelf.  It follows the brow's own
         # curve and sits just above it, so the shade it casts falls into the
-        # orbit rather than onto the forehead.
+        # orbit rather than onto the forehead.  It is the first place a male face
+        # reads as male, so its weight and width follow the sex rather than the
+        # same fixed alpha for every sitter.
         a = _face_point(st, side, bw * 0.07, brow + 0.040, turn)
         b = _face_point(st, side, bw * 0.50, brow + 0.026, turn)
         ridge = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 + 0.010), b],
-                       w0=bw * 0.058, w1=bw * 0.038, bulge=bw * 0.016, per_segment=5)
-        brush.paint(canvas, ridge, light, clip=clip, alpha=0.125, soft=2.8)
+                       w0=bw * (0.058 + 0.007 * male),
+                       w1=bw * (0.038 + 0.005 * male), bulge=bw * 0.016, per_segment=5)
+        brush.paint(canvas, ridge, light, clip=clip,
+                    alpha=0.125 + 0.045 * male - 0.018 * female, soft=2.8)
 
         # The orbit itself.  The eye is painted over the middle of this shade, so
         # what survives is a rim of depth around the eye -- which is the point:
         # an eye on a flat cheek is a sticker.
         ox, oy = _face_point(st, side, st.eye_dx * 0.98, brow - 0.042, turn)
-        brush.paint(canvas, S.ellipse(st.eye_w * 0.56, 0.038, float(ox), float(oy)),
-                    h.skin_shadow, clip=clip, alpha=0.090, soft=2.4)
+        brush.paint(canvas, S.ellipse(st.eye_w * (0.56 + 0.035 * male),
+                                      0.038 + 0.004 * male, float(ox), float(oy)),
+                    h.skin_shadow, clip=clip,
+                    alpha=0.090 + 0.035 * male - 0.010 * female, soft=2.4)
 
         # Zygomatic arch: from the cheekbone back towards the ear.  This is the
         # ridge that separates the cheek's light from the temple's hollow.
@@ -237,13 +246,15 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
         zb = _face_point(st, side, bw * 0.84, ey - 0.004, turn)
         arch = S.lock([za, ((za[0] + zb[0]) * 0.5, (za[1] + zb[1]) * 0.5 + 0.008), zb],
                       w0=bw * 0.036, w1=bw * 0.024, bulge=bw * 0.010, per_segment=4)
-        brush.paint(canvas, arch, light, clip=clip, alpha=0.080, soft=2.8)
+        brush.paint(canvas, arch, light, clip=clip,
+                    alpha=0.080 + 0.012 * female, soft=2.8)
 
         # Temporal fossa: the hollow inside the arch.  It deepens with age, which
         # is one of the few places a face ages before it wrinkles.
         tx, ty = _face_point(st, side, bw * 0.80, brow - 0.010, turn)
         brush.paint(canvas, S.ellipse(bw * 0.085, 0.070, float(tx), float(ty)),
-                    h.skin_shadow, clip=clip, alpha=0.060 + 0.040 * age, soft=2.8)
+                    h.skin_shadow, clip=clip,
+                    alpha=0.060 + 0.040 * age + 0.012 * male, soft=2.8)
 
         # The faint nasolabial break.  Age draws this hard; even a young face has
         # a soft one, and without it the cheek runs straight into the lip.
@@ -257,8 +268,28 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
         # The gonion: the small dark turn where the mandible becomes the ramus,
         # just under the ear.  It gives the jaw an end instead of fading out.
         ax, ay = _face_point(st, side, st.jaw_w * 0.95, st.jaw_y + 0.072, turn)
-        brush.paint(canvas, S.ellipse(bw * 0.050, 0.038, float(ax), float(ay)),
-                    h.skin_shadow, clip=clip, alpha=0.070, soft=2.0)
+        brush.paint(canvas, S.ellipse(bw * (0.050 + 0.006 * male),
+                                      0.038 + 0.004 * male, float(ax), float(ay)),
+                    h.skin_shadow, clip=clip,
+                    alpha=0.070 + 0.030 * male - 0.010 * female, soft=2.0)
+
+        # The mandible's lit plane: a narrow band just inside the jawline, from
+        # the gonion towards the chin.  It is what makes the jaw a *bone* rather
+        # than the bottom edge of a mask, and it is stronger on a male face.
+        ja = _face_point(st, side, st.jaw_w * 0.78, st.jaw_y + 0.078, turn)
+        jb = _face_point(st, side, st.chin_w * 0.62, st.chin_y + 0.075, turn)
+        jaw = S.lock([ja, ((ja[0] + jb[0]) * 0.5, (ja[1] + jb[1]) * 0.5 - 0.008), jb],
+                     w0=bw * 0.030, w1=bw * 0.018, bulge=bw * 0.008, per_segment=5)
+        brush.paint(canvas, jaw, light, clip=clip,
+                    alpha=0.040 + 0.026 * male - 0.008 * female, soft=2.4)
+
+    # The chin's own plane, between the lower lip and the jaw.  A central lit
+    # ellipse keeps the chin from dissolving into the jaw's shadow when the face
+    # is narrow, and a masculine chin gets a slightly stronger one.
+    cx, cy = head.turn_point(0.0, float(st.chin_y) + 0.058, turn, st)
+    brush.paint(canvas, S.ellipse(float(st.chin_w) * 0.62, 0.030,
+                                  float(cx), float(cy)),
+                light, clip=clip, alpha=0.045 + 0.022 * male, soft=2.2)
 
 
 def _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed) -> None:
@@ -637,6 +668,8 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     lw = float(st.ink_w) * float(st.line)
     culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
     attire = str(genes.get("attire", "civil"))
+    cut = garments.base_cut(attire, str(genes.get("garment", "auto")))
+    kind = garments.neckline(attire, str(genes.get("garment", "auto")), kind)
     X, Y = canvas.grid()
     nw = float(st.neck_w)
     top = float(st.neck_y)
@@ -664,13 +697,30 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     # it later would leave a ghost of the skin through the collar.
     x0 = min(nw * 1.16, float(st.shoulder_w) * 0.285)
     depth = {"v": 0.056, "scoop": 0.050, "crew": 0.042}.get(kind, 0.050)
+    if cut == "blouse":
+        depth = 0.060
+    elif cut == "dress":
+        depth = 0.070
+    elif cut == "robe":
+        depth = 0.040
     if attire == "civil":
         # The opening is only the throat, not the whole chest.  A shirt collar
         # closes below it: the skin V ends at the top button, and the collar leaves
         # lie on the cloth underneath.  Making the opening chest-deep was what made
         # every previous collar read as a V-neck t-shirt.
-        opening = S.poly([(-x0, top + 0.035), (0.0, top - depth), (x0, top + 0.035)],
-                         resample=38)
+        if cut in ("blouse", "dress"):
+            # A blouse and a dress want a U, not a V: the soft neckline is the
+            # difference between tailoring and a shirt with the collar removed.
+            us = [(-x0, top + 0.035), (-x0 * 0.86, top - depth * 0.15),
+                  (-x0 * 0.58, top - depth * 0.70),
+                  (-x0 * 0.22, top - depth * 0.97), (0.0, top - depth),
+                  (x0 * 0.22, top - depth * 0.97),
+                  (x0 * 0.58, top - depth * 0.70),
+                  (x0 * 0.86, top - depth * 0.15), (x0, top + 0.035)]
+            opening = S.poly(us, resample=48)
+        else:
+            opening = S.poly([(-x0, top + 0.035), (0.0, top - depth),
+                              (x0, top + 0.035)], resample=38)
         brush.paint(canvas, opening, h.skin, clip=clip, alpha=0.97, soft=0.4)
         brush.paint(canvas, opening & S.ellipse(x0 * 0.82, 0.060, 0.0, top + 0.020),
                     h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
@@ -711,7 +761,8 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                                       side * float(st.shoulder_w) * 0.30, top + 0.012),
                     h.cloth_shadow, clip=clip, alpha=0.10, soft=2.8)
 
-    if attire == "civil":
+    point_drop = {"v": 1.26, "scoop": 1.20, "crew": 1.12}.get(kind, 1.20)
+    if attire == "civil" and cut not in ("blouse", "dress", "robe"):
         # A folded collar is not a band floating across the throat.  The old stand
         # was a shallow arc whose top outline ran almost horizontally over the neck
         # and read as a shirt seam crossing the sitter's throat.  The collar here is
@@ -723,7 +774,6 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         # Two collar leaves.  Their inner edges follow the V; their outer edges run
         # from the shoulder to a point near the bottom of the opening.  This is the
         # silhouette of a folded collar, not a ring around a t-shirt neck.
-        point_drop = {"v": 1.26, "scoop": 1.20, "crew": 1.12}.get(kind, 1.20)
         for side in (+1, -1):
             a = (side * x0 * 1.02, top + 0.065)
             b = (side * x0 * 1.58, top + 0.010)
@@ -778,19 +828,22 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     # is the one seam a collared shirt is allowed to have here, and it must start
     # *below* the collar rather than run through it.  A tunic closes higher, so
     # its button front begins at the stand collar's lower edge.
+    skip_placket = cut in ("blouse", "dress", "robe", "jacket", "coat")
     if attire == "civil":
-        placket_top = top - depth * point_drop - 0.006
+        placket_top = (top - depth - 0.020 if skip_placket
+                       else top - depth * point_drop - 0.006)
     else:
         placket_top = top + 0.004
     placket_bottom = placket_top - (0.120 if attire == "civil" else 0.165)
-    placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
-                     w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
-    brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.40, soft=0.8)
-    for side in (+1, -1):
-        edge = S.lock([(side * lw * 1.15, placket_top),
-                       (side * lw * 1.35, placket_bottom)],
-                      w0=lw * 0.26, w1=lw * 0.30, per_segment=3)
-        brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.34, soft=0.5)
+    if not skip_placket:
+        placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
+                         w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
+        brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.40, soft=0.8)
+        for side in (+1, -1):
+            edge = S.lock([(side * lw * 1.15, placket_top),
+                           (side * lw * 1.35, placket_bottom)],
+                          w0=lw * 0.26, w1=lw * 0.30, per_segment=3)
+            brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.34, soft=0.5)
 
     # Two folds from the shoulder seam towards the chest.
     for side in (+1, -1):
@@ -814,33 +867,35 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     # others.  A service tunic always buttons, and a tunic front has more than a
     # shirt's two.  The fastenings stay deliberately small; the bust should not
     # become a costume diagram.
-    if attire != "civil":
-        count = {"naval": 0, "clerical": 1}.get(attire, 4)
-        for k in range(count):
-            y = placket_top - 0.026 - 0.046 * k
-            brush.paint(canvas, S.circle(0.0085, 0.0, y), h.metal, clip=clip,
-                        alpha=0.88, soft=0.28)
-            brush.paint(canvas, S.circle(0.0085, 0.0, y).outline(0.0024),
-                        h.cloth_line, clip=clip, alpha=0.52, soft=0.2)
-    elif culture in ("north", "steppe", "coast"):
-        y = placket_top - 0.020
-        disc = S.circle(0.014, 0.0, y)
-        brush.paint(canvas, disc, h.metal, clip=clip, alpha=0.92, soft=0.2)
-        brush.paint(canvas, disc.outline(0.0035), h.cloth_line, clip=clip, alpha=0.78)
-        brush.paint(canvas, S.circle(0.005, -0.003, y + 0.004), h.cloth_hi,
-                    clip=clip, alpha=0.78, soft=0.4)
-    else:
-        for k in range(2):
-            y = placket_top - 0.032 - 0.060 * k
-            brush.paint(canvas, S.circle(0.007, 0.0, y), h.metal, clip=clip,
-                        alpha=0.82, soft=0.3)
-            brush.paint(canvas, S.circle(0.007, 0.0, y).outline(0.0025),
-                        h.cloth_line, clip=clip, alpha=0.55, soft=0.2)
+    if not skip_placket:
+        if attire != "civil":
+            count = {"naval": 0, "clerical": 1}.get(attire, 4)
+            for k in range(count):
+                y = placket_top - 0.026 - 0.046 * k
+                brush.paint(canvas, S.circle(0.0085, 0.0, y), h.metal, clip=clip,
+                            alpha=0.88, soft=0.28)
+                brush.paint(canvas, S.circle(0.0085, 0.0, y).outline(0.0024),
+                            h.cloth_line, clip=clip, alpha=0.52, soft=0.2)
+        elif culture in ("north", "steppe", "coast"):
+            y = placket_top - 0.020
+            disc = S.circle(0.014, 0.0, y)
+            brush.paint(canvas, disc, h.metal, clip=clip, alpha=0.92, soft=0.2)
+            brush.paint(canvas, disc.outline(0.0035), h.cloth_line, clip=clip, alpha=0.78)
+            brush.paint(canvas, S.circle(0.005, -0.003, y + 0.004), h.cloth_hi,
+                        clip=clip, alpha=0.78, soft=0.4)
+        else:
+            for k in range(2):
+                y = placket_top - 0.032 - 0.060 * k
+                brush.paint(canvas, S.circle(0.007, 0.0, y), h.metal, clip=clip,
+                            alpha=0.82, soft=0.3)
+                brush.paint(canvas, S.circle(0.007, 0.0, y).outline(0.0025),
+                            h.cloth_line, clip=clip, alpha=0.55, soft=0.2)
 
     # A row of tiny embroidered diamonds under the collar, in the culture's
     # accent.  Three is enough to read as a border at 256 px.  Service dress has
     # its own marks, so the folk border belongs to civilian clothing only.
-    if attire == "civil" and culture in ("steppe", "desert", "highland"):
+    if attire == "civil" and cut not in ("dress", "robe") and culture in (
+            "steppe", "desert", "highland"):
         y = top - 0.175
         for k in (-1, 0, 1):
             x = k * nw * 0.55

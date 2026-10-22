@@ -32,7 +32,7 @@ import numpy as np
 
 from core import palette
 
-from . import brush, head
+from . import brush, garments, head
 from . import shape as S
 from .hues import Hues
 
@@ -60,6 +60,7 @@ CATEGORIES = {
     "awards": AWARDS,
     "ornament": ORNAMENT,
     "faith": FAITH,
+    "garment": garments.CUTS,
 }
 
 DEFAULTS = {
@@ -68,6 +69,7 @@ DEFAULTS = {
     "awards": "none",
     "ornament": "none",
     "faith": "none",
+    "garment": "auto",
 }
 
 #: Dress colours, in OKLCH.  They are the *material* of a service, mixed with the
@@ -111,7 +113,8 @@ class Kit:
     """The colours and marks one sitter's outfit needs, resolved once."""
 
     __slots__ = (
-        "attire", "insignia", "awards", "ornament", "faith", "rank", "adult",
+        "attire", "insignia", "awards", "ornament", "faith", "garment", "cut",
+        "rank", "adult",
         "service", "service_hi", "service_light", "service_shadow", "service_line",
         "accent", "accent_hi", "accent_shadow", "tab", "tab_edge",
         "gold", "gold_hi", "gold_shadow", "silver", "silver_hi", "silver_shadow",
@@ -127,6 +130,8 @@ def build(genes: dict, h: Hues) -> Kit:
     k.awards = _get(genes, "awards")
     k.ornament = _get(genes, "ornament")
     k.faith = _get(genes, "faith")
+    k.garment = _get(genes, "garment")
+    k.cut = garments.resolve(k.attire, k.garment)
     k.adult = str(genes.get("age", "adult")) != "child"
 
     culture = str(genes.get("culture", "river"))
@@ -217,12 +222,14 @@ def dress(kit: Kit, h: Hues) -> Hues:
 
 def random_values(rng: np.random.Generator) -> dict:
     """Draw the outfit layer.  Called after the phenotype layer, never before."""
+    attire = str(rng.choice(ATTIRE, p=(0.46, 0.16, 0.12, 0.10, 0.08, 0.08)))
     return {
-        "attire": str(rng.choice(ATTIRE, p=(0.46, 0.16, 0.12, 0.10, 0.08, 0.08))),
+        "attire": attire,
         "insignia": str(rng.choice(INSIGNIA, p=(0.30, 0.24, 0.28, 0.18))),
         "awards": str(rng.choice(AWARDS, p=(0.46, 0.18, 0.16, 0.10, 0.10))),
         "ornament": str(rng.choice(ORNAMENT, p=(0.48, 0.12, 0.16, 0.12, 0.12))),
         "faith": str(rng.choice(FAITH, p=(0.66, 0.22, 0.12))),
+        "garment": garments.random_value(rng, attire),
     }
 
 
@@ -278,15 +285,18 @@ def paint_bust(canvas, st, h: Hues, genes: dict, kit: Kit, kind: str, clip) -> N
         # neckline.  The neck coverage is added only for the collar pass, so the
         # threaded edge cannot draw over the jaw.
         collar_clip = np.clip(clip + brush.mask(canvas, head.neck(st)), 0.0, 1.0)
-    # The order is the order it is put on: tunic details, then the sash over
-    # them, then the collar and boards over the sash, then the star.
+    # The order is the order it is put on: tunic details, then the cut of the
+    # garment over them, then the sash, collar and boards, then the overgarment,
+    # and last the decorations that are pinned on top of everything.
     if kit.attire != "civil":
         _tunic(canvas, st, h, kit, clip)
+    garments.paint_front(canvas, st, h, kit, clip)
     if kit.awards == "order":
         _sash(canvas, st, kit, clip)
     if kit.attire != "civil":
         _collar(canvas, st, h, kit, collar_clip)
     _insignia(canvas, st, h, kit, collar_clip)
+    garments.paint_mantle(canvas, st, h, kit, clip)
     _awards(canvas, st, h, kit, clip)
     _ornament(canvas, st, h, kit, collar_clip)
     _faith(canvas, st, h, kit, collar_clip)
@@ -449,42 +459,63 @@ def _collar_tabs(canvas, st, h, kit: Kit, clip) -> None:
 
 
 def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
+    # A shoulder cape is worn *over* the boards.  Painting them and trusting the
+    # cape's anti-aliased edge to hide them leaves gold arcs on the shoulders, so
+    # the correct thing is not to dress the shoulder at all under a mantle.
+    if kit.cut in ("mantle", "habit"):
+        return
     lw = float(st.ink_w) * float(st.line)
     top = float(st.neck_y)
     nw = float(st.neck_w)
     sw = float(st.shoulder_w)
     for side in (+1, -1):
-        a = (side * max(nw * 1.24, 0.198), top - 0.008)
-        b = (side * sw * 0.520, top - 0.080)
-        spine = [a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 + 0.012), b]
-        board = S.lock(spine, w0=0.052, w1=0.046, bulge=0.004, per_segment=6)
-        # A shadow under the free end gives the board thickness.
-        brush.paint(canvas, S.lock([(p[0], p[1] - 0.012) for p in spine],
-                                   w0=0.056, w1=0.050, per_segment=6),
-                    kit.service_shadow, clip=clip, alpha=0.22, soft=1.4)
-        brush.paint(canvas, board, kit.service_hi, clip=clip, alpha=1.0, soft=0.42)
-        brush.paint(canvas, board & S.lock([(p[0], p[1] + 0.017) for p in spine],
-                                          w0=0.010, w1=0.008, per_segment=5),
-                    kit.service_light, clip=clip, alpha=0.32, soft=0.8)
-        brush.paint(canvas, board.outline(lw * 0.48), kit.service_line, clip=clip,
-                    alpha=0.54, soft=0.4)
+        # A board lies on the *shoulder*, and the shoulder is the top edge of the
+        # bust -- not a horizontal line near the chest.  Sample that edge at four
+        # stations and keep the board's upper half inside the silhouette; the old
+        # fixed anchors put the whole board on the upper chest, which is what made
+        # it look like a lapel that had slipped off the shoulder.
+        x0 = max(nw * 1.03, 0.185)
+        x1 = sw * 0.520
+        xs = [x0, x0 + (x1 - x0) * 0.34, x0 + (x1 - x0) * 0.68, x1]
+        spine = [(side * x, head.shoulder_edge_y(st, side * x) - 0.034) for x in xs]
+        a = spine[0]
+        board = S.lock(spine, w0=0.062, w1=0.054, bulge=0.005, per_segment=7)
+        # A shadow under the free end gives the board thickness.  The board sits
+        # fully inside the shoulder silhouette, so the shadow has to be broad
+        # enough to survive the cel shading underneath it.
+        brush.paint(canvas, S.lock([(p[0], p[1] - 0.017) for p in spine],
+                                   w0=0.068, w1=0.060, per_segment=6),
+                    kit.service_shadow, clip=clip, alpha=0.30, soft=1.6)
+        # The field is one step lighter than the tunic; without that step the
+        # board disappeared into the shoulder and only its gold piping read.
+        brush.paint(canvas, board, kit.service_light, clip=clip, alpha=1.0, soft=0.42)
+        brush.paint(canvas, board & S.lock([(p[0], p[1] + 0.019) for p in spine],
+                                          w0=0.012, w1=0.009, per_segment=5),
+                    palette.lighten(kit.service_light, 0.035), clip=clip,
+                    alpha=0.30, soft=0.8)
+        # A dark seam outside a gold braid: the two outlines give the board an
+        # edge at avatar size, where a single thin line would alias away.
+        brush.paint(canvas, board.outline(lw * 0.58), kit.service_line, clip=clip,
+                    alpha=0.58, soft=0.4)
+        brush.paint(canvas, board.outline(lw * 0.28), kit.metal, clip=clip,
+                    alpha=0.78, soft=0.32)
         # Piping along the outer edge, and the button at the inner end.
-        brush.paint(canvas, S.lock([(p[0], p[1] - 0.023) for p in spine],
-                                   w0=0.0038, w1=0.0034, per_segment=5),
-                    kit.metal, clip=clip, alpha=0.88, soft=0.32)
-        brush.paint(canvas, S.circle(0.011, a[0], a[1]), kit.metal, clip=clip,
+        brush.paint(canvas, S.lock([(p[0], p[1] - 0.029) for p in spine],
+                                   w0=0.0042, w1=0.0036, per_segment=5),
+                    kit.metal, clip=clip, alpha=0.90, soft=0.32)
+        brush.paint(canvas, S.circle(0.012, a[0], a[1]), kit.metal, clip=clip,
                     alpha=0.95, soft=0.25)
-        brush.paint(canvas, S.circle(0.011, a[0], a[1]).outline(0.0024),
+        brush.paint(canvas, S.circle(0.012, a[0], a[1]).outline(0.0026),
                     kit.metal_shadow, clip=clip, alpha=0.75, soft=0.2)
         # Rank: stars along the outer half of the board.
         for k in range(kit.rank):
             t = 0.58 + 0.13 * k
             p, n = _normal(spine, t)
-            brush.paint(canvas, _star(0.0150, float(p[0]), float(p[1]), 4),
+            brush.paint(canvas, _star(0.0170, float(p[0]), float(p[1]), 4),
                         kit.metal_shadow, clip=clip, alpha=0.65, soft=0.25)
-            brush.paint(canvas, _star(0.0120, float(p[0]), float(p[1]) + 0.001, 4),
+            brush.paint(canvas, _star(0.0135, float(p[0]), float(p[1]) + 0.001, 4),
                         kit.metal, clip=clip, alpha=0.94, soft=0.25)
-            brush.paint(canvas, _star(0.0055, float(p[0]), float(p[1]) + 0.001, 4),
+            brush.paint(canvas, _star(0.0062, float(p[0]), float(p[1]) + 0.001, 4),
                         kit.metal_hi, clip=clip, alpha=0.65, soft=0.2)
 
 
@@ -624,7 +655,7 @@ def _armband(canvas, st, kit: Kit, clip) -> None:
 def _ornament(canvas, st, h, kit: Kit, clip) -> None:
     if kit.ornament == "none":
         return
-    if kit.ornament == "aiguillette":
+    if kit.ornament == "aiguillette" and kit.cut not in ("mantle", "habit"):
         _aiguillette(canvas, st, kit, clip)
     elif kit.ornament == "chain":
         _watch_chain(canvas, st, kit, clip)

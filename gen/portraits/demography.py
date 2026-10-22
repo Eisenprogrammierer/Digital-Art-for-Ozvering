@@ -91,24 +91,40 @@ def modify(p: dict, genes: dict) -> dict:
     climate = str(genes.get("climate", DEFAULTS["climate"]))
 
     if sex == "male":
-        p["jaw_w"] = float(p["jaw_w"]) + 0.014
-        p["chin_w"] = float(p["chin_w"]) + 0.010
-        p["brow_thick"] = float(p["brow_thick"]) + 0.005
-        p["brow_arch"] = float(p["brow_arch"]) - 0.003
-        p["neck_w"] = float(p["neck_w"]) + 0.012
-        p["shoulder_w"] = float(p["shoulder_w"]) + 0.035
+        # The skeleton is a *relationship*, not a mood.  The old male deltas were
+        # so small that the jaw, brow and shoulders only separated from the
+        # androgynous baseline at full resolution; a headshot has to read at a
+        # glance, so the mandible, brow shelf, neck and shoulder girdle now move
+        # together and by a visible amount.  The harmony clamp in ``dna`` still
+        # keeps the jaw inside the cheekbones.
+        p["jaw_w"] = float(p["jaw_w"]) + 0.020
+        p["chin_w"] = float(p["chin_w"]) + 0.014
+        p["cheek_w"] = float(p["cheek_w"]) + 0.005
+        p["brow_thick"] = float(p["brow_thick"]) + 0.007
+        p["brow_arch"] = float(p["brow_arch"]) - 0.004
+        p["neck_w"] = float(p["neck_w"]) + 0.016
+        p["shoulder_w"] = float(p["shoulder_w"]) + 0.075
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) - 0.20
         p["eye_w"] = float(p["eye_w"]) - 0.003
-        p["lash"] = float(p["lash"]) - 0.003
-        p["line"] = float(p["line"]) + 0.04
+        p["lash"] = float(p["lash"]) - 0.004
+        p["lip_full"] = float(p["lip_full"]) - 0.020
+        p["line"] = float(p["line"]) + 0.05
     elif sex == "female":
-        p["jaw_w"] = float(p["jaw_w"]) - 0.010
-        p["chin_w"] = float(p["chin_w"]) - 0.007
-        p["brow_thick"] = float(p["brow_thick"]) - 0.003
-        p["neck_w"] = float(p["neck_w"]) - 0.007
-        p["shoulder_w"] = float(p["shoulder_w"]) - 0.020
-        p["eye_w"] = float(p["eye_w"]) + 0.004
-        p["lash"] = float(p["lash"]) + 0.004
-        p["blush"] = float(p["blush"]) + 0.030
+        # Narrower mandible and chin, a higher brow arch, a slimmer neck, a more
+        # sloped shoulder line and a fuller lip: the same skeleton, read the other
+        # way.  The cheek stays full rather than merely narrow.
+        p["jaw_w"] = float(p["jaw_w"]) - 0.016
+        p["chin_w"] = float(p["chin_w"]) - 0.011
+        p["cheek_w"] = float(p["cheek_w"]) + 0.002
+        p["brow_thick"] = float(p["brow_thick"]) - 0.004
+        p["brow_arch"] = float(p["brow_arch"]) + 0.003
+        p["neck_w"] = float(p["neck_w"]) - 0.010
+        p["shoulder_w"] = float(p["shoulder_w"]) - 0.045
+        p["shoulder_slope"] = float(p.get("shoulder_slope", 0.0)) + 0.22
+        p["eye_w"] = float(p["eye_w"]) + 0.005
+        p["lash"] = float(p["lash"]) + 0.005
+        p["lip_full"] = float(p["lip_full"]) + 0.050
+        p["blush"] = float(p["blush"]) + 0.040
     # ``androgynous`` is the baseline, not half of the binary.
 
     if age == "child":

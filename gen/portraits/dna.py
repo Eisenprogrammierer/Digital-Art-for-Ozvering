@@ -271,13 +271,17 @@ def random_genes(seed=0) -> dict:
 # --------------------------------------------------------------------------
 # string form
 # --------------------------------------------------------------------------
-def encode(genes: dict) -> str:
-    """``"style=shoujo;skin=#e8bf9e;..."`` -- one line, genes in :data:`GENES` order."""
+def _wire(genes: dict, keys) -> str:
     parts = []
-    for key in GENES:
+    for key in keys:
         value = genes[key]
         parts.append(f"{key}={quantise(value):.4f}" if isinstance(value, float) else f"{key}={value}")
     return ";".join(parts)
+
+
+def encode(genes: dict) -> str:
+    """``"style=shoujo;skin=#e8bf9e;..."`` -- one line, genes in :data:`GENES` order."""
+    return _wire(genes, GENES)
 
 
 def decode(text: str) -> dict:
@@ -553,7 +557,11 @@ def describe(genes: dict) -> str:
     facial = "" if facial == "none" else f" \u00b7 {facial.replace('_', ' ')}"
     attire = genes.get("attire", regalia.DEFAULTS["attire"])
     awards = genes.get("awards", regalia.DEFAULTS["awards"])
-    dress = "" if attire == "civil" else f" \u00b7 {attire}"
+    garment = genes.get("garment", regalia.DEFAULTS["garment"])
+    dress = ("" if attire == "civil" and garment == "auto"
+             else f" \u00b7 {attire}")
+    if garment != "auto":
+        dress += f" / {garment}"
     if awards != "none":
         dress += f" ({awards})"
     return (
@@ -577,5 +585,10 @@ def seed_of(genes: dict) -> int:
     """
     import hashlib
 
-    digest = hashlib.sha256(encode(genes).encode("utf-8")).hexdigest()
+    # The cut is a state within a dress code: putting on a coat must not restyle
+    # the hair.  The rest of the outfit stays in the hash, so a genome saved before
+    # this gene existed keeps the hair it had; the hash is still over the wire
+    # form and remains pure and reproducible.
+    seed_genes = tuple(key for key in GENES if key != "garment")
+    digest = hashlib.sha256(_wire(genes, seed_genes).encode("utf-8")).hexdigest()
     return int(digest[:12], 16)

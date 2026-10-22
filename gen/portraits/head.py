@@ -36,6 +36,7 @@ __all__ = [
     "volume",
     "neck",
     "shoulders",
+    "shoulder_edge_y",
     "crown_y",
     "hairline_y",
 ]
@@ -197,6 +198,28 @@ def shoulders(st) -> Shape:
         (w, bottom),
     ]
     return S.poly(S.smooth_loop(pts, per_segment=8, resample=52))
+
+
+def shoulder_edge_y(st, x: float) -> float:
+    """The top edge of the torso at ``x``, measured from the actual shape.
+
+    An epaulette belongs on the shoulder, and the shoulder is the *edge* of the
+    bust, not a horizontal line near the chest.  The trapezius is a smooth curve,
+    so interpolating its control points is not enough -- a board placed on the
+    interpolation can sink into the chest on one style and float on another.
+    This walks the real signed field from outside the silhouette down to the
+    boundary, which is the line the board has to sit on.
+    """
+    sh = shoulders(st)
+    top = float(st.neck_y)
+    lo, hi = top - 0.30, top + 0.18
+    for _ in range(22):
+        mid = 0.5 * (lo + hi)
+        if float(sh(float(x), mid)) > 0.0:
+            hi = mid
+        else:
+            lo = mid
+    return 0.5 * (lo + hi)
 
 
 def neckline(st, kind: str = "v", w: float = 0.020) -> Shape:

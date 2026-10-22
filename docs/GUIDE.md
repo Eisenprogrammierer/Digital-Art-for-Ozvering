@@ -356,7 +356,8 @@ over the jaw, chin and upper lip, and it is gated on the sitter -- an adult who
 is not female draws it, a woman or a child renders as if the gene said `none`.
 
 The outfit is a second, independent layer. `gen/portraits/regalia.py` adds five
-categorical genes, all appended after the phenotype layer:
+categorical genes for the dress code and its marks, and `gen/portraits/garments.py`
+adds a sixth for the cut; all are appended after the phenotype layer:
 
 | gene | values | what it draws |
 | --- | --- | --- |
@@ -365,14 +366,16 @@ categorical genes, all appended after the phenotype layer:
 | `--awards` | `none`, `ribbon`, `medal`, `order`, `armband` | A ribbon bar, two medals, an order sash with an eight-point star, or a brassard on the visible upper arm. |
 | `--ornament` | `none`, `aiguillette`, `chain`, `brooch`, `earrings` | A braided shoulder cord, a pocket-watch chain, a jewelled pin, or an earlobe hoop with a drop. |
 | `--faith` | `none`, `cross`, `amulet` | A metal cross or a bone-disc amulet on a chain or cord. |
+| `--garment` | `auto`, `shirt`, `blouse`, `jacket`, `coat`, `dress`, `robe`, `mantle`, `habit` | The cut. `auto` resolves to the shirt (civil), robe (clerical) or tunic (service). A blouse/dress opens a soft scoop with a bow or waist seam; a jacket/coat adds a tailored body and lapels and emphasizes the shoulders; a robe closes with a stand collar and cincture; a mantle is a short shoulder cape that conceals the boards; a habit is a robe, mantle and veil with a white wimple. |
 
 Every mark is geometry clipped to the bust, the collar or the skull, so a medal is
 a disc and a star is eight points, not a texture. Service colour is a mix of a
 fixed dress colour and the sitter's own `cloth` gene, so a regiment shares a
 uniform without sharing one fabric; the branch colour comes from `culture`. The
 gates are part of generation: a child gets no awards or insignia, a civilian shirt
-gets no boards, and a Roman collar gets no tabs. Force the genes when you want a
-deliberate exception:
+gets no boards, and a Roman collar gets no tabs. A mantle omits the boards beneath
+it, and a habit's veil is painted after the hair so it covers the hairstyle. Force
+the genes when you want a deliberate exception:
 
 ```bash
 python cli.py portrait --out out/colonel.png --seed 7 --sex male --age middle \
@@ -381,6 +384,10 @@ python cli.py portrait --out out/priest.png --seed 7 \
                         --attire clerical --faith cross
 python cli.py portrait --out out/decorated.png --seed 7 \
                         --attire civil --awards ribbon --ornament chain --faith amulet
+python cli.py portrait --out out/novice.png --seed 7 --sex female \
+                        --attire clerical --garment habit --faith cross
+python cli.py portrait --out out/coat.png --seed 7 --sex male \
+                        --attire military --garment coat --insignia both
 ```
 
 `--gene KEY=VALUE` pins any genome axis, including the older shape and colour genes;

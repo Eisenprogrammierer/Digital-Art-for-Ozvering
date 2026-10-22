@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
-from gen.portraits import cel, demography, dna, expression, face, hair, head, hues, eyes  # noqa: E402
+from gen.portraits import cel, demography, dna, expression, face, garments, hair, head, hues, eyes  # noqa: E402
 from gen.portraits import phenotype  # noqa: E402
 from gen.portraits import regalia  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
@@ -76,6 +76,31 @@ def _luma(canvas, x: float, y: float, r: float = 0.012) -> float:
                max(0, px - rr):px + rr + 1].astype(np.float64)
     return float((patch[..., 0] * 0.2126 + patch[..., 1] * 0.7152
                   + patch[..., 2] * 0.0722).mean())
+
+
+def _world_box(canvas, x0: float, x1: float, y0: float, y1: float) -> np.ndarray:
+    X, Y = canvas.grid()
+    return (X >= x0) & (X <= x1) & (Y >= y0) & (Y <= y1)
+
+
+def _gold_pixels(canvas, x0: float, x1: float, y0: float, y1: float) -> int:
+    """Gold trim in a world-space box.  Skin, cloth and background do not pass."""
+    u8 = canvas.to_uint8().astype(np.float64) / 255.0
+    r, g, b = u8[..., 0], u8[..., 1], u8[..., 2]
+    gold = (r > 0.55) & (g > 0.38) & (b < 0.35) & (r > b * 1.45)
+    return int((gold & _world_box(canvas, x0, x1, y0, y1)).sum())
+
+
+def _hair_pixels(canvas, h, x0: float, x1: float, y0: float,
+                 y1: float, tol: float = 0.120) -> int:
+    """Pixels close to any of the hair's ramps, in a world-space box."""
+    u8 = canvas.to_uint8().astype(np.float64)[..., :3] / 255.0
+    dist = np.full(u8.shape[:2], 9.0)
+    for colour in (h.hair, h.hair_shadow, h.hair_deep, h.hair_hi,
+                   h.hair_root, h.hair_fine):
+        dist = np.minimum(dist, np.linalg.norm(
+            u8 - np.asarray(colour, dtype=np.float64)[None, None, :], axis=2))
+    return int(((dist < tol) & _world_box(canvas, x0, x1, y0, y1)).sum())
 
 
 # ------------------------------------------------------------------ genome
@@ -1224,6 +1249,141 @@ def test_regalia_is_gated_on_the_sitter():
             assert g["insignia"] == "none", f"seed {seed}"
         if g["attire"] == "clerical":
             assert g["awards"] == "none" and g["insignia"] == "none", f"seed {seed}"
+
+
+# ------------------------------------------------------------------ garments
+def test_the_garment_is_the_last_gene_and_defaults_to_auto():
+    """The cut is appended after faith, so old wire strings still decode."""
+    assert dna.GENES[-1] == "garment"
+    assert dna.CATEGORICAL[-1] == "garment"
+    g = dna.random_genes(31)
+    assert g["garment"] in garments.CUTS
+    old = ";".join(item for item in dna.encode(g).split(";")
+                   if not item.startswith("garment="))
+    out = dna.decode(old)
+    assert out["garment"] == "auto"
+    assert garments.resolve("civil", "auto") == "shirt"
+    assert garments.resolve("clerical", "auto") == "robe"
+    assert garments.resolve("military", "auto") == "tunic"
+    assert garments.base_cut("civil", "mantle") == "shirt"
+    assert garments.base_cut("clerical", "habit") == "robe"
+    assert garments.neckline("civil", "blouse", "v") == "scoop"
+    assert dna.encode(out).split(";")[-1].startswith("garment=")
+    for cut in garments.CUTS:
+        regalia.validate(dict(g, garment=cut))
+    try:
+        regalia.validate(dict(g, garment="toga"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("validate accepted an unknown garment")
+
+
+def test_the_cut_does_not_reseed_the_face():
+    """Putting on a coat is a state change, not a new hairstyle."""
+    g = dna.random_genes(7)
+    a = dna.seed_of(dict(g, garment="shirt"))
+    b = dna.seed_of(dict(g, garment="coat"))
+    c = dna.seed_of(dict(g, garment="mantle"))
+    assert a == b == c
+
+
+def test_every_garment_cut_reaches_the_pixels():
+    base = _neutral_phenotype(_genes(7))
+    base.update(sex="female", age="adult", attire="civil", insignia="none",
+                awards="none", ornament="none", faith="none")
+    hashes = {cut: _hash(portraitlib.render(dict(base, garment=cut), size=96))
+              for cut in ("shirt", "blouse", "jacket", "coat", "dress", "robe",
+                          "mantle")}
+    assert len(set(hashes.values())) == len(hashes), "two garment cuts share a picture"
+    auto = _hash(portraitlib.render(dict(base, garment="auto"), size=96))
+    assert auto == hashes["shirt"], "civil auto is not the shirt it used to be"
+    clerical = dict(base, attire="clerical")
+    robe = _hash(portraitlib.render(dict(clerical, garment="robe"), size=96))
+    habit = _hash(portraitlib.render(dict(clerical, garment="habit"), size=96))
+    assert robe != habit, "the habit is only a label on the robe"
+
+
+def test_the_boards_sit_on_the_shoulder_not_the_chest():
+    """The old boards were anchored at chest level; this is the regression."""
+    base = _neutral_phenotype(_genes(44))
+    base.update(sex="female", age="adult", attire="military",
+                insignia="shoulder", awards="none", ornament="none",
+                faith="none", garment="auto")
+    st = _style(base)
+    top, sw = float(st.neck_y), float(st.shoulder_w)
+    canvas = portraitlib.render(base, size=160)
+    shoulder = _gold_pixels(canvas, 0.22, sw * 0.55, top - 0.07, top + 0.06)
+    chest = _gold_pixels(canvas, 0.22, sw * 0.55, top - 0.22, top - 0.10)
+    assert shoulder > 8, "the boards never reached the shoulder"
+    assert shoulder > chest * 4, "the boards are still on the chest"
+
+
+def test_a_mantle_hides_the_shoulder_boards():
+    base = _neutral_phenotype(_genes(44))
+    base.update(sex="female", age="adult", attire="military",
+                insignia="both", awards="none", ornament="none", faith="none")
+    st = _style(base)
+    top, sw = float(st.neck_y), float(st.shoulder_w)
+    x0, x1 = 0.22, sw * 0.55
+    y0, y1 = top - 0.07, top + 0.06
+    tunic = portraitlib.render(dict(base, garment="auto"), size=160)
+    mantle = portraitlib.render(dict(base, garment="mantle"), size=160)
+    boards = _gold_pixels(tunic, x0, x1, y0, y1)
+    covered = _gold_pixels(mantle, x0, x1, y0, y1)
+    assert boards > 8, "the boards never reached the shoulder"
+    assert covered < boards * 0.35, "the mantle left the boards showing"
+
+
+def test_a_jacket_builds_a_body_and_a_coat_is_heavier():
+    base = _neutral_phenotype(_genes(7))
+    base.update(sex="female", age="adult", attire="civil", insignia="none",
+                awards="none", ornament="none", faith="none")
+    st = _style(base)
+    x, y = -0.52, float(st.neck_y) - 0.10
+    shirt = portraitlib.render(dict(base, garment="shirt"), size=128)
+    jacket = portraitlib.render(dict(base, garment="jacket"), size=128)
+    coat = portraitlib.render(dict(base, garment="coat"), size=128)
+    plain = _luma(shirt, x, y, r=0.030)
+    tailored = _luma(jacket, x, y, r=0.030)
+    heavy = _luma(coat, x, y, r=0.030)
+    assert tailored < plain - 4.0, "the jacket never covered the shirt"
+    assert heavy < tailored - 2.0, "the coat is not heavier than the jacket"
+
+
+def test_the_habit_covers_the_hair():
+    base = _neutral_phenotype(_genes(7))
+    base.update(sex="female", age="adult", attire="clerical", insignia="none",
+                awards="none", ornament="none", faith="none", hair="#7a4a32")
+    h = hues.from_genes(base)
+    robe = portraitlib.render(dict(base, garment="robe"), size=144)
+    habit = portraitlib.render(dict(base, garment="habit"), size=144)
+    loose = _hair_pixels(robe, h, -0.28, 0.28, 0.30, 0.54)
+    hidden = _hair_pixels(habit, h, -0.28, 0.28, 0.30, 0.54)
+    assert loose > 40, "the control robe has no hair at the crown"
+    assert hidden < loose * 0.20, "the veil did not cover the hair"
+
+
+def test_the_shoulder_girdle_and_jaw_are_sexed():
+    # The raw deltas, before the style's harmony clamp, are what the skeleton
+    # pass reads; keep them explicit and directional.
+    base = dict(_style(_genes(0)).p)
+    male, female = dict(base), dict(base)
+    demography.modify(male, {"sex": "male", "age": "adult", "climate": "temperate"})
+    demography.modify(female, {"sex": "female", "age": "adult", "climate": "temperate"})
+    assert male["shoulder_w"] - female["shoulder_w"] >= 0.115
+    assert female["shoulder_slope"] - male["shoulder_slope"] >= 0.40
+    assert male["jaw_w"] - female["jaw_w"] >= 0.034
+    assert male["chin_w"] - female["chin_w"] >= 0.023
+    assert male["neck_w"] - female["neck_w"] >= 0.024
+    assert male["brow_thick"] - female["brow_thick"] >= 0.010
+    # The clamp may eat a little of the jaw at the narrow end, but the shoulder
+    # girdle still has to separate for every style the generator can draw.
+    for seed in range(12):
+        male = _style(_genes(seed, sex="male", age="adult"))
+        female = _style(_genes(seed, sex="female", age="adult"))
+        assert male.shoulder_w > female.shoulder_w + 0.06, f"seed {seed}: shoulders"
+        assert male.shoulder_slope < female.shoulder_slope - 0.20, f"seed {seed}: slope"
 
 
 if __name__ == "__main__":

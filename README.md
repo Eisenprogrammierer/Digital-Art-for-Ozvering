@@ -93,6 +93,7 @@ python cli.py blazon  --seed 5 --out out/one.png # text + render, both languages
 python cli.py portrait   --seed 5 --size 384 --out out/one.png
 python cli.py portrait   --seed 5 --sex female --age elder --climate arid --out out/one.png
 python cli.py portrait   --seed 7 --sex male --attire military --insignia both --awards medal --out out/colonel.png
+python cli.py portrait   --seed 7 --sex female --attire clerical --garment habit --faith cross --out out/novice.png
 python cli.py portraits  --seed 7 --count 8 --size 256
 python cli.py portraits  --seed 7 --count 8 --sex male --age middle
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
@@ -804,6 +805,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `cel` | The quantised Lambert term, the two colour rules, and the dome that stands in for a skull's height field. |
 | `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
 | `eyes`, `face`, `hair`, `expression` | The features themselves, and the warp that moves the whole face for a mood. |
+| `regalia`, `garments` | The outfit layer: a dress code and its marks, then the cut or overgarment worn over it. The cut is a state, so it is appended to the wire format and never reseeds the face; a genome saved before the cut existed keeps its hair. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing and layer order: passport `compose`/`render`/`render_seed`, plus the opt-in `compose_posed`/`render_posed` study. |
 
@@ -1076,8 +1078,9 @@ the base colours.
 
 ### The outfit is a second heritable layer
 
-Clothing is a state, not a face, so it lives in its own module and its own tail of
-the wire format. `gen/portraits/regalia.py` adds five categorical genes:
+Clothing is a state, not a face, so it lives in its own modules and its own tail of
+the wire format. `gen/portraits/regalia.py` adds five categorical genes for the dress
+code and its marks; `gen/portraits/garments.py` adds a sixth for the cut itself:
 
 * `attire` -- `civil`, `military`, `police`, `naval`, `ceremonial` or `clerical`.
   A service dress replaces the civilian shirt collar with a stand collar and the
@@ -1093,6 +1096,15 @@ the wire format. `gen/portraits/regalia.py` adds five categorical genes:
   earlobe (painted on the ear, under the front hair).
 * `faith` -- `none`, `cross` or `amulet`: a pendant, metal or bone, on a chain or
   a cord.
+* `garment` -- `auto`, `shirt`, `blouse`, `jacket`, `coat`, `dress`, `robe`,
+  `mantle` or `habit`: the layer worn over the dress-code base. `auto` resolves to
+  the shirt (civil), robe (clerical) or tunic (service). A blouse or dress opens a
+  soft scoop, with a bow or a waist seam; a jacket or coat puts a tailored body and
+  lapels over the shirt, and its padded shoulder line emphasizes the shoulder. A
+  robe closes the front with a stand collar and cincture. A mantle is a short
+  shoulder cape that deliberately conceals the boards and the aiguillette; a habit
+  is a robe, mantle and veil with a white wimple, painted after the hair so the
+  veil covers the hairstyle.
 
 The painter is still geometry: a medal is a disc, a ribbon is a rectangle, a star
 is eight points, an aiguillette is three parallel tapered locks. Every mark is
