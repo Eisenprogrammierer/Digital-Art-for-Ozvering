@@ -128,34 +128,91 @@ def modify(p: dict, genes: dict) -> dict:
     # ``androgynous`` is the baseline, not half of the binary.
 
     if age == "child":
-        p["eye_w"] = float(p["eye_w"]) + 0.010
-        p["eye_up"] = float(p["eye_up"]) + 0.006
+        p["eye_w"] = float(p["eye_w"]) + 0.013
+        p["eye_up"] = float(p["eye_up"]) + 0.007
         p["eye_down"] = float(p["eye_down"]) + 0.004
-        p["eye_y"] = float(p["eye_y"]) + 0.012
-        p["jaw_w"] = float(p["jaw_w"]) - 0.020
-        p["chin_w"] = float(p["chin_w"]) - 0.010
+        p["eye_y"] = float(p["eye_y"]) + 0.014
+        p["iris_r"] = float(p["iris_r"]) + 0.003
+        p["pupil_r"] = float(p["pupil_r"]) + 0.001
+        p["jaw_w"] = float(p["jaw_w"]) - 0.022
+        p["chin_w"] = float(p["chin_w"]) - 0.011
         p["brow_thick"] = float(p["brow_thick"]) - 0.004
-        p["nose_w"] = float(p["nose_w"]) - 0.006
-        p["mouth_w"] = float(p["mouth_w"]) - 0.008
+        p["nose_w"] = float(p["nose_w"]) - 0.007
+        p["nose_h"] = float(p["nose_h"]) - 0.002
+        p["nose_gap"] = float(p["nose_gap"]) - 0.001
+        p["mouth_w"] = float(p["mouth_w"]) - 0.009
+        p["mouth_gap"] = float(p["mouth_gap"]) - 0.002
+        p["lip_full"] = float(p["lip_full"]) + 0.020
         p["neck_w"] = float(p["neck_w"]) - 0.015
         p["shoulder_w"] = float(p["shoulder_w"]) - 0.080
-        p["blush"] = float(p["blush"]) + 0.100
+        p["blush"] = float(p["blush"]) + 0.120
         p["lash"] = float(p["lash"]) + 0.002
         p["line"] = float(p["line"]) - 0.05
     elif age == "youth":
+        # A young adult has the adult's lower face with a little more eye and a
+        # little less jaw; the step from child to adult is not a single jump.
+        p["eye_w"] = float(p["eye_w"]) - 0.002
+        p["eye_up"] = float(p["eye_up"]) - 0.0005
+        p["eye_down"] = float(p["eye_down"]) - 0.0005
+        p["eye_y"] = float(p["eye_y"]) + 0.003
+        p["iris_r"] = float(p["iris_r"]) - 0.001
         p["jaw_w"] = float(p["jaw_w"]) - 0.006
         p["chin_w"] = float(p["chin_w"]) - 0.003
+        p["nose_w"] = float(p["nose_w"]) + 0.001
+        p["mouth_w"] = float(p["mouth_w"]) + 0.002
         p["blush"] = float(p["blush"]) + 0.040
+    elif age == "adult":
+        # The adult pass is the single biggest anti-doll lever.  The eyes are
+        # smaller and sit a little higher, the lower face is longer, the nose and
+        # mouth are a touch broader, and the jaw and neck have a grown-up mass.
+        # These are still anime proportions -- this is an adult in the same
+        # drawing tradition, not a photograph pasted into it.
+        p["eye_y"] = float(p["eye_y"]) + 0.010
+        p["eye_w"] = float(p["eye_w"]) - 0.018
+        p["eye_up"] = float(p["eye_up"]) - 0.012
+        p["eye_down"] = float(p["eye_down"]) - 0.008
+        p["eye_dx"] = float(p["eye_dx"]) + 0.004
+        p["iris_r"] = float(p["iris_r"]) - 0.010
+        p["pupil_r"] = float(p["pupil_r"]) - 0.0020
+        p["nose_w"] = float(p["nose_w"]) + 0.005
+        p["nose_h"] = float(p["nose_h"]) + 0.004
+        p["nose_gap"] = float(p["nose_gap"]) + 0.001
+        p["mouth_w"] = float(p["mouth_w"]) + 0.010
+        p["mouth_gap"] = float(p["mouth_gap"]) + 0.004
+        p["lip_full"] = float(p["lip_full"]) - 0.018
+        p["jaw_w"] = float(p["jaw_w"]) + 0.008
+        p["chin_w"] = float(p["chin_w"]) + 0.012
+        p["neck_w"] = float(p["neck_w"]) + 0.012
+        if sex == "male":
+            p["jaw_w"] = float(p["jaw_w"]) + 0.004
+            p["chin_w"] = float(p["chin_w"]) + 0.006
+            p["neck_w"] = float(p["neck_w"]) + 0.004
+            p["eye_w"] = float(p["eye_w"]) - 0.006
+            p["eye_up"] = float(p["eye_up"]) - 0.003
+            p["eye_down"] = float(p["eye_down"]) - 0.002
+            p["iris_r"] = float(p["iris_r"]) - 0.004
+            p["nose_w"] = float(p["nose_w"]) + 0.003
+        p["brow_thick"] = float(p["brow_thick"]) + 0.001
+        p["blush"] = float(p["blush"]) - 0.030
     elif age == "middle":
+        p["eye_y"] = float(p["eye_y"]) + 0.004
         p["jaw_w"] = float(p["jaw_w"]) + 0.004
         p["chin_w"] = float(p["chin_w"]) + 0.004
-        p["eye_up"] = float(p["eye_up"]) - 0.003
-        p["eye_down"] = float(p["eye_down"]) - 0.002
+        p["eye_w"] = float(p["eye_w"]) - 0.008
+        p["eye_up"] = float(p["eye_up"]) - 0.004
+        p["eye_down"] = float(p["eye_down"]) - 0.0025
+        p["iris_r"] = float(p["iris_r"]) - 0.004
+        p["pupil_r"] = float(p["pupil_r"]) - 0.001
         p["brow_thick"] = float(p["brow_thick"]) + 0.002
-        p["nose_w"] = float(p["nose_w"]) + 0.003
-        p["mouth_w"] = float(p["mouth_w"]) + 0.002
+        p["nose_w"] = float(p["nose_w"]) + 0.004
+        p["nose_h"] = float(p["nose_h"]) + 0.003
+        p["nose_gap"] = float(p["nose_gap"]) + 0.001
+        p["mouth_w"] = float(p["mouth_w"]) + 0.003
+        p["mouth_gap"] = float(p["mouth_gap"]) + 0.002
+        p["lip_full"] = float(p["lip_full"]) - 0.010
         p["blush"] = float(p["blush"]) - 0.040
         p["lash"] = float(p["lash"]) - 0.002
+        p["lid_shadow"] = float(p["lid_shadow"]) + 0.030
     elif age == "elder":
         p["jaw_w"] = float(p["jaw_w"]) - 0.008
         p["chin_w"] = float(p["chin_w"]) - 0.004
@@ -184,7 +241,16 @@ def modify(p: dict, genes: dict) -> dict:
         p["nose_h"] = float(p["nose_h"]) + 0.004
         p["brow_thick"] = float(p["brow_thick"]) - 0.001
         p["eye_up"] = float(p["eye_up"]) - 0.002
-        p["neck_w"] = float(p["neck_w"]) + 0.004
+        p["neck_w"] = float(p["neck_w"]) + 0.012
+        if sex == "male":
+            p["jaw_w"] = float(p["jaw_w"]) + 0.004
+            p["chin_w"] = float(p["chin_w"]) + 0.006
+            p["neck_w"] = float(p["neck_w"]) + 0.004
+            p["eye_w"] = float(p["eye_w"]) - 0.006
+            p["eye_up"] = float(p["eye_up"]) - 0.003
+            p["eye_down"] = float(p["eye_down"]) - 0.002
+            p["iris_r"] = float(p["iris_r"]) - 0.004
+            p["nose_w"] = float(p["nose_w"]) + 0.003
         p["shoulder_w"] = float(p["shoulder_w"]) + 0.020
         p["blush"] = float(p["blush"]) + 0.030
     elif climate == "arid":

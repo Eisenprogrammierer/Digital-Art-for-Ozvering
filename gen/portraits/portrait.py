@@ -41,7 +41,7 @@ import numpy as np
 from core.canvas import Canvas
 from core import palette
 
-from . import brush, cel, demography, detail, dna, expression, eyes, face, garments, hair, head, hues, regalia
+from . import brush, cel, demography, detail, dna, expression, eyes, face, garments, hair, head, hues, humanize, regalia
 from . import style as style_mod
 from .shape import union_all
 
@@ -121,6 +121,10 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     raw_turn = genes["turn"] if turn is None else turn
     turn = float(np.clip(raw_turn, -head.TURN_MAX, head.TURN_MAX))
     rng = np.random.default_rng(dna.seed_of(genes))
+    # Small, stable, outfit-independent bilateral deviations.  They are built
+    # from a separate face seed, never from the hair or the coat, so a person
+    # does not become a different person when the sitter changes clothes or mood.
+    asym = humanize.asymmetry(genes)
 
     c = canvas(size)
     if background:
@@ -129,7 +133,8 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     skull = head.silhouette(st, turn)
     skull_surf = brush.Surface(c, skull)
     skull_cov = skull_surf.full_coverage(c)
-    hs = hair.build(st, genes, rng, turn, skull=skull, eye_st=fst, eye_expr=expr)
+    hs = hair.build(st, genes, rng, turn, skull=skull, eye_st=fst, eye_expr=expr,
+                    asym=asym)
 
     # --- 2. hair behind everything ---------------------------------------  (behind the body)
     hair.paint_back(c, st, h, hs, turn)
@@ -159,6 +164,12 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     bust_cov = bust.full_coverage(c)
     detail.paint_bust(c, st, dh, genes, neck_kind, bust_cov)
     regalia.paint_bust(c, st, dh, genes, kit, neck_kind, bust_cov)
+    # Hair in front of the body casts onto the neck and the collar.  This goes
+    # before the near locks so their own fill owns the edge; the shadow is
+    # clipped to the neck and the bust separately, because they are different
+    # materials.
+    humanize.paint_hair_cast(c, st, h, hs, neck_cov, bust_cov,
+                              cloth_shadow=dh.cloth_shadow)
 
     # The locks rooted at the temples hang in front of the shoulder and behind
     # the jaw, so they belong between the body and the head.
@@ -168,19 +179,22 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     skull_surf.paint(c, h.skin)
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),
                      bevel=0.055, soft=1.6)
-    face.paint_ears(c, st, h, turn, clip=skull)
+    face.paint_ears(c, st, h, turn, clip=skull, asym=asym)
     regalia.paint_ears(c, st, h, genes, turn, skull)
     detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
+    humanize.paint_face_life(c, st, h, genes, turn, asym, skull_cov)
     lw = st.ink_w * st.line
     # The outer contour is the one line the eye traces first, so a hard, opaque,
     # full-weight stroke turns the whole head into a cut-out sticker.  It is drawn
     # a little lighter than the features, in a softened ink, and feathered, so the
     # silhouette reads as a surface meeting the light rather than as a border.
     skull_surf.stroke(c, lw * 0.86,
-                      palette.mix(h.line, h.line_soft, 0.45),
+                      palette.mix(palette.mix(h.line, h.line_soft, 0.38),
+                                  h.skin_shadow, 0.18),
                       inset=lw * 0.45,
                       taper=_contour_taper(st.chin_y, heavy=0.55, light=0.34),
-                      alpha=0.60, soft=0.85)
+                      mask=humanize.contour_mask(skull_surf, st, asym),
+                      alpha=0.66, soft=0.85)
     detail.paint_facial_hair(c, st, h, genes, turn, skull_cov, rng)
     face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 
@@ -201,18 +215,18 @@ def compose_posed(genes: dict, size=384, background: bool = True,
         inside_temple = np.clip(
             (st.head_w * 0.94 - np.abs(Xg)) / (st.head_w * 0.22), 0.0, 1.0)
         fringe = np.minimum(
-            brush.shift_cov(fringe_cov, -0.050, c.scale) * (1.0 - fringe_cov),
+            brush.shift_cov(fringe_cov, -0.025, c.scale) * (1.0 - fringe_cov),
             skull_cov) * above_brow * below_hairline * inside_temple
-        brush.paint_cov(c, fringe, h.skin_shadow, soft=2.0, alpha=0.14)
-    face.paint_nose(c, fst, h, turn, clip=skull)
-    face.paint_mouth(c, fst, h, turn, expr, clip=skull)
+        brush.paint_cov(c, fringe, h.skin_shadow, soft=2.0, alpha=0.070)
+    face.paint_nose(c, fst, h, turn, clip=skull, asym=asym)
+    face.paint_mouth(c, fst, h, turn, expr, clip=skull, asym=asym)
     for side in (+1, -1):
-        eyes.paint(c, fst, h, side, turn, expr, clip=skull)
-    face.paint_brows(c, fst, h, turn, expr, clip=skull)
+        eyes.paint(c, fst, h, side, turn, expr, clip=skull, asym=asym)
+    face.paint_brows(c, fst, h, turn, expr, clip=skull, asym=asym)
 
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
-    detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov)
+    detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov, asym=asym)
     garments.paint_veil(c, st, h, kit, turn)
     return c
 

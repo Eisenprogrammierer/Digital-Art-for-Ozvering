@@ -24,7 +24,7 @@ import numpy as np
 
 from core import noise, palette, render
 
-from . import brush, demography, garments, head, phenotype
+from . import brush, demography, garments, head, humanize, phenotype
 from . import shape as S
 
 __all__ = [
@@ -86,13 +86,13 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
     n = noise.fbm(X, Y, seed=seed, freq=5.0, octaves=4)
     warm = np.clip((n - 0.48) * 2.0, 0.0, 1.0)
     cool = np.clip((0.52 - n) * 2.0, 0.0, 1.0)
-    canvas.over(palette.srgb_to_linear(h.skin_warm), clip * warm * 0.032)
-    canvas.over(palette.srgb_to_linear(h.skin_cool), clip * cool * 0.026)
+    canvas.over(palette.srgb_to_linear(h.skin_warm), clip * warm * 0.045)
+    canvas.over(palette.srgb_to_linear(h.skin_cool), clip * cool * 0.036)
 
     # Visible pores are a texture, not a noise field: a high-frequency field at a
     # few percent reads as grain at every size without becoming static.
     pore = (noise.value_noise(X, Y, seed=seed + 17, freq=58.0) - 0.5)
-    canvas.over(palette.srgb_to_linear(h.skin_freckle), clip * np.abs(pore) * 0.012)
+    canvas.over(palette.srgb_to_linear(h.skin_freckle), clip * np.abs(pore) * 0.018)
 
     # A continuous light term *under* the cel bands.  Flat bands are the style;
     # flat bands with nothing behind them are the reason a cheek can read as a
@@ -143,10 +143,10 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
         b = _face_point(st, side, st.chin_w * 0.70, st.chin_y + 0.055, turn)
         jaw = S.lock([a, ((a[0] + b[0]) * 0.51, (a[1] + b[1]) * 0.5), b],
                      w0=0.030, w1=0.014, bulge=0.020, per_segment=5)
-        brush.paint(canvas, jaw, h.skin_shadow, clip=clip, alpha=0.080, soft=3.2)
+        brush.paint(canvas, jaw, h.skin_shadow, clip=clip, alpha=0.095, soft=3.2)
         tx, ty = _face_point(st, side, bw * 0.72, ey + 0.11, turn)
         brush.paint(canvas, S.ellipse(bw * 0.14, 0.11, float(tx), float(ty)),
-                    h.skin_shadow, clip=clip, alpha=0.100, soft=3.6)
+                    h.skin_shadow, clip=clip, alpha=0.115, soft=3.6)
 
     # Deeper structure.  Flat cel bands put the cheek, the jaw and the chin on one
     # value, which is why a face can look like a mask; these low-alpha planes give
@@ -159,7 +159,7 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
                     h.skin_light, clip=clip, alpha=0.095, soft=2.6)
         hx, hy = _face_point(st, side, bw * 0.40, ey - 0.115, turn)
         brush.paint(canvas, S.ellipse(bw * 0.16, 0.052, float(hx), float(hy)),
-                    h.skin_shadow, clip=clip, alpha=0.075, soft=2.8)
+                    h.skin_shadow, clip=clip, alpha=0.085, soft=2.8)
         jx, jy = _face_point(st, side, st.jaw_w * 0.60, st.jaw_y + 0.032, turn)
         brush.paint(canvas, S.ellipse(st.jaw_w * 0.30, 0.046, float(jx), float(jy)),
                     h.skin_light, clip=clip, alpha=0.055, soft=2.6)
@@ -268,10 +268,10 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
         # The gonion: the small dark turn where the mandible becomes the ramus,
         # just under the ear.  It gives the jaw an end instead of fading out.
         ax, ay = _face_point(st, side, st.jaw_w * 0.95, st.jaw_y + 0.072, turn)
-        brush.paint(canvas, S.ellipse(bw * (0.050 + 0.006 * male),
-                                      0.038 + 0.004 * male, float(ax), float(ay)),
+        brush.paint(canvas, S.ellipse(bw * (0.056 + 0.008 * male),
+                                      0.044 + 0.006 * male, float(ax), float(ay)),
                     h.skin_shadow, clip=clip,
-                    alpha=0.070 + 0.030 * male - 0.010 * female, soft=2.0)
+                    alpha=0.090 + 0.045 * male - 0.012 * female, soft=2.2)
 
         # The mandible's lit plane: a narrow band just inside the jawline, from
         # the gonion towards the chin.  It is what makes the jaw a *bone* rather
@@ -281,15 +281,26 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
         jaw = S.lock([ja, ((ja[0] + jb[0]) * 0.5, (ja[1] + jb[1]) * 0.5 - 0.008), jb],
                      w0=bw * 0.030, w1=bw * 0.018, bulge=bw * 0.008, per_segment=5)
         brush.paint(canvas, jaw, light, clip=clip,
-                    alpha=0.040 + 0.026 * male - 0.008 * female, soft=2.4)
+                    alpha=0.060 + 0.038 * male - 0.010 * female, soft=2.4)
+        # A narrow shade just above the lit mandible.  The contour gives the
+        # jaw a silhouette; this gives it a thickness, which is the difference
+        # between a jaw and the bottom of an egg.
+        ja2 = _face_point(st, side, st.jaw_w * 0.72, st.jaw_y + 0.112, turn)
+        jb2 = _face_point(st, side, st.chin_w * 0.58, st.chin_y + 0.102, turn)
+        jaw_shade = S.lock([ja2, ((ja2[0] + jb2[0]) * 0.5,
+                                  (ja2[1] + jb2[1]) * 0.5 + 0.008), jb2],
+                           w0=bw * 0.018, w1=bw * 0.012, bulge=bw * 0.005,
+                           per_segment=5)
+        brush.paint(canvas, jaw_shade, h.skin_shadow, clip=clip,
+                    alpha=0.050 + 0.030 * male - 0.008 * female, soft=1.8)
 
     # The chin's own plane, between the lower lip and the jaw.  A central lit
     # ellipse keeps the chin from dissolving into the jaw's shadow when the face
     # is narrow, and a masculine chin gets a slightly stronger one.
     cx, cy = head.turn_point(0.0, float(st.chin_y) + 0.058, turn, st)
-    brush.paint(canvas, S.ellipse(float(st.chin_w) * 0.62, 0.030,
+    brush.paint(canvas, S.ellipse(float(st.chin_w) * 0.68, 0.034,
                                   float(cx), float(cy)),
-                light, clip=clip, alpha=0.045 + 0.022 * male, soft=2.2)
+                light, clip=clip, alpha=0.060 + 0.030 * male, soft=2.2)
 
 
 def _paint_freckles(canvas, st, h, genes, turn, clip, rng, seed) -> None:
@@ -602,12 +613,12 @@ def paint_neck(canvas, st, h, genes: dict, turn: float, clip) -> None:
         mid = ((a[0] + b[0]) * 0.5 + side * nw * 0.030, (a[1] + b[1]) * 0.5)
         ridge = S.lock([(float(a[0]), float(a[1])), mid, (float(b[0]), float(b[1]))],
                        w0=nw * 0.048, w1=nw * 0.036, bulge=nw * 0.018, per_segment=5)
-        brush.paint(canvas, ridge, light, clip=clip, alpha=0.18, soft=1.9)
+        brush.paint(canvas, ridge, light, clip=clip, alpha=0.23, soft=1.9)
         groove = S.lock([(float(a[0]) - side * nw * 0.120, float(a[1])),
                          (float(b[0]) - side * nw * 0.030, float(b[1]))],
                         w0=nw * 0.032, w1=nw * 0.024, bulge=nw * 0.010, per_segment=4)
         brush.paint(canvas, groove, h.skin_shadow, clip=clip,
-                    alpha=0.125 + 0.030 * age, soft=1.6)
+                    alpha=0.165 + 0.040 * age, soft=1.6)
 
     # The supraclavicular fossae: the hollows just above the collarbones, on
     # either side of the neck's base.  They are the last piece of neck anatomy
@@ -907,7 +918,8 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
 # --------------------------------------------------------------------------
 # hair
 # --------------------------------------------------------------------------
-def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> None:
+def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None,
+                      asym=None) -> None:
     """Clean cel light and a little texture over the finished hair.
 
     The hair construction already paints the cap, the fringe and the curtains.
@@ -967,21 +979,24 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
     # the boundary into the background.
     lw = float(st.ink_w) * float(st.line) * 0.66
     outline = brush.Surface(canvas, front, pad=3.2 * lw)
+    edge = humanize.hair_contour_mask(outline, st, asym) if asym is not None else None
     outline.stroke(canvas, lw, palette.mix(h.line_hair, h.hair_shadow, 0.30),
-                   inset=lw * 0.42, alpha=0.38, soft=1.1)
+                   inset=lw * 0.42, alpha=0.38, soft=1.1, mask=edge)
     feather = np.clip(render.gaussian_blur(mask, 2.6) - mask, 0.0, 1.0)
     canvas.over(palette.srgb_to_linear(h.hair_shadow), feather * 0.13)
 
     # A few hairs at the hairline and outside the silhouette.  They are kept
     # sparse on purpose: a rim of them is a haircut, a fringe of them is a mop.
+    # The slightly larger counts and the unequal lengths are the difference
+    # between a drawn hairline and a plastic cap at 640 px.
     if skull_mask is not None:
         hairline = head.hairline_y(st)
-        for i in range(5):
-            u = (i + 0.5) / 5.0
-            x = (u - 0.5) * float(st.head_w) * 1.18
+        for i in range(8):
+            u = (i + 0.5) / 8.0
+            x = (u - 0.5) * float(st.head_w) * 1.18 + float(rng.uniform(-0.010, 0.010))
             y = hairline + 0.012 - 0.020 * (1.0 - abs(u - 0.5) * 2.0)
-            tip = (x + float(rng.uniform(-0.014, 0.014)),
-                   y - float(rng.uniform(0.014, 0.030)))
+            tip = (x + float(rng.uniform(-0.016, 0.016)),
+                   y - float(rng.uniform(0.012, 0.034)))
             baby = S.lock([(x, y), tip], w0=0.0016, w1=0.0004, per_segment=3)
             brush.paint(canvas, baby, h.hair_fine, clip=skull_mask,
                         alpha=0.26, soft=0.35)
@@ -991,14 +1006,14 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
         # artifact this pass is trying to avoid.
         all_hair = brush.mask(canvas, hs.mass)
         outside = np.clip(1.0 - skull_mask, 0.0, 1.0) * np.clip(1.0 - all_hair, 0.0, 1.0)
-        for i in range(5):
-            u = (i + 0.5) / 5.0
-            th = np.pi * (0.22 + 0.56 * u)
+        for i in range(9):
+            u = (i + 0.5) / 9.0
+            th = np.pi * (0.18 + 0.64 * u) + float(rng.uniform(-0.035, 0.035))
             x0 = float(st.head_w) * 0.98 * np.cos(th)
             y0 = 0.30 + 0.18 * np.sin(th)
-            ln = float(rng.uniform(0.040, 0.090))
+            ln = float(rng.uniform(0.032, 0.094))
             p1 = (x0 + np.cos(th) * ln * 0.6, y0 + np.sin(th) * ln * 0.6)
-            p2 = (x0 + np.cos(th) * ln + float(rng.uniform(-0.020, 0.020)),
+            p2 = (x0 + np.cos(th) * ln + float(rng.uniform(-0.024, 0.024)),
                   y0 + np.sin(th) * ln)
             fly = S.lock([(x0, y0), p1, p2], w0=0.0016, w1=0.0004,
                          bulge=0.003, per_segment=4, resample=20)
@@ -1014,9 +1029,9 @@ def paint_hair_detail(canvas, st, h, hs, turn: float, rng, skull_mask=None) -> N
         if fcov.max() > 0.0:
             Xc, Yc = canvas.grid()
             floor = float(st.brow_y) + 0.018
-            for i in range(7):
-                u = (i + 0.5) / 7.0
-                x = (u - 0.5) * float(st.head_w) * 1.14
+            for i in range(9):
+                u = (i + 0.5) / 9.0
+                x = (u - 0.5) * float(st.head_w) * 1.14 + float(rng.uniform(-0.010, 0.010))
                 col = int(np.argmin(np.abs(Xc[0] - x)))
                 ys = Yc[:, col][fcov[:, col] > 0.40]
                 if ys.size == 0:

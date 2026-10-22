@@ -417,6 +417,27 @@ a closed collar can -- a soft ridge on the cloth and the sternal notch in the st
 skin the collar leaves open. Every mark is a broad, low-alpha plane clipped to the
 skull, the neck or the opening; none is an outline, so none can move a feature.
 
+The geometry above is deliberately symmetric, and that regularity is exactly what
+makes an unfinished portrait read as a doll. A separate `humanize` pass adds the
+small deviations that make the same construction belong to a person: one eye a
+little higher, one brow with more arch, a nose that is not exactly on the midline, a
+mouth whose corners do not sit at the same height, and a shadow side that belongs to
+this sitter. The offsets come from `dna.face_seed`, a hash that deliberately leaves
+out the outfit, expression, turn, hairstyle, hair and cloth colours, and facial hair,
+so changing a coat or a mood cannot change the person. The pass also adds contact and
+warmth where skin is thin over cartilage, asymmetric cheek and jaw planes, a broken
+specular on the T-zone, and a hair cast onto the neck and collar.
+
+Age is a proportion, not a label. An adult eye is smaller and sits higher relative to
+the face; the mouth, nose, jaw, chin and neck gain mass, and the opposite moves hold
+for a child. The sex deltas remain a separate relationship on top of that, so an
+adult male and an adult female are not the same skull with a different label. The
+hair follows the same rule: an adult cut lifts the fringe a little rather than
+keeping the child's full curtain, and the fringe, crown and hairline are built as
+partings and clumps instead of one smooth cap. The outer face and hair contours are
+drawn through an asymmetric mask that breaks on the lit side and under the crown, so
+the silhouette has a lost edge instead of a sticker border.
+
 ### Heraldry
 
 A coat is a specification: shield, field, division, charges and tinctures. A faction

@@ -35,18 +35,29 @@ __all__ = ["brows", "paint_brows", "paint_nose", "paint_mouth", "paint_blush",
 # --------------------------------------------------------------------------
 # brows
 # --------------------------------------------------------------------------
-def _brow_spines(st, turn: float = 0.0, expr=None):
-    """The three control points of each brow, already turned, plus the side."""
+def _brow_spines(st, turn: float = 0.0, expr=None, asym=None):
+    """The three control points of each brow, already turned, plus the side.
+
+    ``asym`` is the optional humanising deviation: it can lift one brow, give it
+    a different arch or length, and move its inner end.  The three points are
+    still turned as one spine, so an expression continues to move the whole brow
+    rather than bending it around a fixed world coordinate.
+    """
     if expr is None:
         from . import expression
         expr = expression.neutral()
     out = []
     for side in (+1, -1):
-        dx, hw = st.brow_dx, st.brow_w * 0.5
-        y = st.brow_y + expr["brow_dy"]
+        b = asym.brow[side] if asym is not None else {
+            "dx": 0.0, "dy": 0.0, "arch": 0.0, "sx": 1.0,
+        }
+        dx = st.brow_dx + b["dx"]
+        hw = st.brow_w * 0.5 * b["sx"]
+        y = st.brow_y + expr["brow_dy"] + b["dy"]
         inner = (side * (dx - hw * 1.02), y + expr["brow_inner_dy"])
-        peak = (side * (dx + hw * 0.10), y + st.brow_arch + expr["brow_arch"])
-        outer = (side * (dx + hw), y + st.brow_arch * 0.10)
+        peak = (side * (dx + hw * 0.10),
+                y + st.brow_arch + expr["brow_arch"] + b["arch"])
+        outer = (side * (dx + hw), y + st.brow_arch * 0.10 + b["arch"] * 0.30)
         spine = np.array([inner, peak, outer], dtype=np.float64)
         if st.brow_tilt:
             ang = np.radians(side * float(st.brow_tilt))
@@ -59,18 +70,19 @@ def _brow_spines(st, turn: float = 0.0, expr=None):
     return out
 
 
-def brows(st, turn: float = 0.0, expr=None) -> list:
+def brows(st, turn: float = 0.0, expr=None, asym=None) -> list:
     """Both brows as ``Shape``s, in world coordinates, already turned."""
     out = []
-    for _, spine in _brow_spines(st, turn, expr):
+    for _, spine in _brow_spines(st, turn, expr, asym):
         thick = st.brow_thick
         out.append(S.lock(spine, w0=0.80 * thick, w1=0.12 * thick, bulge=0.34 * thick,
                           per_segment=7))
     return out
 
 
-def paint_brows(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
-    for (side, spine), brow in zip(_brow_spines(st, turn, expr), brows(st, turn, expr)):
+def paint_brows(canvas, st, h, turn: float = 0.0, expr=None, clip=None, asym=None):
+    for (side, spine), brow in zip(_brow_spines(st, turn, expr, asym),
+                                   brows(st, turn, expr, asym)):
         brush.paint(canvas, brow, h.brow, clip=clip)
         # Individual hairs, drawn along the brow's own spine.  The solid brow is
         # the mass; these lines are what keep it from reading as a sticker.
@@ -91,17 +103,27 @@ def paint_brows(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
 # --------------------------------------------------------------------------
 # ears: a curve inside the silhouette, which is exactly how a front view draws them
 # --------------------------------------------------------------------------
-def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
+def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None,
+               asym=None):
     sk = head.skull(st)
     for side in (+1, -1):
         if turn != 0.0 and sk.receding(side, turn):
             continue  # the receding ear is hidden by the jaw
+        ear = asym.ear[side] if asym is not None else {
+            "dx": 0.0, "dy": 0.0, "scale": 1.0,
+        }
         ex, ey = head.turn_point(side * st.head_w * 0.80, st.eye_y + 0.015, turn, st)
-        ex, ey = float(ex), float(ey)
-        r = st.head_w * 0.17 * float(getattr(st, "ear_size", 1.0))
+        ex = float(ex) + ear["dx"]
+        ey = float(ey) + ear["dy"]
+        r = st.head_w * 0.17 * float(getattr(st, "ear_size", 1.0)) * ear["scale"]
         # A wash of shade gives the ear a plane; the inner curve is the helix.
         brush.paint(canvas, S.ellipse(r * 0.70, r * 1.08, ex, ey),
                     h.skin_shadow, clip=clip, alpha=0.10, soft=2.0)
+        # The concha: the bowl is what makes the front view read as an ear rather
+        # than a pair of parentheses.  It is a soft, warm hollow under the helix.
+        brush.paint(canvas, S.ellipse(r * 0.36, r * 0.54,
+                                      ex - side * r * 0.10, ey - r * 0.10),
+                    h.skin_warm, clip=clip, alpha=0.16, soft=1.3)
         inner = S.arc((ex - r * 0.25 * side, ey + r), (ex - r * 0.30 * side, ey - r),
                       -side * r * 0.85, 0.5, 14)
         brush.paint(canvas, S.lock(inner, w0=st.crease_w * 0.5, w1=st.crease_w * 0.2,
@@ -113,6 +135,18 @@ def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
         brush.paint(canvas, S.lock(helix, w0=st.crease_w * 0.35, w1=st.crease_w * 0.12,
                                    per_segment=4),
                     h.skin_deep, clip=clip, alpha=0.42)
+        # The antihelix is the second fold, inside the outer rim.  The tragus is
+        # the small tab in front of the opening; at portrait size one soft comma
+        # is enough, and it is the feature that stops the ear reading as a shell.
+        anti = S.arc((ex - side * r * 0.08, ey + r * 0.52),
+                     (ex - side * r * 0.14, ey - r * 0.28),
+                     -side * r * 0.36, 0.5, 10)
+        brush.paint(canvas, S.lock(anti, w0=st.crease_w * 0.22, w1=st.crease_w * 0.08,
+                                   per_segment=4),
+                    h.skin_shadow, clip=clip, alpha=0.34)
+        trabec = S.ellipse(r * 0.11, r * 0.22,
+                           ex + side * r * 0.22, ey - r * 0.18)
+        brush.paint(canvas, trabec, h.skin_deep, clip=clip, alpha=0.24, soft=0.8)
         lobe = S.ellipse(r * 0.26, r * 0.30, ex + side * r * 0.10, ey - r * 0.86)
         brush.paint(canvas, lobe, h.skin_warm, clip=clip, alpha=0.20, soft=1.4)
 
@@ -120,11 +154,14 @@ def paint_ears(canvas, st, h, turn: float = 0.0, clip: Shape | None = None):
 # --------------------------------------------------------------------------
 # nose
 # --------------------------------------------------------------------------
-def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
+def paint_nose(canvas, st, h, turn: float = 0.0, clip=None, asym=None):
     """A dot, a wedge or a line -- three traditions, one coordinate."""
     nx, ny = head.turn_point(0.0, st.nose_y, turn, st)
     nx, ny = float(nx), float(ny)
-    w, hh = st.nose_w, st.nose_h
+    if asym is not None:
+        nx += asym.nose_dx
+    w = st.nose_w * (asym.nose_sx if asym is not None else 1.0)
+    hh = st.nose_h
     style = st.nose_style
     # Every nose style gets the same bridge: a narrow shadow on the shadow side
     # and a pale plane on the lit side.  Without it a dot or a wedge floats on the
@@ -133,12 +170,12 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
                             (nx - w * 0.16, ny + hh * 0.55),
                             (nx - w * 0.10, ny + hh * 0.12)],
                            w0=w * 0.085, w1=w * 0.045, per_segment=5)
-    brush.paint(canvas, bridge_shadow, h.skin_shadow, clip=clip, alpha=0.16, soft=1.5)
+    brush.paint(canvas, bridge_shadow, h.skin_shadow, clip=clip, alpha=0.21, soft=1.5)
     bridge_light = S.lock([(nx + w * 0.10, ny + hh * 1.55),
                            (nx + w * 0.14, ny + hh * 0.48),
                            (nx + w * 0.06, ny + hh * 0.12)],
                           w0=w * 0.070, w1=w * 0.040, per_segment=5)
-    brush.paint(canvas, bridge_light, h.skin_light, clip=clip, alpha=0.18, soft=1.4)
+    brush.paint(canvas, bridge_light, h.skin_light, clip=clip, alpha=0.23, soft=1.4)
     # Alar creases: two short arcs where the nose meets the cheek.  They are the
     # detail that makes a dot nose read as a nose rather than a freckle.
     for side in (+1, -1):
@@ -146,11 +183,34 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
                        (nx + side * w * 0.44, ny - hh * 0.02),
                        (nx + side * w * 0.24, ny - hh * 0.22)],
                       w0=w * 0.045, w1=w * 0.020, per_segment=4)
-        brush.paint(canvas, wing, h.skin_shadow, clip=clip, alpha=0.20, soft=0.8)
+        brush.paint(canvas, wing, h.skin_shadow, clip=clip, alpha=0.28, soft=0.9)
+
+    # The nostrils are not two black dots: they are small, tilted openings with
+    # a lit columella between them.  The slit is what makes the nose read as a
+    # soft organ at avatar size rather than as a punctuation mark.
+    for side in (+1, -1):
+        slit = S.lock([(nx + side * w * 0.285, ny - hh * 0.10),
+                       (nx + side * w * 0.355, ny - hh * 0.18)],
+                      w0=w * 0.020, w1=w * 0.006, per_segment=3)
+        brush.paint(canvas, slit, h.line_soft, clip=clip, alpha=0.48, soft=0.35)
+        brush.paint(canvas, S.ellipse(w * 0.055, hh * 0.035,
+                                      nx + side * w * 0.30, ny - hh * 0.24),
+                    h.skin_deep, clip=clip, alpha=0.18, soft=0.6)
+    brush.paint(canvas, S.lock([(nx, ny - hh * 0.12), (nx, ny - hh * 0.23)],
+                               w0=w * 0.016, w1=w * 0.009, per_segment=3),
+                h.skin_light, clip=clip, alpha=0.24, soft=0.5)
+    brush.paint(canvas, S.lock([(nx - w * 0.34, ny - hh * 0.28),
+                                (nx + w * 0.36, ny - hh * 0.22)],
+                               w0=w * 0.032, w1=w * 0.040, bulge=w * 0.012,
+                               per_segment=4),
+                h.skin_shadow, clip=clip, alpha=0.12, soft=0.8)
+    # The small cast shade in the philtrum is the nose's contact with the lip.
+    brush.paint(canvas, S.ellipse(w * 0.20, hh * 0.075, nx, ny - hh * 0.62),
+                h.skin_shadow, clip=clip, alpha=0.035, soft=1.2)
 
     if style == "dot":
-        brush.paint(canvas, S.circle(w * 0.36, nx, ny), h.skin_deep, clip=clip,
-                    alpha=0.55, soft=2.0)
+        brush.paint(canvas, S.circle(w * 0.40, nx, ny), h.skin_deep, clip=clip,
+                    alpha=0.58, soft=2.0)
         brush.paint(canvas, S.circle(w * 0.11, nx, ny - hh * 0.10), h.line_soft, clip=clip,
                     alpha=0.75)
         for side in (+1, -1):
@@ -195,7 +255,27 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None):
 # --------------------------------------------------------------------------
 # mouth
 # --------------------------------------------------------------------------
-def mouth_interior(st, turn: float = 0.0, expr=None):
+def _mouth_landmarks(st, expr, asym=None):
+    """The seam's centre, width and corners, including the sitter's own skew."""
+    b = asym
+    my = float(st.mouth_y) + float(expr["mouth_dy"])
+    mw = float(st.mouth_w) * float(expr["mouth_w_s"])
+    mx = 0.0
+    corner_l = corner_r = 0.0
+    if b is not None:
+        my += b.mouth_dy
+        mw *= b.mouth_w
+        mx = b.mouth_dx
+        corner_l = b.mouth_corner_l
+        corner_r = b.mouth_corner_r
+    hw = mw * 0.5
+    expr_asym = float(expr["mouth_asym"])
+    left = np.array([-hw + mx, my + expr_asym * 0.50 + corner_l])
+    right = np.array([hw + mx, my - expr_asym * 0.50 + corner_r])
+    return my, mw, mx, left, right
+
+
+def mouth_interior(st, turn: float = 0.0, expr=None, asym=None):
     """The dark seam of a mouth plus its teeth band.
 
     A closed mouth is not a drawn line: it is a shallow seam with a dark interior,
@@ -211,11 +291,12 @@ def mouth_interior(st, turn: float = 0.0, expr=None):
     open_h = float(expr["mouth_open"])
     # Even a closed mouth has thickness.  This is the quiet baseline that makes
     # the upper teeth and the tongue readable at portrait size.
-    seam = max(open_h, float(st.mouth_w) * 0.100)
-    my = st.mouth_y + expr["mouth_dy"] + expr["mouth_curve"] * 0.3
-    hw = st.mouth_w * float(expr["mouth_w_s"]) * 0.5
-    left = (-hw, my)
-    right = (hw, my + expr["mouth_asym"] * 0.5)
+    seam = max(open_h, float(st.mouth_w) * 0.030)
+    my, mw, _mx, left, right = _mouth_landmarks(st, expr, asym)
+    # The cavity follows the lip line, a little above the painted lip body.
+    lift = (st.mouth_curve + expr["mouth_curve"]) * 0.30
+    left = left + np.array([0.0, lift])
+    right = right + np.array([0.0, lift])
     # ``up`` is only half the smile's arc: the other half belongs to the lower
     # lip, and spending the whole arc on the top edge makes a mouth as tall as it
     # is wide -- a dot.
@@ -227,17 +308,13 @@ def mouth_interior(st, turn: float = 0.0, expr=None):
     return inner, teeth
 
 
-def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
+def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
+                asym=None):
     if expr is None:
         from . import expression
         expr = expression.neutral()
-    my = st.mouth_y + expr["mouth_dy"]
-    mw = st.mouth_w * float(expr["mouth_w_s"])
-    hw = mw * 0.5
+    my, mw, mx, left, right = _mouth_landmarks(st, expr, asym)
     curve = st.mouth_curve + expr["mouth_curve"]
-    asym = float(expr["mouth_asym"])
-    left = np.array([-hw, my + asym * 0.35])
-    right = np.array([hw, my - asym * 0.35])
     # The lip line is a *line*, not a band.  It used to be 18 % of the mouth's
     # own width, and then the lock builder added another 105 % of that as bulge;
     # a neutral mouth was therefore a black oval 22 % as wide as the mouth.  That
@@ -253,16 +330,37 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
     body_bulge = (0.12 + 0.075 * full) * mw
     body = S.arc(left, right, -abs(curve) - mw * (0.085 + 0.025 * full), 0.5, 14)
     lower_lip = S.lock(body, w0=body_w, w1=body_w, bulge=body_bulge, per_segment=4)
-    brush.paint(canvas, lower_lip, palette.mix(h.lip, h.skin, 0.40),
-                clip=clip, alpha=0.28)
+    brush.paint(canvas, lower_lip, palette.mix(h.lip, h.skin, 0.58),
+                clip=clip, alpha=0.18)
     upper = S.arc(left, right, curve * 0.55, 0.5, 14)
     brush.paint(canvas, S.lock(upper, w0=(0.065 + 0.028 * full) * mw,
                                w1=(0.065 + 0.028 * full) * mw,
                                bulge=(0.055 + 0.020 * full) * mw, per_segment=4),
-                h.lip_deep, clip=clip, alpha=0.22)
+                h.lip_deep, clip=clip, alpha=0.16)
 
-    inner, teeth = mouth_interior(st, turn, expr)
-    brush.paint(canvas, inner, h.mouth_dark, clip=clip, alpha=1.0)
+    # The Cupid's bow.  It is a second, much lighter line above the lip's seam,
+    # with two peaks and a central dip; without it a full upper lip is a smooth
+    # arc and reads as a painted crescent.  The line follows the sitter's own
+    # corner heights, so it inherits the asymmetry instead of re-imposing it.
+    span = float(right[0] - left[0])
+    base_y = my + max(curve, 0.0) * 0.55
+    peak_y = base_y + mw * 0.012
+    dip_y = base_y + mw * 0.004
+    bow = np.array([
+        left,
+        [left[0] + span * 0.22, peak_y],
+        [mx - span * 0.11, dip_y + mw * 0.003],
+        [mx, dip_y],
+        [mx + span * 0.11, dip_y + mw * 0.003],
+        [left[0] + span * 0.78, peak_y],
+        right,
+    ], dtype=np.float64)
+    brush.paint(canvas, S.lock(bow, w0=mw * 0.030, w1=mw * 0.018,
+                               bulge=mw * 0.008, per_segment=5),
+                h.lip_deep, clip=clip, alpha=0.13, soft=0.45)
+
+    inner, teeth = mouth_interior(st, turn, expr, asym=asym)
+    brush.paint(canvas, inner, h.mouth_dark, clip=clip, alpha=0.92)
     # A neutral passport mouth is closed: a strip of teeth would be a bright
     # line, not an open smile.  The cavity and the tongue shadow carry the mouth;
     # teeth arrive only when the expression actually parts the lips.
@@ -274,7 +372,7 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
                                    w0=0.0040, w1=0.0040, per_segment=4),
                     h.lip_shadow, clip=inner, alpha=0.50, soft=0.7)
     seam_h = max(float(inner.bbox[3] - inner.bbox[1]), 1e-4)
-    tongue = S.ellipse(mw * 0.235, seam_h * 0.30, 0.0,
+    tongue = S.ellipse(mw * 0.235, seam_h * 0.30, mx,
                        inner.bbox[1] + seam_h * 0.30)
     # The tongue is a shadow in the cavity, not a pink fill: too much lip colour
     # here closes the mouth back into a painted seam.
@@ -284,6 +382,13 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
     # the mouth's height and turns a grin into a smudge.
     brush.paint(canvas, inner.outline(line_w * 0.36), h.mouth_dark,
                 clip=clip, alpha=0.82, soft=0.25)
+    # A thin wet line on the upper edge of the cavity.  This is the difference
+    # between a mouth that has a mucous membrane and a dark decal; it is kept
+    # inside the opening so it cannot brighten the lip itself.
+    seam_top = S.lock(S.arc(left, right, max(curve, 0.0) * 0.25 + mw * 0.012,
+                            0.5, 14),
+                      w0=mw * 0.010, w1=mw * 0.006, per_segment=4)
+    brush.paint(canvas, seam_top, h.lip_light, clip=inner, alpha=0.22, soft=0.35)
 
     # The lower lip keeps a light plane outside the opening, so the mouth has a
     # body and the teeth have something to sit against.
@@ -291,19 +396,29 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None):
                                w0=0.085 * mw, w1=0.085 * mw,
                                bulge=(0.06 + 0.025 * full) * mw, per_segment=4),
                 h.lip_light, clip=clip, alpha=0.26)
+    gloss_x = mx + float(asym.lean if asym is not None else 0.0) * mw * 0.055
     brush.paint(canvas, S.ellipse(mw * (0.09 + 0.020 * full), mw * 0.030,
-                                  left[0] * 0.55, my - mw * 0.070),
+                                  gloss_x, my - mw * 0.070),
                 h.lip_gloss, clip=clip, alpha=0.12, soft=0.8)
     # The two corner dimples are what keep a fuller mouth from reading as a
-    # painted oval: the line still has ends.
+    # painted oval: the line still has ends.  The sitter's own corner heights
+    # mean one dimple sits a little deeper than the other.
     for corner in (left, right):
         brush.paint(canvas, S.circle(mw * 0.022, float(corner[0]), float(corner[1])),
-                    h.lip_deep, clip=clip, alpha=0.32, soft=0.6)
-    # Philtrum: two soft ridges above the middle of the upper lip.  At this size
-    # one pale plane is enough; drawing the grooves would be a moustache.
+                    h.lip_deep, clip=clip, alpha=0.24, soft=0.6)
+    # Philtrum: two soft ridges, a pale central plane and the two grooves that
+    # separate them.  Drawing only the pale plane was invisible at 384 px; the
+    # grooves are what make the upper lip sit under a nose.
     px, py = head.turn_point(0.0, my + mw * 0.15, turn, st)
     brush.paint(canvas, S.ellipse(mw * 0.055, mw * 0.10, float(px), float(py)),
                 h.skin_light, clip=clip, alpha=0.10, soft=1.4)
+    for side in (+1, -1):
+        gx = mx + side * mw * 0.085
+        gy = my + mw * 0.18
+        groove = S.lock([(gx, gy), (gx + side * mw * 0.018, gy - mw * 0.11)],
+                        w0=mw * 0.008, w1=mw * 0.003, per_segment=3)
+        brush.paint(canvas, groove, h.skin_shadow, clip=clip,
+                    alpha=0.075, soft=0.55)
 
 
 # --------------------------------------------------------------------------

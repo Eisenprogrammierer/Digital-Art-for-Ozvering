@@ -127,7 +127,17 @@ def _params(name: str, st, genes: dict) -> dict:
         p["sw"] = float(p["sw"]) * float(adj.get("sw", 1.0))
         p["sdrop"] = float(p["sdrop"]) * float(adj.get("sdrop", 1.0))
     p["vol"] = float(np.clip(p["vol"], 0.060, 0.158))
-    p["blen"] = float(np.clip(p["blen"], 0.18, 1.18))
+    p["blen"] = float(np.clip(p["blen"], 0.06, 1.18))
+    # An adult forehead is part of the adult face.  The styles' fringe lengths
+    # were tuned to the brow line, and a full fringe on every adult is a bowl cut
+    # that hides the one plane that makes the eye line read as high rather than
+    # enormous.  The cut still keeps its shape; only the hem lifts a little.
+    age = str(genes.get("age", "adult"))
+    if age in ("adult", "middle"):
+        factor = 0.58 if age == "adult" else 0.56
+        if name == "short" and not p.get("straight"):
+            factor = 0.15 if age == "adult" else 0.24
+        p["blen"] = float(np.clip(p["blen"] * factor, 0.06, 1.18))
     p["sw"] = float(np.clip(p["sw"], 0.12, 0.42))
     p["sdrop"] = float(np.clip(p["sdrop"], 0.16, 1.70))
     return p
@@ -149,6 +159,80 @@ def _root(st, vol: float, theta: float, turn: float, inset: float = 0.0) -> np.n
     y = ry * np.sin(theta) + 0.015
     x, y = head.turn_point(x, y, turn, st, vol=max(vol - inset, 0.0))
     return np.array([float(x), float(y)], dtype=np.float64)
+
+
+def _silhouette_tufts(st, p: dict, rng, turn: float) -> Shape:
+    """A few short locks that stand *outside* the cap's smooth outline.
+
+    A cap grown from a smooth ellipse is a helmet however many locks are painted
+    on top of it, because its silhouette is one continuous curve.  Cutting holes
+    in the edge to roughen it was worse: a hole shows the backdrop and reads as a
+    moth-eaten wig.  The truthful version is the opposite -- hair that sticks out
+    in a few unequal wisps, so the curve gains a silhouette rather than losing
+    pieces.
+
+    They are unioned into the cap, which means they are filled, shaded and inked
+    by the same passes as the rest of the cap and cannot appear as a separate
+    sticker.  All of them are above the ear line, so none can cross the face.
+    """
+    vol = float(p["vol"])
+    out = []
+    # Keep the tufts off the exact crown.  A single wisp at x = 0 reads as an
+    # antenna; two on each side read as a cut with a little life in it.
+    for th0 in (0.22, 0.34, 0.66, 0.78):
+        th = np.pi * th0 + float(rng.uniform(-0.045, 0.045))
+        root = _root(st, vol, th, turn, inset=0.022)
+        edge = _root(st, vol, th, turn, inset=0.0)
+        outward = edge - root
+        outward /= max(float(np.linalg.norm(outward)), 1e-9)
+        tangent = np.array([-outward[1], outward[0]], dtype=np.float64)
+        length = float(rng.uniform(0.018, 0.042))
+        bend = float(rng.uniform(-0.012, 0.012))
+        tip = edge + outward * length + tangent * bend
+        mid = root + (tip - root) * 0.55 + tangent * bend * 0.25
+        w0 = float(rng.uniform(0.018, 0.032))
+        out.append(S.lock([root, mid, tip], w0=w0, w1=w0 * 0.52,
+                          bulge=w0 * 0.30, per_segment=5))
+    return union_all(out, pad=0.012)
+
+
+def _fringe_gaps(st, p: dict, turn: float) -> Shape | None:
+    """Two tapered partings cut through the fringe and its filler.
+
+    The fringe is built from overlapping clumps, which is right for volume and
+    wrong for a hairline at avatar size: the clumps merge into a single dark sheet
+    with a shaped bottom.  A real parting is not a painted line on top of that
+    sheet; it is a place where the hair separates and the forehead shows through
+    at the hem.  These wedges are narrow at the top (the cap remains visible, so
+    they read as a part) and wider at the brow (the skin shows, so the fringe has
+    ends).  They stop above the brow, so they cannot touch an eye.
+
+    Blunt hime cuts deliberately have no gap; keeping one straight edge is the
+    definition of that cut.
+    """
+    if p.get("straight"):
+        return None
+    bw = float(st.head_w)
+    part = float(p.get("part") or 0.0)
+    top = float(st.brow_y) + 0.190
+    bottom = float(st.brow_y) + 0.010
+    out = []
+    for i, x0 in enumerate((part * bw * 0.30,
+                            (-1.0 if part >= 0.0 else 1.0) * bw * 0.34)):
+        x0 += -0.004 if i == 0 else 0.005
+        # The second parting starts lower, so it is a notch in the fringe's
+        # temple rather than a second full-length centre part.
+        top_i = top if i == 0 else float(st.brow_y) + 0.110
+        slant = 0.009 if i == 0 else -0.006
+        half_top = 0.0036 if i == 0 else 0.0028
+        half_bot = 0.0130 if i == 0 else 0.0115
+        xb = x0 + slant
+        out.append(S.poly([(x0 - half_top, top_i), (x0 + half_top, top_i),
+                           (x0 + half_top * 1.8, top_i - 0.075),
+                           (xb + half_bot, bottom), (xb - half_bot, bottom),
+                           (x0 - half_top * 1.8, top_i - 0.075)],
+                          resample=14))
+    return union_all(out, pad=0.010)
 
 
 # --------------------------------------------------------------------------
@@ -565,7 +649,7 @@ class Hair:
         self.mass = union_all([self.back_mass, self.front_mass] + near_locks)
 
 
-def _eye_clearance(st, turn: float, expr=None):
+def _eye_clearance(st, turn: float, expr=None, asym=None):
     """The actual eye openings, grown by a hair's breadth, for front hair to avoid.
 
     The projected hairline is enough for the cap almost everywhere, but at a
@@ -586,10 +670,15 @@ def _eye_clearance(st, turn: float, expr=None):
     geometry = _eyes.shapes(st, expr)
     out = []
     for side in (+1, -1):
-        cx, ws = _eyes.placement(st, side, turn)
+        cx, ws = _eyes.placement(st, side, turn, asym)
+        if asym is None:
+            dy, sy, rot = 0.0, 1.0, side * float(st.eye_tilt)
+        else:
+            e = asym.eye[side]
+            dy, sy = e["dy"], e["sy"]
+            rot = side * float(st.eye_tilt) + e["rot"]
         opening = geometry["opening"].place(
-            cx=cx, cy=float(st.eye_y), sx=side * ws, sy=1.0,
-            rot=side * float(st.eye_tilt),
+            cx=cx, cy=float(st.eye_y) + dy, sx=side * ws, sy=sy, rot=rot,
         )
         out.append(opening.offset(0.012))
     return out
@@ -641,7 +730,7 @@ def _cap(st, p: dict, turn: float, hairline: float, skull: Shape | None = None,
 
 
 def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = None,
-          eye_st=None, eye_expr=None) -> Hair:
+          eye_st=None, eye_expr=None, asym=None) -> Hair:
     """Construct a hairstyle for a genome.  Deterministic given ``rng``.
 
     ``eye_st`` is the expression-warped style the eyes are drawn with, and
@@ -661,7 +750,7 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     # The fringe and the curtains get the same eye clearance as the cap.  The
     # bit removed is always at a lock's inner edge, where it reads as hair tucked
     # behind the opening rather than as a strand crossing it.
-    clear = union_all(_eye_clearance(eye_st or st, turn, eye_expr))
+    clear = union_all(_eye_clearance(eye_st or st, turn, eye_expr, asym))
     bangs = [clump - clear for clump in bangs]
     sides = [lock - clear for lock in sides]
     # The ink inside a lock is clipped by the same opening as the lock.  Clipping
@@ -669,6 +758,13 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     # exactly the failure the containment test measures.
     bang_strands = [(strand - clear, top) for strand, top in bang_strands]
     side_strands = [(strand - clear, top) for strand, top in side_strands]
+    # Partings are cut through the fringe and its filler together.  If only the
+    # clumps were cut, the base would show behind them and the gap would read as a
+    # shadow rather than as a separation.
+    gaps = _fringe_gaps(st, p, turn)
+    if gaps is not None:
+        bangs = [clump - gaps for clump in bangs]
+        bang_strands = [(strand - gaps, top) for strand, top in bang_strands]
     crest, crest_strands = _crest(st, p, rng, turn)
     # The clumps are deliberately uneven, which leaves small skin gaps between
     # their tips.  A soft, uninked base under them fills those gaps with hair
@@ -693,7 +789,11 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
             base_bottom = float(np.percentile(tips, 70))
         # The base is a filler behind the fringe.  If it reaches the brow it
         # restores the bowl even when the clumps stop well above it; only the
-        # blunt hime fringe is allowed down there.
+        # blunt hime fringe is allowed down there.  For a combed fringe the shelf
+        # must also stay above the shortest clump, or a smooth base edge becomes
+        # the visible hem and every clump tip is hidden behind it.
+        if not p.get("straight"):
+            base_bottom = min(base_bottom, float(np.min(tips)) + 0.015)
         base_bottom = min(base_bottom, float(st.brow_y) +
                           (0.075 if p.get("straight") else 0.125))
         base_top = hairline + 0.060
@@ -705,10 +805,22 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
                        (-w_bottom, base_bottom + 0.004)],
                       resample=28)
         fringe_base = band & head.silhouette(st, turn)
+        if gaps is not None:
+            fringe_base = fringe_base - gaps
+
+    # The painted layers are built before the silhouette is bitten.  Keeping the
+    # notch generator last means the existing mass and fringe keep their own
+    # random sequence; only the outer edge gains the irregularity.
+    shine = _shine(st, p, rng, turn)
+    crown = _crown_locks(st, p, rng, turn)
+    tufts = None if name == "short" else _silhouette_tufts(st, p, rng, turn)
+    cap = _cap(st, p, turn, hairline, skull, clearance=clear)
+    if tufts is not None:
+        cap = cap | tufts
     return Hair(
         name=name,
         p=p,
-        cap=_cap(st, p, turn, hairline, skull, clearance=clear),
+        cap=cap,
         back_locks=back,
         near_locks=near,
         bangs=bangs,
@@ -718,11 +830,11 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
         front_strands=bang_strands + side_strands,
         crest=crest,
         crest_strands=crest_strands,
-        shine=_shine(st, p, rng, turn),
+        shine=shine,
         back_strands=back_strands,
         near_strands=near_strands,
         fringe_base=fringe_base,
-        crown=_crown_locks(st, p, rng, turn),
+        crown=crown,
     )
 
 
@@ -791,7 +903,7 @@ def _paint_strands(canvas, hues, strands, lw: float, clip=None) -> None:
         amt = np.clip((top - Yg[rows, cols]) / 0.10, 0.0, 1.0)
         if clip is not None:
             amt = amt * clip[rows, cols]
-        s.paint(canvas, hues.line_hair, mask=amt, alpha=0.30, soft=1.0)
+        s.paint(canvas, hues.line_hair, mask=amt, alpha=0.40, soft=1.0)
 
 
 def paint_back(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
@@ -893,21 +1005,52 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         roll = np.clip((Yc - (head.hairline_y(st) - 0.04)) / 0.34, 0.0, 1.0)
         brush.paint_cov(canvas, cap_cov * (1.0 - roll), hues.hair_shadow,
                         alpha=0.16, soft=2.0)
+        # The parting is a soft, short valley, not a hard drawn line.  Without
+        # it the crown is one combed plate and the fringe has no origin.
+        part = float(h.p.get("part") or 0.0)
+        px = part * float(st.head_w) * 0.30
+        part_line = S.lock([(px, head.hairline_y(st) + 0.105),
+                            (px + part * 0.010, 0.415)], w0=0.010, w1=0.004,
+                           bulge=0.004, per_segment=4)
+        brush.paint(canvas, part_line & h.cap, hues.hair_shadow,
+                    alpha=0.13, soft=1.6)
         for i, lock in enumerate(h.crown):
-            colour = hues.hair_shadow if i % 2 else hues.hair_fine
-            brush.paint(canvas, lock & h.cap, colour, alpha=0.13, soft=1.7)
+            # Multiply, rather than paint a flat sheet, so the crown keeps the
+            # cap's texture and reads as a change of plane instead of a band of
+            # a different hair colour.
+            brush.multiply(canvas, lock & h.cap, 0.975 if i % 2 else 1.035,
+                           alpha=0.075 if i % 2 else 0.060)
     # A fringe is a volume, not a flat ribbon: one smooth gradient over the whole
     # fringe, with no per-clump patches to break it into polygons.
     if h.bangs:
         fringe_cov = brush.mask(canvas, S.union_all(h.bangs))
+        _, Yf = canvas.grid()
+        # Only the part of the fringe below the hairline is a painted surface.
+        # Above it the roots are construction detail and the cap repaint owns the
+        # colour; darkening them with the fringe gradient put four hard brown
+        # wedges across the crown of every short cut.
+        below = np.clip((head.hairline_y(st) - Yf) / 0.020, 0.0, 1.0)
+        fringe_cov = fringe_cov * below
         if fringe_cov.max() > 0.0:
-            _, Yf = canvas.grid()
             top = head.hairline_y(st) - 0.020
             g = np.clip((Yf - top) / 0.100, 0.0, 1.0)
             brush.paint_cov(canvas, fringe_cov * (1.0 - g), hues.hair_shadow,
                             alpha=0.20, soft=1.0)
             brush.paint_cov(canvas, fringe_cov * g, hues.hair_fine,
                             alpha=0.10, soft=1.0)
+    # The per-clump strand lines were built but never painted.  Without them the
+    # fringe is one colour field with a shaped hem, which is exactly the helmet
+    # the clumps were built to avoid.  They fade from each clump's root, so the
+    # hem stays clean and the strands read as hair rather than as ink on top.
+    if h.front_strands:
+        front_cov = brush.mask(canvas, S.union_all(h.bangs + h.sides))
+        front_cov = front_cov * np.clip((head.hairline_y(st) - Yg) / 0.020, 0.0, 1.0)
+        _paint_strands(canvas, hues, h.front_strands, lw * 0.90, clip=front_cov)
+    # A broad, low sheen is part of the hair's material even on a matte cut; the
+    # narrow crown arcs are only a specular core when the gloss axis asks for it.
+    if cap_cov.max() > 0.0:
+        for lock in h.shine:
+            brush.multiply(canvas, lock & h.cap, 1.12, alpha=0.18)
     gloss = float(h.p.get("gloss", 0.0))
     if gloss > 0.12:
         # The narrow crown arcs are a specular core.  On matte hair they read as

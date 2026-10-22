@@ -35,7 +35,7 @@ __all__ = ["shapes", "paint", "placement"]
 _HL = 0.10
 
 
-def placement(st, side: int, turn: float = 0.0):
+def placement(st, side: int, turn: float = 0.0, asym=None):
     """Screen centre and horizontal scale for one eye on a turned face.
 
     The old version projected the two *corners* independently onto the skull.
@@ -46,6 +46,11 @@ def placement(st, side: int, turn: float = 0.0):
     of the skull, so its width foreshortens with ``cos(turn)`` and only gains a
     few percent of perspective on the near side.  The centre still comes from the
     solid, which is what keeps both eyes and the nose on one midline.
+
+    ``asym`` is the optional :class:`gen.portraits.humanize.Asym`; it moves one
+    eye a fraction of a millimetre and scales it by a percent or two.  It is
+    applied here rather than in :func:`shapes` so the same deviation is used by
+    the hair's eye clearance and the painter.
     """
     t = float(turn)
     cx, _ = head.turn_point(side * st.eye_dx, st.eye_y, t, st)
@@ -54,7 +59,11 @@ def placement(st, side: int, turn: float = 0.0):
     # made the far eye read as a different size even before the skull curvature
     # was involved, which is the asymmetry a viewer notices first.
     scale = float(np.cos(t)) * (1.0 - 0.04 * side * np.sin(t))
-    return float(cx), float(np.clip(scale, 0.84, 1.0))
+    if asym is not None:
+        e = asym.eye[side]
+        cx += e["dx"]
+        scale *= e["sx"]
+    return float(cx), float(np.clip(scale, 0.82, 1.08))
 
 
 def shapes(st, expr: dict) -> dict:
@@ -182,8 +191,17 @@ def _fiber_ramp(h, bbox):
     return fn
 
 
-def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None):
-    """Draw one eye at its station on the face.  ``side = +1`` is the left eye."""
+def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
+          asym=None):
+    """Draw one eye at its station on the face.  ``side = +1`` is the left eye.
+
+    ``asym`` is the optional humanising deviation.  It changes the *station* and
+    the *small planes* of the eye -- one lid a little lower, one iris a little
+    wider, the catchlights not exactly paired.  The opening uses the same
+    station, and the hair's eye clearance is built from the same opening, so a
+    shifted or scaled eye is cleared by the fringe rather than merely drawn on
+    top of it.
+    """
     if expr is None:
         from . import expression
         expr = expression.neutral()
@@ -192,12 +210,27 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None):
     # keeps the lid-to-lid height.  The centre is projected on the solid so it
     # stays on the nose's midline, and the local frame is mirrored for the other
     # side (``sx`` carries the sign).
-    cx, width_scale = placement(st, side, turn)
-    kw = dict(cx=cx, cy=float(st.eye_y), sx=side * width_scale, sy=1.0,
-              rot=side * st.eye_tilt)
+    cx, width_scale = placement(st, side, turn, asym)
+    if asym is None:
+        e = {"dx": 0.0, "dy": 0.0, "sx": 1.0, "sy": 1.0, "rot": 0.0,
+             "gaze_x": 0.0, "gaze_y": 0.0, "hl_dx": 0.0, "hl_dy": 0.0}
+    else:
+        e = asym.eye[side]
+    kw = dict(cx=cx, cy=float(st.eye_y) + e["dy"],
+              sx=side * width_scale, sy=e["sy"],
+              rot=side * st.eye_tilt + e["rot"])
+    # The iris is a disc on the eyeball, not a decal welded to the lid.  It gets
+    # its own frame so a small gaze and an asymmetric catchlight can move it
+    # while the opening stays exactly where the lids are.
+    gaze_kw = dict(kw, cx=cx + e["gaze_x"], cy=kw["cy"] + e["gaze_y"])
+    hl_kw = dict(gaze_kw, cx=gaze_kw["cx"] + e["hl_dx"],
+                 cy=gaze_kw["cy"] + e["hl_dy"])
 
     g = shapes(st, expr)
     P = lambda sh: sh.place(**kw)  # noqa: E731
+    G = lambda sh: sh.place(**gaze_kw)  # noqa: E731
+    H = lambda sh: sh.place(**hl_kw)  # noqa: E731
+    opening = P(g["opening"])
 
     # Pool of shade on the skin, under the eye's own ink.
     if not closed and h is not None:
@@ -213,29 +246,30 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None):
             brush.paint(canvas, P(lash), fill, clip=clip, alpha=0.80)
         return
 
-    brush.paint(canvas, P(g["opening"]), h.sclera, clip=clip)
-    brush.paint(canvas, P(g["inner_shade"]) & P(g["opening"]), h.sclera_shadow,
+    brush.paint(canvas, opening, h.sclera, clip=clip)
+    brush.paint(canvas, P(g["inner_shade"]) & opening, h.sclera_shadow,
                 clip=clip, alpha=0.46, soft=1.4)
-    brush.paint(canvas, P(g["outer_shade"]) & P(g["opening"]), h.sclera_shadow,
+    brush.paint(canvas, P(g["outer_shade"]) & opening, h.sclera_shadow,
                 clip=clip, alpha=0.38, soft=1.2)
-    iv = P(g["iris_v"])
+    iv = G(g["iris_v"]) & opening
     y0, y1 = iv.bbox[1], iv.bbox[3]
     brush.paint(canvas, iv, None, clip=clip,
                 ramp=_ramp(h.iris_dark, h.iris, h.iris_light, y1, y0))
     brush.paint(canvas, iv, None, clip=clip, alpha=0.22,
                 ramp=_fiber_ramp(h, iv.bbox))
-    brush.paint(canvas, P(g["rim"]), h.iris_rim, clip=clip, alpha=0.90)
-    brush.paint(canvas, P(g["pupil_ring"]), h.iris_rim, clip=clip, alpha=0.58)
-    brush.paint(canvas, P(g["pupil"]), h.pupil, clip=clip)
+    brush.paint(canvas, G(g["rim"]) & opening, h.iris_rim, clip=clip, alpha=0.90)
+    brush.paint(canvas, G(g["pupil_ring"]) & opening, h.iris_rim, clip=clip, alpha=0.58)
+    brush.paint(canvas, G(g["pupil"]) & opening, h.pupil, clip=clip)
     brush.paint(canvas, P(g["lid"]), h.lid_shadow, clip=clip, alpha=st.lid_shadow_alpha)
-    brush.paint(canvas, P(g["iris_glow"]), h.iris_glow, clip=clip, alpha=0.20, soft=1.8)
+    brush.paint(canvas, G(g["iris_glow"]) & opening, h.iris_glow, clip=clip,
+                alpha=0.20, soft=1.8)
     hl = palette.mix((1.0, 1.0, 1.0), h.iris_light, _HL)
-    brush.paint(canvas, P(g["hl_big"]) & P(g["opening"]), hl, clip=clip)
-    brush.paint(canvas, P(g["hl_small"]) & P(g["opening"]), hl, clip=clip, alpha=0.85)
-    brush.paint(canvas, P(g["hl_tiny"]) & P(g["opening"]), hl, clip=clip, alpha=0.68)
+    brush.paint(canvas, H(g["hl_big"]) & opening, hl, clip=clip)
+    brush.paint(canvas, H(g["hl_small"]) & opening, hl, clip=clip, alpha=0.85)
+    brush.paint(canvas, H(g["hl_tiny"]) & opening, hl, clip=clip, alpha=0.68)
     brush.paint(canvas, P(g["lower_water"]), h.tear, clip=clip, alpha=0.38, soft=0.7)
     brush.paint(canvas, P(g["lid_line"]), h.lash, clip=clip, alpha=0.78)
-    brush.paint(canvas, P(g["tear"]), h.tear, clip=clip, alpha=0.55, soft=0.8)
+    brush.paint(canvas, P(g["tear"]), h.tear, clip=clip, alpha=0.62, soft=0.8)
     brush.paint(canvas, P(g["crease_soft"]), h.skin_shadow, clip=clip, alpha=0.20, soft=1.5)
     brush.paint(canvas, P(g["crease"]), h.line_soft, clip=clip, alpha=0.64)
     for lash in g["lash_fine"]:

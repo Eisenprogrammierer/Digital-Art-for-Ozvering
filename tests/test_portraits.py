@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import palette  # noqa: E402
-from gen.portraits import cel, demography, dna, expression, face, garments, hair, head, hues, eyes  # noqa: E402
+from gen.portraits import cel, demography, dna, expression, face, garments, hair, head, hues, eyes, humanize  # noqa: E402
 from gen.portraits import phenotype  # noqa: E402
 from gen.portraits import regalia  # noqa: E402
 from gen.portraits import portrait as portraitlib  # noqa: E402
@@ -170,6 +170,82 @@ def test_seed_of_is_a_function_of_the_genome():
     assert dna.seed_of(g) == dna.seed_of(dict(g))
     assert dna.seed_of(g) != dna.seed_of(dna.random_genes(9))
     assert 0 <= dna.seed_of(g) < 2**48
+
+
+def test_face_seed_is_independent_of_the_outfit_and_mood():
+    """The person must not change when the sitter changes clothes or expression.
+
+    The hair generator is allowed to reseed on the outfit, because the saved
+    image has to reproduce its hair.  The humanising asymmetry cannot: a coat, a
+    smile or a half-turn that moved a cheekbone would make the portrait a
+    different person rather than the same person in a different photograph.
+    """
+    g = _genes(8)
+    seed = dna.face_seed(g)
+    variants = (
+        dict(g, garment="mantle"),
+        dict(g, attire="clerical"),
+        dict(g, expression="smile"),
+        dict(g, turn=0.31),
+        dict(g, hair_style="long"),
+        dict(g, hair_volume=0.42, fringe_length=-0.30),
+        dict(g, hair_gloss=0.40, facial_hair="beard"),
+    )
+    for variant in variants:
+        assert dna.face_seed(variant) == seed, "the outfit or mood reseeded the face"
+    other_style = next(name for name in style_mod.names() if name != g["style"])
+    assert dna.face_seed(dict(g, style=other_style)) != seed, (
+        "a different skull style must be a different face")
+    other_jaw = 0.7 if abs(float(g["jaw"]) - 0.7) > 0.05 else -0.7
+    assert dna.face_seed(dict(g, jaw=other_jaw)) != seed, (
+        "a face gene did not reach the face seed")
+
+
+def test_the_humanising_asymmetry_is_stable_and_bilateral():
+    """Asymmetry is a face property, not a per-render random wobble.
+
+    A mirror is the strongest doll tell; a different random face on every call
+    would be worse.  The two sides have to differ from one another, while every
+    outfit, mood and hairstyle variant of the same genome agrees with the base.
+    """
+    g = _genes(9)
+    a = humanize.asymmetry(g)
+    b = humanize.asymmetry(dict(g, garment="habit", attire="service",
+                                expression="grin", turn=-0.28,
+                                hair_style="twin", hair_volume=-0.4))
+    assert a.eye == b.eye
+    assert a.brow == b.brow
+    assert a.ear == b.ear
+    assert a.nose_dx == b.nose_dx
+    assert a.mouth_corner_l == b.mouth_corner_l
+    # The pair is not the mirror image the construction pass started with.
+    assert a.eye[1]["sx"] != a.eye[-1]["sx"]
+    assert abs(a.eye[1]["dy"] - a.eye[-1]["dy"]) > 1e-5
+    assert abs(a.mouth_corner_l - a.mouth_corner_r) > 1e-5
+    assert -0.01 <= a.eye[1]["dx"] <= 0.01
+    assert 0.90 <= a.eye[1]["sx"] <= 1.10
+
+
+def test_adult_proportions_leave_the_doll_face_behind():
+    """Adulthood is a change of proportion, not a label in the description.
+
+    The eyes get smaller and sit higher, the lower face gets a bigger mouth and
+    jaw, and the neck gains mass.  The child end must move the other way, or the
+    age axis is only a colour change.
+    """
+    base = _genes(7, sex="male")
+    child = _style(dict(base, age="child"))
+    youth = _style(dict(base, age="youth"))
+    adult = _style(dict(base, age="adult"))
+    assert adult.eye_w < youth.eye_w < child.eye_w
+    assert adult.eye_up < child.eye_up
+    assert adult.eye_y > youth.eye_y
+    assert adult.iris_r < child.iris_r
+    assert adult.mouth_w > child.mouth_w
+    assert adult.nose_w > child.nose_w
+    assert adult.jaw_w > child.jaw_w
+    assert adult.chin_w > child.chin_w
+    assert adult.neck_w > child.neck_w
 
 
 def test_quantise_is_the_wire_format_precision():

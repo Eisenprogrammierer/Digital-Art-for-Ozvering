@@ -32,7 +32,7 @@ __all__ = [
     "GENES", "CATEGORICAL", "LEGACY_CATEGORICAL", "COLOUR_GENES", "SHAPE_GENES",
     "DEMOGRAPHIC", "MORPH", "PIGMENT", "PHENOTYPE_CATEGORIES", "REGALIA_CATEGORIES",
     "random_genes", "quantise", "encode", "decode", "breed", "mutate",
-    "apply_to", "describe", "EXPRESSIONS", "HAIR_STYLES",
+    "apply_to", "describe", "seed_of", "face_seed", "EXPRESSIONS", "HAIR_STYLES",
 ]
 
 #: Expressions the feature pass knows how to build.
@@ -591,4 +591,31 @@ def seed_of(genes: dict) -> int:
     # form and remains pure and reproducible.
     seed_genes = tuple(key for key in GENES if key != "garment")
     digest = hashlib.sha256(_wire(genes, seed_genes).encode("utf-8")).hexdigest()
+    return int(digest[:12], 16)
+
+
+#: The face is the person; the clothes, the mood and the hair are not.  This
+#: subset is what the humanising asymmetry is allowed to read, so putting on a
+#: coat, smiling, or turning the head cannot move a cheekbone.  ``style`` stays
+#: because it is the skull's own proportion table, and the base colours stay
+#: because they are part of the sitter rather than of the painting.
+_FACE_SEED_EXCLUDE = frozenset(REGALIA_CATEGORIES) | {
+    "expression", "turn", "hair_style", "hair", "cloth", "hair_len", "bang_n",
+    "hair_volume", "fringe_length", "fringe_part", "side_lock", "hair_gloss",
+    "hair_melanin", "hair_warmth", "hair_redness", "facial_hair",
+}
+
+
+def face_seed(genes: dict) -> int:
+    """A stable seed for the *sitter's* small asymmetries.
+
+    The hair generator's seed may include the dress code because a saved genome
+    has to reproduce its hair; the asymmetry must not, or changing a shirt would
+    change the person.  This hash therefore deliberately leaves out the entire
+    regalia layer, the pose, the mood, the hairstyle and the hair/cloth colours.
+    """
+    import hashlib
+
+    face_genes = tuple(key for key in GENES if key not in _FACE_SEED_EXCLUDE)
+    digest = hashlib.sha256(_wire(genes, face_genes).encode("utf-8")).hexdigest()
     return int(digest[:12], 16)

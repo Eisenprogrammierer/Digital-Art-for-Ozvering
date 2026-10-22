@@ -116,7 +116,7 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 59 tests
+python tests/test_portraits.py                  # 70 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
@@ -805,6 +805,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `cel` | The quantised Lambert term, the two colour rules, and the dome that stands in for a skull's height field. |
 | `hues` | The whole colour script -- about thirty tones -- derived from four base colours. |
 | `eyes`, `face`, `hair`, `expression` | The features themselves, and the warp that moves the whole face for a mood. |
+| `demography`, `humanize` | Age/sex proportion rules and the outfit-independent asymmetry, skin life, hair cast and contour masks that finish a person rather than a mirror. |
 | `regalia`, `garments` | The outfit layer: a dress code and its marks, then the cut or overgarment worn over it. The cut is a state, so it is appended to the wire format and never reseeds the face; a genome saved before the cut existed keeps its hair. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing and layer order: passport `compose`/`render`/`render_seed`, plus the opt-in `compose_posed`/`render_posed` study. |
@@ -892,6 +893,27 @@ line at 4.5 % of the mouth width, not a band, so a neutral mouth cannot read as
 an open one. And cel bands are painted wide-to-deep; the order is part of the
 drawing, because the wide band painted last erases the deep one and leaves a
 single flat shadow.
+
+The construction is deliberately symmetric, and that regularity is exactly what
+makes an unfinished portrait read as a doll. A separate `humanize` pass adds the
+small deviations that make the same geometry belong to a person: one eye a little
+higher, one brow with more arch, a nose that is not exactly on the midline, a mouth
+whose corners do not sit at the same height, and a shadow side that belongs to this
+sitter. The offsets come from `dna.face_seed`, a hash that deliberately leaves out
+the outfit, expression, turn, hairstyle, hair and cloth colours, and facial hair, so
+changing a coat or a mood cannot change the person. The pass also adds contact and
+warmth where skin is thin over cartilage, asymmetric cheek and jaw planes, a broken
+specular on the T-zone, and a hair cast onto the neck and collar.
+
+Age is a proportion, not a label. An adult eye is smaller and sits higher relative
+to the face; the mouth, nose, jaw, chin and neck gain mass, and the opposite moves
+hold for a child. The sex deltas remain a separate relationship on top of that, so
+an adult male and an adult female are not the same skull with a different label.
+The hair follows the same rule: an adult cut lifts the fringe a little rather than
+keeping the child's full curtain, and the fringe, crown and hairline are built as
+partings and clumps instead of one smooth cap. The outer face and hair contours are
+drawn through an asymmetric mask that breaks on the lit side and under the crown,
+so the silhouette has a lost edge instead of a sticker border.
 
 ### A turn is a rotation, not a squeeze
 
