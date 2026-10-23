@@ -886,7 +886,13 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
             # The free edge is inked more firmly than the cloth: at avatar size the
             # collar has to survive as a silhouette, not only as a value change.
             brush.paint(canvas, leaf.outline(lw * 0.72), palette.mix(h.line, h.cloth_line, 0.35), clip=clip,
-                        alpha=0.42, soft=0.25)
+                        alpha=0.62, soft=0.16)
+            # A real collar has a stitched margin inside its free edge.  One
+            # narrow, dark thread is enough at this scale; a second outline
+            # would turn the leaf into a badge.
+            brush.paint(canvas, leaf.outline(lw * 0.34),
+                        palette.mix(h.cloth_trim, h.cloth_line, 0.45), clip=clip,
+                        alpha=0.30, soft=0.18)
             brush.paint(canvas, leaf.outline(lw * 1.10), collar_col, clip=clip,
                         alpha=0.15, soft=0.7)
 
@@ -901,7 +907,7 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                       per_segment=6, resample=32)
         brush.paint(canvas, band, collar_col, clip=clip, alpha=0.98, soft=0.30)
         brush.paint(canvas, band.outline(lw * 0.34), h.cloth_line, clip=clip,
-                    alpha=0.40, soft=0.25)
+                    alpha=0.58, soft=0.18)
         brush.paint(canvas, S.lock([(p[0], p[1] + 0.005) for p in band_spine],
                                    w0=0.0022, w1=0.0022, bulge=0.0015,
                                    per_segment=6, resample=32),
@@ -912,7 +918,7 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         notch_y = top - depth * point_drop + 0.012
         notch = S.poly([(-0.011, notch_y + 0.010), (0.0, notch_y - 0.004),
                         (0.011, notch_y + 0.010)], resample=18)
-        brush.paint(canvas, notch, h.cloth_shadow, alpha=0.62, soft=0.5)
+        brush.paint(canvas, notch, h.cloth_shadow, alpha=0.74, soft=0.35)
 
     # A short placket begins at the bottom of the V and runs down the chest.  It
     # is the one seam a collared shirt is allowed to have here, and it must start
@@ -928,12 +934,17 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     if not skip_placket:
         placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
                          w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
-        brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.40, soft=0.8)
+        brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.52, soft=0.55)
         for side in (+1, -1):
             edge = S.lock([(side * lw * 1.15, placket_top),
                            (side * lw * 1.35, placket_bottom)],
-                          w0=lw * 0.26, w1=lw * 0.30, per_segment=3)
-            brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.34, soft=0.5)
+                          w0=lw * 0.30, w1=lw * 0.34, per_segment=3)
+            brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.58, soft=0.22)
+            stitch = S.lock([(side * lw * 2.00, placket_top - 0.004),
+                             (side * lw * 2.20, placket_bottom + 0.004)],
+                            w0=lw * 0.18, w1=lw * 0.20, per_segment=3)
+            brush.paint(canvas, stitch, palette.lighten(h.cloth_hi, 0.07),
+                        clip=clip, alpha=0.42, soft=0.16)
 
     # Two folds from the shoulder seam towards the chest.
     for side in (+1, -1):
@@ -957,11 +968,18 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                      (a[1] + b[1]) * 0.5), b]
         fold = S.lock(spine, w0=0.050, w1=0.018, bulge=0.030, per_segment=6)
         brush.paint(canvas, fold, h.cloth_shadow, clip=clip,
-                    alpha=0.28, soft=2.4)
+                    alpha=0.30, soft=2.0)
+        # The crease is the line the eye actually reads; the broad fold above is
+        # only its plane.  Keeping the crease narrow and harder stops the drape
+        # from dissolving into a grey smudge at 384 px.
+        crease = S.lock([(x + side * 0.010, y) for x, y in spine],
+                        w0=0.0048, w1=0.0022, bulge=0.0035, per_segment=5)
+        brush.paint(canvas, crease, h.cloth_line, clip=clip,
+                    alpha=0.38, soft=0.30)
         ridge = S.lock([(x - side * 0.018, y) for x, y in spine],
                        w0=0.009, w1=0.004, bulge=0.006, per_segment=5)
-        brush.paint(canvas, ridge, palette.lighten(h.cloth_hi, 0.04), clip=clip,
-                    alpha=0.30, soft=1.0)
+        brush.paint(canvas, ridge, palette.lighten(h.cloth_hi, 0.05), clip=clip,
+                    alpha=0.42, soft=0.55)
 
     # Armhole seams: the curve where the sleeve meets the body.  A straight short
     # dash reads as a scratch; a seam has a welt, a stitch line and a little cast
@@ -977,11 +995,11 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                                     for px, py in spine],
                                    w0=0.0064, w1=0.0034, per_segment=7),
                     h.cloth_shadow, clip=clip, alpha=0.28, soft=1.2)
-        brush.paint(canvas, seam, h.cloth_line, clip=clip, alpha=0.56, soft=0.40)
+        brush.paint(canvas, seam, h.cloth_line, clip=clip, alpha=0.70, soft=0.24)
         stitch = S.lock([(px - side * 0.0055, py) for px, py in spine],
                         w0=0.0012, w1=0.0009, per_segment=7)
-        brush.paint(canvas, stitch, palette.lighten(h.cloth_hi, 0.06), clip=clip,
-                    alpha=0.60, soft=0.28)
+        brush.paint(canvas, stitch, palette.lighten(h.cloth_hi, 0.08), clip=clip,
+                    alpha=0.74, soft=0.18)
 
     # Shoulder topstitch: a single light thread following the trapezius.  On a
     # dark tunic it is the one line that says the shoulder has a seam at all,
@@ -991,8 +1009,8 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         edge = [(side * float(x), head.shoulder_edge_y(st, side * float(x)) - 0.011)
                 for x in xs]
         thread = S.lock(edge, w0=0.0014, w1=0.0011, per_segment=6)
-        brush.paint(canvas, thread, palette.lighten(h.cloth_hi, 0.07), clip=clip,
-                    alpha=0.46, soft=0.26)
+        brush.paint(canvas, thread, palette.lighten(h.cloth_hi, 0.08), clip=clip,
+                    alpha=0.60, soft=0.18)
 
     # Fastenings: a clasp for the cultures that pin a collar, buttons for the
     # others.  A service tunic always buttons, and a tunic front has more than a
@@ -1003,10 +1021,16 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
             count = {"naval": 0, "clerical": 1}.get(attire, 4)
             for k in range(count):
                 y = placket_top - 0.026 - 0.046 * k
-                brush.paint(canvas, S.circle(0.0085, 0.0, y), h.metal, clip=clip,
-                            alpha=0.88, soft=0.28)
-                brush.paint(canvas, S.circle(0.0085, 0.0, y).outline(0.0024),
-                            h.cloth_line, clip=clip, alpha=0.52, soft=0.2)
+                disc = S.circle(0.0085, 0.0, y)
+                brush.paint(canvas, disc.offset(0.0014).place(cy=-0.0012),
+                            h.cloth_shadow, clip=clip, alpha=0.42, soft=0.25)
+                brush.paint(canvas, disc, h.metal, clip=clip,
+                            alpha=0.96, soft=0.18)
+                brush.paint(canvas, disc.outline(0.0026), h.cloth_line, clip=clip,
+                            alpha=0.76, soft=0.14)
+                brush.paint(canvas, S.circle(0.0028, -0.0026, y + 0.0028),
+                            palette.lighten(h.metal, 0.14), clip=clip,
+                            alpha=0.92, soft=0.15)
         elif culture in ("north", "steppe", "coast"):
             y = placket_top - 0.020
             disc = S.circle(0.014, 0.0, y)
@@ -1018,12 +1042,12 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
             for k in range(2):
                 y = placket_top - 0.032 - 0.060 * k
                 disc = S.circle(0.0085, 0.0, y)
-                brush.paint(canvas, disc.offset(0.0012), h.cloth_shadow, clip=clip,
-                            alpha=0.38, soft=0.35)
+                brush.paint(canvas, disc.offset(0.0014).place(cy=-0.0010),
+                            h.cloth_shadow, clip=clip, alpha=0.46, soft=0.25)
                 brush.paint(canvas, disc, h.metal, clip=clip,
-                            alpha=0.92, soft=0.22)
-                brush.paint(canvas, disc.outline(0.0022), h.cloth_line, clip=clip,
-                            alpha=0.62, soft=0.18)
+                            alpha=0.96, soft=0.18)
+                brush.paint(canvas, disc.outline(0.0024), h.cloth_line, clip=clip,
+                            alpha=0.78, soft=0.14)
                 brush.paint(canvas, S.circle(0.0026, -0.0025, y + 0.0025),
                             palette.lighten(h.metal, 0.12), clip=clip,
                             alpha=0.80, soft=0.2)

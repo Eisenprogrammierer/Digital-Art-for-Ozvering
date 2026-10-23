@@ -347,7 +347,15 @@ def _collar(canvas, st, h, kit: Kit, clip) -> None:
     brush.paint(canvas, band & S.box(xb * 1.2, 0.014, 0.0, 0.0, yb + 0.012),
                 col_hi, clip=clip, alpha=0.38, soft=0.7)
     brush.paint(canvas, band.outline(lw * 0.55), edge, clip=clip,
-                alpha=0.54, soft=0.4)
+                alpha=0.70, soft=0.24)
+    # A stand collar has a hard fold at the top and a stitched lower edge.  The
+    # old soft band read as a scarf; these two narrow lines restore tailoring.
+    brush.paint(canvas, band & S.box(xb * 1.22, 0.0032, 0.0, 0.0, yt - 0.004),
+                palette.darken(col, 0.10), clip=clip, alpha=0.46, soft=0.22)
+    brush.paint(canvas, band & S.box(xb * 1.22, 0.0024, 0.0, 0.0, yb + 0.008),
+                col_hi, clip=clip, alpha=0.58, soft=0.20)
+    brush.paint(canvas, band.outline(lw * 0.24), col_hi, clip=clip,
+                alpha=0.26, soft=0.18)
     if kit.attire in ("naval", "ceremonial"):
         # A gold lace along the lower edge: the one line that says "dress"
         # rather than "fatigue" at avatar size.
@@ -444,13 +452,21 @@ def _collar_tabs(canvas, st, h, kit: Kit, clip) -> None:
         tab = S.poly([(cx - 0.024, y - 0.017), (cx + 0.026, y - 0.011),
                       (cx + 0.026, y + 0.016), (cx - 0.024, y + 0.012)],
                      resample=20)
-        brush.paint(canvas, tab, kit.tab, clip=clip, alpha=1.0, soft=0.30)
+        brush.paint(canvas, tab.place(cy=-0.0016), kit.service_shadow,
+                    clip=clip, alpha=0.42, soft=0.24)
+        brush.paint(canvas, tab, kit.tab, clip=clip, alpha=1.0, soft=0.20)
         brush.paint(canvas, tab.outline(lw * 0.36), kit.tab_edge, clip=clip,
-                    alpha=0.82, soft=0.30)
+                    alpha=0.94, soft=0.16)
+        brush.paint(canvas, tab.outline(lw * 0.18), kit.tab_edge, clip=clip,
+                    alpha=0.32, soft=0.18)
         # A tiny button at the outer end is the difference between a tab and a
         # painted rectangle.
-        brush.paint(canvas, S.circle(0.0055, cx + side * 0.018, y),
-                    kit.metal, clip=clip, alpha=0.92, soft=0.25)
+        button = S.circle(0.0055, cx + side * 0.018, y)
+        brush.paint(canvas, button.offset(0.0009).place(cy=-0.0008),
+                    kit.metal_shadow, clip=clip, alpha=0.55, soft=0.16)
+        brush.paint(canvas, button, kit.metal, clip=clip, alpha=0.96, soft=0.16)
+        brush.paint(canvas, S.circle(0.0018, cx + side * 0.018 - 0.0015, y + 0.0015),
+                    kit.metal_hi, clip=clip, alpha=0.92, soft=0.14)
         # A branch stripe down the middle.
         brush.paint(canvas, S.lock([(cx + side * 0.001, y + 0.015),
                                     (cx - side * 0.002, y - 0.015)],
@@ -483,9 +499,12 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
         # A shadow under the free end gives the board thickness.  The board sits
         # fully inside the shoulder silhouette, so the shadow has to be broad
         # enough to survive the cel shading underneath it.
-        brush.paint(canvas, S.lock([(p[0], p[1] - 0.017) for p in spine],
-                                   w0=0.068, w1=0.060, per_segment=6),
-                    kit.service_shadow, clip=clip, alpha=0.30, soft=1.6)
+        brush.paint(canvas, S.lock([(p[0], p[1] - 0.020) for p in spine],
+                                   w0=0.070, w1=0.062, per_segment=6),
+                    kit.service_shadow, clip=clip, alpha=0.34, soft=1.4)
+        brush.paint(canvas, S.lock([(p[0], p[1] - 0.010) for p in spine],
+                                   w0=0.062, w1=0.054, per_segment=6),
+                    kit.service_shadow, clip=clip, alpha=0.34, soft=0.34)
         # The field is one step lighter than the tunic; without that step the
         # board disappeared into the shoulder and only its gold piping read.
         brush.paint(canvas, board, kit.service_light, clip=clip, alpha=1.0, soft=0.42)
@@ -496,9 +515,9 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
         # A dark seam outside a gold braid: the two outlines give the board an
         # edge at avatar size, where a single thin line would alias away.
         brush.paint(canvas, board.outline(lw * 0.58), kit.service_line, clip=clip,
-                    alpha=0.58, soft=0.4)
+                    alpha=0.74, soft=0.24)
         brush.paint(canvas, board.outline(lw * 0.28), kit.metal, clip=clip,
-                    alpha=0.78, soft=0.32)
+                    alpha=0.94, soft=0.18)
         # Braid and a burnished top edge.  A board is a piece of metal-cloth
         # tailoring, not a flat lozenge; the narrow cord and the lit rim are what
         # keep it from reading as a yellow stripe at 384 px.
@@ -506,15 +525,15 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
             cord = S.lock([(px, py + 0.0055 * k) for px, py in spine],
                           w0=0.0032, w1=0.0028, per_segment=6)
             brush.paint(canvas, cord, kit.gold_shadow if k else kit.gold,
-                        clip=clip, alpha=0.48 if k else 0.78, soft=0.25)
+                        clip=clip, alpha=0.66 if k else 0.94, soft=0.18)
         brush.paint(canvas, board & S.lock(
             [(px, py + 0.020) for px, py in spine],
             w0=0.0050, w1=0.0040, per_segment=6),
-            kit.metal_hi, clip=clip, alpha=0.50, soft=0.30)
+            kit.metal_hi, clip=clip, alpha=0.70, soft=0.22)
         # Piping along the outer edge, and the button at the inner end.
         brush.paint(canvas, S.lock([(p[0], p[1] - 0.029) for p in spine],
                                    w0=0.0042, w1=0.0036, per_segment=5),
-                    kit.metal, clip=clip, alpha=0.90, soft=0.32)
+                    kit.metal, clip=clip, alpha=0.96, soft=0.22)
         brush.paint(canvas, S.circle(0.012, a[0], a[1]), kit.metal, clip=clip,
                     alpha=0.95, soft=0.25)
         brush.paint(canvas, S.circle(0.012, a[0], a[1]).outline(0.0026),
@@ -586,7 +605,7 @@ def _medals(canvas, st, kit: Kit, ax: float, ay: float, clip) -> None:
                     palette.lighten(kit.ribbon if k == 0 else kit.accent, 0.07),
                     clip=clip, alpha=0.42, soft=0.30)
         brush.paint(canvas, rib.outline(lw * 0.22), kit.metal_shadow, clip=clip,
-                    alpha=0.60, soft=0.2)
+                    alpha=0.74, soft=0.16)
         disc = S.circle(0.026, cx, ry - 0.082)
         # The disc is a struck medal: a cast shadow, a struck rim, a bright
         # bevel on the lit side, and the star sitting in the field.  Flat gold
@@ -776,10 +795,13 @@ def _faith(canvas, st, h, kit: Kit, clip) -> None:
         cy = top - 0.152
         vert = S.box(0.0060, 0.026, 0.0015, 0.0, cy)
         horiz = S.box(0.0190, 0.0055, 0.0015, 0.0, cy + 0.011)
-        brush.paint(canvas, vert | horiz, kit.gold, clip=clip, alpha=0.97,
-                    soft=0.25)
-        brush.paint(canvas, (vert | horiz).outline(0.0022), kit.gold_shadow,
-                    clip=clip, alpha=0.72, soft=0.2)
+        cross = vert | horiz
+        brush.paint(canvas, cross.offset(0.0012).place(cy=-0.0012),
+                    kit.gold_shadow, clip=clip, alpha=0.35, soft=0.30)
+        brush.paint(canvas, cross, kit.gold, clip=clip, alpha=0.98,
+                    soft=0.18)
+        brush.paint(canvas, cross.outline(0.0022), kit.gold_shadow,
+                    clip=clip, alpha=0.84, soft=0.14)
         brush.paint(canvas, S.box(0.0025, 0.020, 0.001, -0.0022, cy + 0.001),
                     kit.gold_hi, clip=clip, alpha=0.55, soft=0.25)
     elif kit.faith == "amulet":
