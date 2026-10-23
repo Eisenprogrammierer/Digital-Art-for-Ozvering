@@ -155,11 +155,17 @@ def neck(st, turn: float = 0.0) -> Shape:
     head on a stalk, which is the one bust proportion every style has to avoid.
     """
     top = st.chin_y + 0.17
-    bottom = st.neck_y - 0.14
-    tw = float(st.neck_w) * 0.82
-    bw = float(st.neck_w) * 1.16
-    pts = [(-tw, top), (-tw * 1.02, top - 0.075), (-bw, bottom),
-           (bw, bottom), (tw * 1.02, top - 0.075), (tw, top)]
+    bottom = st.neck_y - 0.20
+    tw = float(st.neck_w) * 0.92
+    # A neck is a column with a slight flare into the trapezius, not a cone.
+    # A straight taper from a narrow jaw-width top to a wide base reads as a
+    # stalk once the collar exposes it; the short concave waist below keeps the
+    # visible sides nearly vertical and lets the shoulders carry the flare.
+    mw = tw * 0.96
+    bw = float(st.neck_w) * 1.04
+    pts = [(-tw, top), (-tw * 1.01, top - 0.075), (-mw, top - 0.16),
+           (-bw, bottom), (bw, bottom), (mw, top - 0.16),
+           (tw * 1.01, top - 0.075), (tw, top)]
     return S.poly(S.smooth_loop(pts, per_segment=6, resample=30))
 
 
@@ -177,32 +183,49 @@ def shoulders(st) -> Shape:
     top = float(st.neck_y)
     bottom = float(st.shoulder_y)
     w = float(st.shoulder_w)
-    nw = max(float(st.neck_w) * 1.22, 0.16)
-    # ``shoulder_slope`` raises or lowers the outer end of the trapezius without
-    # widening the body: a high shoulder line is a square silhouette, a low one
-    # is a sloped neck into a narrow chest.  Positive drops the outer end.
+    nw = max(float(st.neck_w) * 1.10, 0.150)
+    # ``shoulder_slope`` is a *drop*: positive lowers the acromion relative to
+    # the neck.  A male shoulder is wider and flatter, a female shoulder is
+    # narrower and slopes more; using the sign the other way round made the
+    # female bust square and the male bust droop.
     slope = float(getattr(st, "shoulder_slope", 0.0))
-    outer = top - 0.155 + 0.040 * slope
-    crest = top - 0.010 * slope
-    # The top edge is a *neckline*, not a shelf.  A straight edge across the
-    # shoulders ran over the throat above the collar and read as a shirt seam
-    # crossing the sitter's neck.  The edge now meets the collar stand at the
-    # sides and dips below the throat at the middle, so the cloth closes around
-    # the neck and only the collar's own opening crosses it.
-    pts = [
-        (-w * 1.02, bottom),
-        (-w * 1.03, outer - 0.135),
-        (-w * 0.965, outer - 0.030),
-        (-w * 0.745, crest),
-        (-nw, top + 0.075),
-        (0.0, top - 0.020),
-        (nw, top + 0.075),
-        (w * 0.745, crest),
-        (w * 0.965, outer - 0.030),
-        (w * 1.03, outer - 0.135),
-        (w * 1.02, bottom),
+    outer = top - 0.055 - 0.020 * slope
+    # The top edge runs from the side of the neck to the acromion.  It is
+    # sampled as a monotone curve instead of a handful of control points: a
+    # Catmull-Rom through a neck point, a crest point and an outer point
+    # overshot into a pair of peaks beside the throat, which was the coat-hanger
+    # shape the old bust had.  This curve only ever descends outwards.
+    x0, x1 = nw, w * 0.920
+    y0, y1 = top + 0.070, outer
+    top_edge = []
+    for i in range(19):
+        t = i / 18.0
+        # A slight upward bulge through the middle of the trapezius, then a
+        # flat run into the acromion.  A straight ramp reads as a table edge;
+        # a Catmull-Rom through old crest points read as a coat hanger.  This
+        # stays monotone while giving the cloth one broad convex plane.
+        s = t - 0.14 * float(np.sin(np.pi * t))
+        top_edge.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * s))
+
+    # Acromion and upper arm.  The cap turns over the deltoid and then the arm
+    # drops almost vertically; the frame crops it, so the bust has ends inside
+    # the picture rather than becoming a full-width band.
+    arm = [
+        (w * 0.978, outer - 0.030),
+        (w * 1.006, outer - 0.078),
+        (w * 1.020, outer - 0.145),
+        (w * 1.015, bottom),
     ]
-    return S.poly(S.smooth_loop(pts, per_segment=8, resample=60))
+    pts = [(-w * 1.015, bottom)]
+    pts += [(-x, y) for x, y in reversed(arm)]
+    pts += [(-x, y) for x, y in reversed(top_edge)]
+    # The centre sits below the throat and is covered by the neck; it keeps the
+    # cloth from arching into a high shelf under the chin.
+    pts += [(0.0, top + 0.045)]
+    pts += top_edge
+    pts += arm
+    pts += [(w * 1.015, bottom)]
+    return S.poly(S.smooth_loop(pts, per_segment=3, resample=90))
 
 
 def shoulder_edge_y(st, x: float) -> float:

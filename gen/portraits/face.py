@@ -204,8 +204,8 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None, asym=None):
     nx, ny = float(nx), float(ny)
     if asym is not None:
         nx += asym.nose_dx
-    w = st.nose_w * 1.22 * (asym.nose_sx if asym is not None else 1.0)
-    hh = st.nose_h * 1.12
+    w = st.nose_w * 1.75 * (asym.nose_sx if asym is not None else 1.0)
+    hh = st.nose_h * 1.65
     style = st.nose_style
     top = ny + hh * 1.90
     tip_y = ny + hh * 0.02
@@ -220,29 +220,29 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None, asym=None):
                            w0=w * 0.030, w1=w * 0.095, bulge=w * 0.018,
                            per_segment=6)
     brush.paint(canvas, bridge_shadow, h.skin_shadow, clip=clip,
-                alpha=0.350, soft=1.15)
+                alpha=0.560, soft=0.74)
     bridge_light = S.lock([(nx + w * 0.07, top),
                            (nx + w * 0.13, ny + hh * 0.90),
                            (nx + w * 0.10, tip_y + hh * 0.14)],
                           w0=w * 0.026, w1=w * 0.070, bulge=w * 0.012,
                           per_segment=6)
     brush.paint(canvas, bridge_light, h.skin_light, clip=clip,
-                alpha=0.310, soft=1.15)
+                alpha=0.480, soft=0.78)
 
     # The tip: a soft ball of light with its own cast shadow below.  A dot nose
     # is the same ball with a rounder, slightly lower shade; a straight nose puts
     # the ball a little higher and lets the bridge carry the length.
     ball_y = tip_y + (hh * 0.045 if style == "dot" else 0.0)
-    brush.paint(canvas, S.ellipse(w * 0.235, hh * 0.185, nx + w * 0.045, ball_y),
-                h.skin_light, clip=clip, alpha=0.36, soft=0.95)
-    brush.paint(canvas, S.ellipse(w * 0.315, hh * 0.145, nx, ny - hh * 0.115),
-                h.skin_shadow, clip=clip, alpha=0.290, soft=0.95)
+    brush.paint(canvas, S.ellipse(w * 0.330, hh * 0.255, nx + w * 0.035, ball_y),
+                h.skin_light, clip=clip, alpha=0.520, soft=0.58)
+    brush.paint(canvas, S.ellipse(w * 0.330, hh * 0.125, nx, ny - hh * 0.155),
+                h.skin_deep, clip=clip, alpha=0.320, soft=0.55)
     # One small catchlight on the ball.  The bridge highlight is a plane, not a
     # feature; at 384 px the tip needs a value of its own or the whole nose
     # disappears into the cheek's modelling.
-    brush.paint(canvas, S.ellipse(w * 0.085, hh * 0.055,
+    brush.paint(canvas, S.ellipse(w * 0.105, hh * 0.062,
                                   nx + w * 0.075, tip_y + hh * 0.085),
-                h.skin_light, clip=clip, alpha=0.46, soft=0.55)
+                h.skin_light, clip=clip, alpha=0.660, soft=0.30)
 
     # Alar wings.  The crease where the wing meets the cheek is the one line a
     # front view really has; it is soft, short and rolls under the ball.
@@ -253,32 +253,79 @@ def paint_nose(canvas, st, h, turn: float = 0.0, clip=None, asym=None):
                       w0=w * 0.040, w1=w * 0.016, bulge=w * 0.014,
                       per_segment=5)
         brush.paint(canvas, wing, h.skin_shadow, clip=clip,
-                    alpha=0.320, soft=0.70)
+                    alpha=0.580, soft=0.38)
         # A narrow lit edge on the outside of the wing separates it from the
         # cheek without drawing a second outline.
         rim = S.lock([(nx + side * w * 0.335, ny - hh * 0.02),
                       (nx + side * w * 0.355, ny - hh * 0.15)],
                      w0=w * 0.012, w1=0.0, per_segment=3)
-        brush.paint(canvas, rim, h.skin_warm, clip=clip, alpha=0.14, soft=0.9)
+        brush.paint(canvas, rim, h.skin_light, clip=clip, alpha=0.360, soft=0.34)
+        # The alar crease is the one true line on a front-view nose.  It is
+        # short, follows the wing, and is darker than the wing fill; without it
+        # the nostril sits in a vague smudge instead of under a rim of cartilage.
+        alar = S.lock([(nx + side * w * 0.205, ny + hh * 0.020),
+                       (nx + side * w * 0.315, ny - hh * 0.060),
+                       (nx + side * w * 0.345, ny - hh * 0.195)],
+                      w0=w * 0.016, w1=w * 0.007, bulge=w * 0.007,
+                      per_segment=4)
+        brush.paint(canvas, alar, palette.mix(h.line_soft, h.skin_deep, 0.28),
+                    clip=clip, alpha=0.700, soft=0.11)
+
+    # A cast shadow under the tip, and a narrow lit columella.  The old shade
+    # was so soft that the underside of the nose disappeared into the philtrum;
+    # the contact shadow is what makes the tip project from the face.
+    brush.paint(canvas, S.ellipse(w * 0.275, hh * 0.095, nx, ny - hh * 0.300),
+                h.skin_deep, clip=clip, alpha=0.360, soft=0.56)
 
     # Nostrils: small tilted openings, not two black dots.  The columella between
     # them is a lit strip and is what makes the underside read as a nose.
     for side in (+1, -1):
-        slit = S.lock([(nx + side * w * 0.215, ny - hh * 0.105),
-                       (nx + side * w * 0.285, ny - hh * 0.165)],
-                      w0=w * 0.045, w1=w * 0.012, per_segment=3)
-        brush.paint(canvas, slit, h.line_soft, clip=clip,
-                    alpha=0.78, soft=0.22)
-        brush.paint(canvas, S.ellipse(w * 0.045, hh * 0.028,
-                                      nx + side * w * 0.245, ny - hh * 0.135),
-                    h.skin_deep, clip=clip, alpha=0.16, soft=0.5)
+        # The wing is a rounded pad of cartilage, not a streak.  A small ellipse
+        # under the bridge gives it a volume, and the nostril is cut into the
+        # underside rather than sitting on the cheek.
+        brush.paint(canvas, S.ellipse(w * 0.255, hh * 0.205,
+                                      nx + side * w * 0.255, ny - hh * 0.095),
+                    palette.mix(h.skin_shadow, h.skin_deep, 0.30),
+                    clip=clip, alpha=0.460, soft=0.48)
+        slit = S.lock([(nx + side * w * 0.185, ny - hh * 0.100),
+                       (nx + side * w * 0.300, ny - hh * 0.170)],
+                      w0=w * 0.085, w1=w * 0.030, per_segment=3)
+        brush.paint(canvas, slit, palette.mix(h.mouth_dark, h.skin_shadow, 0.22),
+                    clip=clip, alpha=0.940, soft=0.14)
+        brush.paint(canvas, S.ellipse(w * 0.042, hh * 0.030,
+                                      nx + side * w * 0.255, ny - hh * 0.145),
+                    h.mouth_dark, clip=clip, alpha=0.780, soft=0.24)
+        # A thin lit rim under the opening separates the nostril from the
+        # philtrum; without it the two dark marks become a moustache.
+        rim = S.lock([(nx + side * w * 0.190, ny - hh * 0.205),
+                      (nx + side * w * 0.300, ny - hh * 0.235)],
+                     w0=w * 0.012, w1=w * 0.006, per_segment=3)
+        brush.paint(canvas, rim, h.skin_light, clip=clip, alpha=0.300, soft=0.28)
+    # The side of the tip turns away from the key.  Two small planes give the
+    # ball a left and a right, which a single central shadow cannot do.
+    brush.paint(canvas, S.ellipse(w * 0.155, hh * 0.150,
+                                  nx + w * 0.160, ny - hh * 0.025),
+                h.skin_shadow, clip=clip, alpha=0.280, soft=0.55)
+    for side in (+1, -1):
+        sill = S.lock([(nx + side * w * 0.115, ny - hh * 0.190),
+                       (nx + side * w * 0.252, ny - hh * 0.225)],
+                      w0=w * 0.009, w1=w * 0.004, per_segment=3)
+        brush.paint(canvas, sill, palette.mix(h.skin_shadow, h.line_soft, 0.18),
+                    clip=clip, alpha=0.420, soft=0.16)
+    base_shadow = S.lock([(nx - w * 0.285, ny - hh * 0.190),
+                          (nx, ny - hh * 0.255),
+                          (nx + w * 0.285, ny - hh * 0.190)],
+                         w0=w * 0.022, w1=w * 0.010, bulge=w * 0.014,
+                         per_segment=5)
+    brush.paint(canvas, base_shadow, h.skin_shadow, clip=clip,
+                alpha=0.240, soft=0.80)
     brush.paint(canvas, S.lock([(nx, ny - hh * 0.085), (nx, ny - hh * 0.205)],
                                w0=w * 0.011, w1=w * 0.006, per_segment=3),
-                h.skin_light, clip=clip, alpha=0.28, soft=0.45)
+                h.skin_light, clip=clip, alpha=0.520, soft=0.24)
     # The dark contact under the columella, kept tiny: it is the shadow the nose
     # throws on the philtrum, not a mouth line.
     brush.paint(canvas, S.ellipse(w * 0.17, hh * 0.055, nx, ny - hh * 0.30),
-                h.skin_shadow, clip=clip, alpha=0.110, soft=1.0)
+                h.skin_shadow, clip=clip, alpha=0.170, soft=0.75)
 
     if style == "dot":
         # A button nose is mostly the ball; a small nostril shadow is enough.
@@ -393,25 +440,50 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
     # darker, flatter plane above the seam.  Both are mixed far toward skin: a
     # passport photograph is not wearing lipstick.
     full = float(getattr(st, "lip_full", 0.0))
-    body_y = -abs(curve) - mw * (0.078 + 0.022 * full)
+    body_y = -abs(curve) - mw * (0.094 + 0.022 * full)
     body = S.arc(left, right, body_y, 0.5, 16)
-    body_w = (0.135 + 0.085 * full) * mw
-    body_bulge = (0.095 + 0.055 * full) * mw
+    body_w = (0.165 + 0.085 * full) * mw
+    body_bulge = (0.125 + 0.055 * full) * mw
     lower_lip = S.lock(body, w0=body_w, w1=body_w, bulge=body_bulge, per_segment=4)
     # The shadow the lower lip drops on the chin is what gives it thickness; a
     # fill alone reads as a pink smear.
     brush.paint(canvas, S.ellipse(mw * 0.46, mw * 0.042,
                                   mx, my - mw * 0.155),
-                h.skin_shadow, clip=clip, alpha=0.075, soft=1.8)
-    brush.paint(canvas, lower_lip, palette.mix(h.lip, h.skin, 0.34),
-                clip=clip, alpha=0.46, soft=0.28)
+                h.skin_shadow, clip=clip, alpha=0.160, soft=1.0)
+    brush.paint(canvas, lower_lip, palette.mix(h.lip, h.skin, 0.16),
+                clip=clip, alpha=0.78, soft=0.14)
 
     upper = S.arc(left, right, curve * 0.55, 0.5, 16)
-    brush.paint(canvas, S.lock(upper, w0=(0.050 + 0.022 * full) * mw,
-                               w1=(0.050 + 0.022 * full) * mw,
-                               bulge=(0.040 + 0.020 * full) * mw, per_segment=4),
-                palette.mix(h.lip_deep, h.skin, 0.05), clip=clip,
-                alpha=0.34, soft=0.30)
+    # The upper lip is a plane, not a single pencil stroke.  Its shape is bounded
+    # below by the seam and above by the cupid's bow; painting only the bow line
+    # left a pale gap where the lip should be, which is why the mouth read as a
+    # scratch with a pink lower lip under it.
+    span = float(right[0] - left[0])
+    seam_pts = S.arc(left, right, curve * 0.58, 0.5, 16)
+    top_y = my + max(curve, 0.0) * 0.55 + mw * 0.120
+    bow_pts = np.array([
+        left,
+        [left[0] + span * 0.22, top_y + mw * 0.006],
+        [mx - span * 0.11, top_y - mw * 0.004],
+        [mx, top_y - mw * 0.007],
+        [mx + span * 0.11, top_y - mw * 0.004],
+        [left[0] + span * 0.78, top_y + mw * 0.006],
+        right,
+    ], dtype=np.float64)
+    upper_fill = S.poly(np.vstack([bow_pts, seam_pts[::-1][1:-1]]), resample=44)
+    brush.paint(canvas, upper_fill,
+                palette.mix(h.lip, h.skin, 0.12), clip=clip,
+                alpha=0.78, soft=0.16)
+    # The vermillion border: a soft edge, not an ink outline.  It separates the
+    # lip from the philtrum and survives the pale skin tone better than the fill.
+    brush.paint(canvas, S.lock(bow_pts, w0=mw * 0.019, w1=mw * 0.012,
+                               bulge=mw * 0.004, per_segment=4),
+                h.lip_shadow, clip=clip, alpha=0.72, soft=0.14)
+    brush.paint(canvas, S.lock(upper, w0=(0.040 + 0.014 * full) * mw,
+                               w1=(0.040 + 0.014 * full) * mw,
+                               bulge=(0.032 + 0.010 * full) * mw, per_segment=4),
+                palette.mix(h.lip_deep, h.skin, 0.30), clip=clip,
+                alpha=0.42, soft=0.20)
 
     # The Cupid's bow.  It is a second, much lighter line above the lip's seam,
     # with two peaks and a central dip; without it a full upper lip is a smooth
@@ -419,8 +491,8 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
     # corner heights, so it inherits the asymmetry instead of re-imposing it.
     span = float(right[0] - left[0])
     base_y = my + max(curve, 0.0) * 0.55
-    peak_y = base_y + mw * 0.011
-    dip_y = base_y + mw * 0.003
+    peak_y = base_y + mw * 0.112
+    dip_y = base_y + mw * 0.094
     bow = np.array([
         left,
         [left[0] + span * 0.22, peak_y],
@@ -430,9 +502,18 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
         [left[0] + span * 0.78, peak_y],
         right,
     ], dtype=np.float64)
-    brush.paint(canvas, S.lock(bow, w0=mw * 0.026, w1=mw * 0.014,
+    brush.paint(canvas, S.lock(bow, w0=mw * 0.028, w1=mw * 0.015,
                                bulge=mw * 0.007, per_segment=5),
-                h.lip_deep, clip=clip, alpha=0.23, soft=0.40)
+                h.lip_deep, clip=clip, alpha=0.38, soft=0.26)
+    # Two short columns under the bow: the upper lip is a rolled surface, not a
+    # flat crescent.  They stop above the seam so the line stays single.
+    for u in (-0.26, 0.24):
+        cx0 = mx + u * mw
+        col_top = my + mw * 0.092
+        col_bot = my + mw * 0.032
+        brush.paint(canvas, S.lock([(cx0, col_top), (cx0 + u * mw * 0.02, col_bot)],
+                                   w0=mw * 0.006, w1=mw * 0.003, per_segment=3),
+                    h.lip_shadow, clip=clip, alpha=0.16, soft=0.22)
 
     inner, teeth = mouth_interior(st, turn, expr, asym=asym)
     if open_mouth:
@@ -495,19 +576,37 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
     # smudge with no border; with it the mouth has a drawn shape and a wet plane.
     lip_edge = S.arc(left, right,
                      body_y - mw * (0.055 + 0.012 * full), 0.5, 16)
-    brush.paint(canvas, S.lock(lip_edge, w0=mw * 0.0150, w1=mw * 0.0150,
+    brush.paint(canvas, S.lock(lip_edge, w0=mw * 0.0170, w1=mw * 0.0170,
                                bulge=mw * 0.0028, per_segment=3),
-                h.lip_shadow, clip=clip, alpha=0.40, soft=0.30)
+                h.lip_shadow, clip=clip, alpha=0.72, soft=0.12)
+    # Two or three fine vertical creases on the lower lip.  They are almost
+    # invisible in a photograph, but at 384 px they are what separates a lip
+    # volume from a pink smear, and they follow the mouth's own barrel curve.
+    for u in (-0.18, 0.02, 0.20):
+        cx0 = mx + u * mw
+        cy0 = body_y + mw * 0.018
+        crease = S.lock([(cx0, cy0), (cx0 + u * mw * 0.030,
+                                      cy0 - mw * 0.038)],
+                        w0=mw * 0.0038, w1=mw * 0.0018, per_segment=3)
+        brush.paint(canvas, crease, h.lip_shadow, clip=clip,
+                    alpha=0.100, soft=0.30)
     gloss_x = mx + float(asym.lean if asym is not None else 0.0) * mw * 0.055
     brush.paint(canvas, S.ellipse(mw * (0.075 + 0.018 * full), mw * 0.022,
                                   gloss_x, my - mw * 0.055),
-                h.lip_gloss, clip=clip, alpha=0.14, soft=0.9)
+                h.lip_gloss, clip=clip, alpha=0.22, soft=0.45)
     # The two corner dimples are what keep a fuller mouth from reading as a
     # painted oval: the line still has ends.  The sitter's own corner heights
     # mean one dimple sits a little deeper than the other.
     for corner in (left, right):
         brush.paint(canvas, S.circle(mw * 0.017, float(corner[0]), float(corner[1])),
-                    h.lip_deep, clip=clip, alpha=0.24, soft=0.6)
+                    h.lip_deep, clip=clip, alpha=0.30, soft=0.45)
+        side = 1.0 if corner[0] > mx else -1.0
+        tail = S.lock([(float(corner[0]) - side * mw * 0.006, float(corner[1])),
+                       (float(corner[0]) + side * mw * 0.020,
+                        float(corner[1]) + mw * 0.028)],
+                      w0=mw * 0.0055, w1=mw * 0.0018, per_segment=3)
+        brush.paint(canvas, tail, h.lip_shadow, clip=clip,
+                    alpha=0.175, soft=0.35)
     # Philtrum: two soft ridges, a pale central plane and the two grooves that
     # separate them.  Drawing only the pale plane was invisible at 384 px; the
     # grooves are what make the upper lip sit under a nose.
@@ -520,14 +619,14 @@ def paint_mouth(canvas, st, h, turn: float = 0.0, expr=None, clip=None,
         groove = S.lock([(gx, gy), (gx + side * mw * 0.018, gy - mw * 0.11)],
                         w0=mw * 0.008, w1=mw * 0.003, per_segment=3)
         brush.paint(canvas, groove, h.skin_shadow, clip=clip,
-                    alpha=0.10, soft=0.55)
+                    alpha=0.26, soft=0.28)
     if not open_mouth:
         # The seam is the one mark that must survive every pass.  The lower lip
         # highlight used to be painted after it with a quarter opacity and a
         # wide blur, which lifted the dark line back into a pink smudge.  Paint
         # the seam last, with the lip volume already finished underneath.
         final = S.lock(S.arc(left, right, curve * 0.58, 0.5, 18),
-                       w0=mw * 0.0680, w1=mw * 0.0680,
+                       w0=mw * 0.0450, w1=mw * 0.0450,
                        bulge=mw * 0.0090, per_segment=4)
         seam_ink = palette.mix(h.mouth_dark, h.lip_shadow, 0.05)
         # Two passes: a 2-3 px lock on a 384 px canvas is mostly antialiased edge,

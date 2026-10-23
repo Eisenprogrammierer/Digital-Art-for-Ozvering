@@ -162,10 +162,11 @@ def from_genes(genes: dict) -> Hues:
     age = demography.stage(genes)
     culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
     accent = palette.oklch_to_srgb(_CULTURE_ACCENT.get(culture, _CULTURE_ACCENT["river"]))
-    # The cloth gene remains the garment, but a culture's accent is mixed into
-    # it rather than living only on a trim line.  At avatar size the trim is a
-    # few pixels; the body colour is the part that reads as a dress tradition.
-    cloth = palette.mix(palette.hex_to_srgb(genes["cloth"]), accent, 0.20)
+    # The cloth gene is a *pinned* colour.  Mixing a culture accent into the
+    # body of the garment meant that choosing black produced brown, and the
+    # colour widget looked broken.  The accent now lives only on the trim,
+    # where it belongs; the base cloth is exactly the value the genome carries.
+    cloth = palette.hex_to_srgb(genes["cloth"])
     gloss = _g(genes, "hair_gloss")
     hair = palette.mix(raw_hair, (0.78, 0.79, 0.82), _AGE_GREY.get(age, 0.0))
 

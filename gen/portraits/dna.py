@@ -561,6 +561,7 @@ def apply_to(st: style_mod.Style, genes: dict) -> style_mod.Style:
             p[param] = float(p[param]) + amount * scale
     demography.modify(p, genes)
     phenotype.modify(p, genes)
+    demography.proportion_floors(p, genes)
     return style_mod.Style(st.name, _clamp_params(p))
 
 

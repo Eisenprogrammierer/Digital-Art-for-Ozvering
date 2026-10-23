@@ -180,8 +180,12 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     skull_surf.paint(c, h.skin)
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),
                      bevel=0.055, soft=1.6)
-    face.paint_ears(c, st, h, turn, clip=skull, asym=asym)
-    regalia.paint_ears(c, st, h, genes, turn, skull)
+    # No ear repaint.  The ear's exposed half sits exactly at the face's edge,
+    # where the skin patch and the helix arc read as a pair of tan bumps or wire
+    # loops beside the eye.  A turned head still shows the loop rather than an
+    # ear, so the pass stays off there as well; the cap and the hairline frame the
+    # temple.  ``face.paint_ears`` remains available to a future ear that is drawn
+    # as a volume instead of a line.
     detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
     humanize.paint_face_life(c, st, h, genes, turn, asym, skull_cov)
     lw = st.ink_w * st.line
@@ -229,12 +233,11 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
     detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov, asym=asym)
-    if hs.name in ("short", "spiky", "wild", "pony", "twin"):
-        # A crop, a spike or a pulled-back tail leaves the ear in front of the
-        # hair.  Without this, the cap ran straight over the temple and the cut
-        # ended in a black shell; the ear is the silhouette break the style asks
-        # for.  Long curtains deliberately cover it, so they do not call this.
-        face.paint_ear_over_hair(c, st, h, turn, clip=skull, asym=asym)
+    # The exposed-ear repaint is deliberately gone.  A front-view ear at this
+    # scale is a skin patch on the silhouette, and the old disc read as a pair of
+    # tan bumps beside the eyes.  In a turned study the same pass reduces to a
+    # wire helix, so it is not restored there either.  The cap and the hairline
+    # frame the temple.
     garments.paint_veil(c, st, h, kit, turn)
     # Glasses sit on the face and their temples lie over the hair.  Painting them
     # last is what keeps a strand from growing through a lens.

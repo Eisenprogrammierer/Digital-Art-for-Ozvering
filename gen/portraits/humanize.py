@@ -169,7 +169,7 @@ def paint_face_life(canvas, st, h, genes: dict, turn: float, asym: Asym,
                     S.ellipse(bw * (0.18 + 0.02 * strength), 0.050,
                               float(cx), float(cy)),
                     h.skin_shadow, clip=clip,
-                    alpha=0.058 * strength, soft=3.0)
+                    alpha=0.042 * strength, soft=3.2)
         lx, ly = head.turn_point(-side * bw * 0.43, ey - 0.020, turn, st)
         brush.paint(canvas,
                     S.ellipse(bw * 0.16, 0.042, float(lx), float(ly)),

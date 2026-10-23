@@ -499,6 +499,18 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
                     alpha=0.58, soft=0.4)
         brush.paint(canvas, board.outline(lw * 0.28), kit.metal, clip=clip,
                     alpha=0.78, soft=0.32)
+        # Braid and a burnished top edge.  A board is a piece of metal-cloth
+        # tailoring, not a flat lozenge; the narrow cord and the lit rim are what
+        # keep it from reading as a yellow stripe at 384 px.
+        for k in (-1, 0, 1):
+            cord = S.lock([(px, py + 0.0055 * k) for px, py in spine],
+                          w0=0.0032, w1=0.0028, per_segment=6)
+            brush.paint(canvas, cord, kit.gold_shadow if k else kit.gold,
+                        clip=clip, alpha=0.48 if k else 0.78, soft=0.25)
+        brush.paint(canvas, board & S.lock(
+            [(px, py + 0.020) for px, py in spine],
+            w0=0.0050, w1=0.0040, per_segment=6),
+            kit.metal_hi, clip=clip, alpha=0.50, soft=0.30)
         # Piping along the outer edge, and the button at the inner end.
         brush.paint(canvas, S.lock([(p[0], p[1] - 0.029) for p in spine],
                                    w0=0.0042, w1=0.0036, per_segment=5),
@@ -570,16 +582,28 @@ def _medals(canvas, st, kit: Kit, ax: float, ay: float, clip) -> None:
         brush.paint(canvas, rib & S.box(0.005, 0.034, 0.0, cx - 0.006, ry - 0.030),
                     palette.oklch_to_srgb(_RIBBONS[4]), clip=clip, alpha=0.72,
                     soft=0.2)
+        brush.paint(canvas, rib & S.box(0.004, 0.050, 0.006, cx + 0.008, ry - 0.030),
+                    palette.lighten(kit.ribbon if k == 0 else kit.accent, 0.07),
+                    clip=clip, alpha=0.42, soft=0.30)
         brush.paint(canvas, rib.outline(lw * 0.22), kit.metal_shadow, clip=clip,
                     alpha=0.60, soft=0.2)
         disc = S.circle(0.026, cx, ry - 0.082)
+        # The disc is a struck medal: a cast shadow, a struck rim, a bright
+        # bevel on the lit side, and the star sitting in the field.  Flat gold
+        # was the difference between a medal and a yellow dot.
+        brush.paint(canvas, S.circle(0.029, cx + 0.002, ry - 0.086),
+                    kit.service_shadow, clip=clip, alpha=0.24, soft=1.2)
         brush.paint(canvas, disc, kit.metal, clip=clip, alpha=0.98, soft=0.25)
-        brush.paint(canvas, disc.outline(0.0032), kit.metal_shadow, clip=clip,
-                    alpha=0.82, soft=0.25)
-        brush.paint(canvas, _star(0.013, cx, ry - 0.082, 5), kit.metal_hi,
-                    clip=clip, alpha=0.72, soft=0.25)
-        brush.paint(canvas, S.circle(0.0045, cx - 0.006, ry - 0.073),
-                    kit.metal_hi, clip=clip, alpha=0.9, soft=0.3)
+        brush.paint(canvas, disc.outline(0.0038), kit.metal_shadow, clip=clip,
+                    alpha=0.88, soft=0.22)
+        brush.paint(canvas, disc - S.circle(0.021, cx, ry - 0.082),
+                    kit.metal_hi, clip=clip, alpha=0.34, soft=0.40)
+        brush.paint(canvas, _star(0.013, cx, ry - 0.082, 5), kit.metal_shadow,
+                    clip=clip, alpha=0.42, soft=0.30)
+        brush.paint(canvas, _star(0.0105, cx, ry - 0.0805, 5), kit.metal_hi,
+                    clip=clip, alpha=0.82, soft=0.24)
+        brush.paint(canvas, S.circle(0.0048, cx - 0.008, ry - 0.074),
+                    kit.metal_hi, clip=clip, alpha=0.95, soft=0.22)
 
 
 def _sash(canvas, st, kit: Kit, clip) -> None:

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 __all__ = [
     "SEXES", "AGES", "CLIMATES", "CULTURES", "DEFAULTS", "COLLARS",
-    "age_t", "stage", "collar", "modify",
+    "age_t", "stage", "collar", "modify", "proportion_floors",
 ]
 
 #: Sex presentation.  ``androgynous`` is a complete option rather than a random
@@ -319,4 +319,34 @@ def modify(p: dict, genes: dict) -> dict:
         p["brow_thick"] = float(p["brow_thick"]) + 0.002
         p["head_d"] = float(p["head_d"]) + 0.040
         p["blush"] = float(p["blush"]) + 0.030
+
+    # The neck and the shoulder girdle cannot be *only* additive sex offsets:
+    # on a large-headed style those offsets shrink an adult female neck to a
+    # stalk and leave the bust narrower than the skull.  These floors are
+    # relative to the head the style actually has, so the same genome reads as
+    # the same body on a chibi, a shoujo or a seinen head.  They are deliberately
+    # below the male values, so the dimorphism survives the clamp.
+    proportion_floors(p, genes)
     return p
+
+
+def proportion_floors(p: dict, genes: dict) -> None:
+    """Keep the bust attached to the skull after every other modifier has run.
+
+    Phenotype genes can move the neck, and the style's head can be much larger
+    than the base preset expects.  Floors are applied last, in :func:`dna.apply_to`,
+    so a narrow-neck gene cannot turn an adult into a lollipop.
+    """
+    sex = str(genes.get("sex", DEFAULTS["sex"]))
+    age = stage(genes)
+    male = sex == "male"
+    head_w = float(p["head_w"])
+    neck_floor = 0.44 if not male else 0.54
+    shoulder_floor = 1.34 if not male else 1.48
+    if age == "child":
+        neck_floor *= 0.84
+        shoulder_floor *= 0.84
+    elif age == "elder":
+        shoulder_floor *= 0.96
+    p["neck_w"] = max(float(p["neck_w"]), head_w * neck_floor)
+    p["shoulder_w"] = max(float(p["shoulder_w"]), head_w * shoulder_floor)

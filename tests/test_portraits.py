@@ -1072,13 +1072,15 @@ def test_demography_changes_the_face_and_not_the_dna_contract():
     desert = _style(dict(base, culture="desert"))
     assert north.p == desert.p, "culture changed the face instead of the clothing"
 
-    # It must still reach the picture.  The collar, the garment colour and the
-    # grooming differ, while the skull and features do not.
+    # It must still reach the picture.  The collar, the trim and the grooming
+    # differ, while the skull and features do not.  The cloth itself is pinned:
+    # an explicitly chosen colour has to survive culture, so the accent belongs
+    # on the trim rather than in the base fabric.
     assert demography.collar(dict(base, culture="north")) != \
         demography.collar(dict(base, culture="desert"))
     hn = hues.from_genes(dict(base, culture="north"))
     hd = hues.from_genes(dict(base, culture="desert"))
-    assert not np.allclose(hn.cloth, hd.cloth), "culture did not reach the garment"
+    assert np.allclose(hn.cloth, hd.cloth), "culture moved the pinned cloth colour"
     assert not np.allclose(hn.cloth_trim, hd.cloth_trim), "culture did not reach the trim"
     _, sn = _hair(dict(base, culture="north"))
     _, sd = _hair(dict(base, culture="desert"))
