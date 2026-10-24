@@ -133,7 +133,10 @@ STYLES = {
     ),
     "shoujo": dict(
         head_w=0.368, top_w=0.294, top_y=0.452, wide_y=0.100,
-        cheek_w=0.344, cheek_y=-0.192, jaw_w=0.268, jaw_y=-0.305, chin_w=0.098,
+        # A shoujo face may taper, but a chin half-width under a tenth of the
+        # head reads as a pinched cone once the jaw's cel plane is painted.  The
+        # balanced taper keeps the jaw angle and gives the chin a plane to sit on.
+        cheek_w=0.348, cheek_y=-0.192, jaw_w=0.282, jaw_y=-0.305, chin_w=0.118,
         head_d=1.04,
         eye_dx=0.182, eye_y=-0.070, eye_w=0.164, eye_up=0.062, eye_down=0.044,
         eye_tilt=7.0, iris_r=0.048, iris_squash=1.16, pupil_r=0.019, hl_r=0.012,

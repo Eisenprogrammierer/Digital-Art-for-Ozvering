@@ -124,7 +124,16 @@ def shapes(st, expr: dict) -> dict:
     # the cheek instead of drawing a dark circle under the lid.  The fine
     # infraorbital puff is a separate, much softer shape; how much of it shows is
     # a life-stage parameter, because a child has none and an elder has a bag.
-    socket = S.ellipse(hw * 1.58, up * 0.92, 0.0, up * 1.02)
+    # Keep the orbital pool outside the nasal wall.  The old socket was centred
+    # on the eye and reached 1.58 half-widths inward, so on an adult face it
+    # crossed the bridge and the socket (painted first) swallowed the nose.  The
+    # inner edge is now bounded by the alar width, which leaves the bridge as a
+    # lit plane between the two eyes instead of a smudge under the inner corners.
+    nasal_wall = float(st.nose_w) * 0.76 + 0.010
+    socket_in = float(np.clip(float(st.eye_dx) - nasal_wall, hw * 0.82, hw * 1.22))
+    socket_out = hw * 1.74
+    socket = S.ellipse((socket_in + socket_out) * 0.5, up * 0.92,
+                       (socket_out - socket_in) * 0.5, up * 1.02)
     socket_outer = S.ellipse(hw * 0.72, up * 0.82, hw * 0.58, up * 1.02)
     under_eye = S.ellipse(hw * 0.80, down * 0.70, 0.0, -down * 1.34)
     under_crease = S.lock(S.arc([-hw * 0.56, -down * 1.62],
@@ -272,14 +281,18 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
     if not closed and h is not None:
         under = float(np.clip(getattr(st, "under_eye", 0.26), 0.0, 0.9))
         brush.paint(canvas, P(g["socket"]), h.skin_shadow, clip=clip,
-                    alpha=0.135, soft=3.1)
+                    alpha=0.078, soft=3.6)
         brush.paint(canvas, P(g["socket_outer"]), h.skin_shadow, clip=clip,
-                    alpha=0.065, soft=2.6)
+                    alpha=0.032, soft=3.0)
         if under > 0.02:
-            brush.paint(canvas, P(g["under_eye"]), h.skin_warm, clip=clip,
-                        alpha=0.105 * under, soft=2.2)
+            # A lower lid is a lit pillow with one crease under it, not a second
+            # dark ring.  The old warm wash at full age weight read as a bruise;
+            # the lift is what makes an elder's eye socket look lived-in rather
+            # than injured.
+            brush.paint(canvas, P(g["under_eye"]), h.skin_light, clip=clip,
+                        alpha=0.060 * under, soft=2.4)
             brush.paint(canvas, P(g["under_crease"]), h.skin_shadow, clip=clip,
-                        alpha=0.145 * under, soft=1.1)
+                        alpha=0.085 * under, soft=1.2)
 
     if closed:
         fill = h.lash if h is not None else ink.INK

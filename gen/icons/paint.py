@@ -35,6 +35,7 @@ from core.render import LIGHT
 
 from . import badge as _badge
 from . import motifs
+from . import wear as _wear
 
 __all__ = ["LIGHT", "SHADOW", "MARGIN", "draw", "icon", "tints", "clamp", "validate",
            "silhouette", "contrast"]
@@ -55,7 +56,7 @@ RIM = 0.018
 
 #: The keys a spec is made of, in the order the sidecar prints them.
 NUMBERS = ("hue", "chroma", "light", "plate_light", "plate_chroma", "detail",
-           "weight", "aspect", "rotation", "margin", "bevel", "radius")
+           "weight", "aspect", "rotation", "margin", "bevel", "radius", "wear")
 
 
 def clamp(spec: dict) -> dict:
@@ -154,9 +155,15 @@ def tints(spec: dict) -> dict:
     }
 
 
-def draw(spec: dict, size: int = 192) -> Canvas:
-    """One icon at ``size`` pixels: the whole recipe, in one function."""
+def draw(spec: dict, size: int = 192, wear: int | None = None) -> Canvas:
+    """One icon at ``size`` pixels: the whole recipe, in one function.
+
+    ``wear`` optionally overrides ``spec["wear"]`` so a caller can ask for stage
+    four of a spec without copying it.  Zero is the undamaged icon and the
+    default, which is why every existing call keeps its exact output.
+    """
     s = clamp(spec)
+    level = _wear.clamp_level(s.get("wear", 0) if wear is None else wear)
     size = int(size)
     if size < 8:
         raise ValueError(f"an icon smaller than 8 px is a dot, not an icon: {size}")
@@ -197,7 +204,13 @@ def draw(spec: dict, size: int = 192) -> Canvas:
     c.over(render.shade(t["charge"], d_charge, dx, bevel=s["bevel"] * 0.65, light=LIGHT),
            render.coverage(d_charge, dx) * a_plate)
 
-    # 6. badge -- a count or a tier, when the spec carries one.  Drawn last, and
+    # 6. wear -- the scratches, gouges, chips, cracks and stains of this stage.
+    #    Clipped to the plate and painted before the badge, so the count stays
+    #    legible however badly the unit is worn.
+    if level:
+        _wear.paint(c, s, level, X, Y, dx, t)
+
+    # 7. badge -- a count or a tier, when the spec carries one.  Drawn last, and
     #    over the plate rather than clipped to it, because a badge is the one part
     #    of an icon that is meant to break its silhouette.  Absent, this is one
     #    branch and no pixels: an icon with no badge renders exactly as it did

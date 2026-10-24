@@ -100,7 +100,9 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
     # as every other asset, and it is clipped to the skull.
     hgt = head.volume(st, turn)(X, Y)
     n = render.height_normals(hgt, canvas.dx, canvas.y_up)
-    L = np.array((render.LIGHT[0], render.LIGHT[1], 0.60), dtype=np.float64)
+    # Match the frontal key used by the skin cel bands in ``portrait``; a side
+    # key here fought the bands and doubled the cheek's shadow.
+    L = np.array((-0.18, 0.52, 0.62), dtype=np.float64)
     L = L / max(float(np.linalg.norm(L)), 1e-12)
     lam = np.clip(n @ L, 0.0, 1.0)
     shade = np.clip((0.62 - lam) * 0.62, 0.0, 0.14) * clip
@@ -121,7 +123,7 @@ def paint_skin(canvas, st, h, genes: dict, turn: float, clip, rng) -> None:
         age = demography.age_t(genes)
         brush.paint(canvas, S.ellipse(st.eye_w * 0.27, st.eye_w * 0.095,
                                       float(ux), float(uy)),
-                    h.skin_cool, clip=clip, alpha=0.035 + 0.08 * age, soft=2.4)
+                    h.skin_cool, clip=clip, alpha=0.020 + 0.045 * age, soft=2.6)
     fx, fy = 0.0, float(st.eye_y) + 0.19
     brush.paint(canvas, S.ellipse(bw * 0.27, 0.060, fx, fy), h.skin_light,
                 clip=clip, alpha=0.035, soft=3.5)
@@ -253,7 +255,7 @@ def _paint_face_skeleton(canvas, st, h, genes, turn, clip) -> None:
         brush.paint(canvas, S.ellipse(st.eye_w * (0.56 + 0.035 * male),
                                       0.038 + 0.004 * male, float(ox), float(oy)),
                     h.skin_shadow, clip=clip,
-                    alpha=0.090 + 0.035 * male - 0.010 * female, soft=2.4)
+                    alpha=0.060 + 0.028 * male - 0.008 * female, soft=2.6)
 
         # Zygomatic arch: from the cheekbone back towards the ear.  This is the
         # ridge that separates the cheek's light from the temple's hollow.
@@ -414,12 +416,12 @@ def _paint_age_lines(canvas, st, h, genes, turn, clip) -> None:
         bag = S.lock([a, ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 - 0.009), b],
                      w0=0.0020, w1=0.0010, bulge=0.003, per_segment=4)
         brush.paint(canvas, bag, h.skin_shadow, clip=clip,
-                    alpha=0.075 + 0.085 * strength, soft=1.2)
+                    alpha=0.050 + 0.055 * strength, soft=1.3)
         puff = S.ellipse(st.eye_w * 0.34, 0.020,
                          float((a[0] + b[0]) * 0.5),
                          float((a[1] + b[1]) * 0.5 + 0.012))
         brush.paint(canvas, puff, h.skin_cool, clip=clip,
-                    alpha=0.040 + 0.040 * strength, soft=2.0)
+                    alpha=0.025 + 0.025 * strength, soft=2.2)
 
 
 def _fp(st, turn: float, side: int, x: float, y: float):
@@ -770,15 +772,19 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                 clip * np.clip(slub, 0.0, 1.0) * 0.078)
     canvas.over(palette.srgb_to_linear(h.cloth_shadow),
                 clip * np.clip(-slub, 0.0, 1.0) * 0.074)
+    # The old broad washes were wider than the shoulder itself, so every plane
+    # dissolved into the next.  They survive only as a low breath of key light;
+    # the actual form is carried by the two cel bands and the lit shoulder plane
+    # painted in ``portrait``.
     for side in (+1, -1):
-        brush.paint(canvas, S.ellipse(float(st.shoulder_w) * 0.34, 0.16,
-                                      side * float(st.shoulder_w) * 0.38, top - 0.09),
-                    h.cloth_hi, clip=clip, alpha=0.090, soft=8.0)
-        brush.paint(canvas, S.ellipse(float(st.shoulder_w) * 0.22, 0.18,
-                                      side * float(st.shoulder_w) * 0.78, top - 0.08),
-                    h.cloth_shadow, clip=clip, alpha=0.13, soft=7.0)
-    brush.paint(canvas, S.ellipse(nw * 1.65, 0.11, 0.0, top + 0.02),
-                h.cloth_shadow, clip=clip, alpha=0.20, soft=4.0)
+        brush.paint(canvas, S.ellipse(float(st.shoulder_w) * 0.30, 0.13,
+                                      side * float(st.shoulder_w) * 0.40, top - 0.08),
+                    h.cloth_hi, clip=clip, alpha=0.055, soft=6.0)
+        brush.paint(canvas, S.ellipse(float(st.shoulder_w) * 0.18, 0.14,
+                                      side * float(st.shoulder_w) * 0.80, top - 0.07),
+                    h.cloth_shadow, clip=clip, alpha=0.080, soft=5.5)
+    brush.paint(canvas, S.ellipse(nw * 1.50, 0.090, 0.0, top + 0.018),
+                h.cloth_shadow, clip=clip, alpha=0.15, soft=3.2)
 
     # The opening.  The skin inside the neckline is what makes the line read as
     # an edge of cloth, and the depth is the only difference between the cuts.
@@ -816,6 +822,13 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
                     h.skin_shadow, clip=clip, alpha=0.30, soft=2.6)
         brush.paint(canvas, opening & S.ellipse(x0 * 0.48, 0.070, 0.0, top - depth * 0.50),
                     h.skin_light, clip=clip, alpha=0.12, soft=2.8)
+        # A garment opening is a folded edge, not a hole cut in a colour field.
+        # The welt is painted on the cloth side, so the skin V keeps its size and
+        # the collar leaves later cover the part that belongs under them.
+        brush.paint(canvas, opening.outline(lw * 0.62), h.cloth_line,
+                    clip=clip, alpha=0.66, soft=0.20)
+        brush.paint(canvas, opening.outline(lw * 1.15).place(cy=-0.003),
+                    h.cloth_shadow, clip=clip, alpha=0.24, soft=0.55)
 
         # The sternal notch: the hollow where the clavicles meet, and the only piece
         # of chest skeleton a shirt closed at the throat leaves visible.  It is also
@@ -865,10 +878,14 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         # from the shoulder to a point near the bottom of the opening.  This is the
         # silhouette of a folded collar, not a ring around a t-shirt neck.
         for side in (+1, -1):
-            a = (side * x0 * 1.02, top + 0.065)
-            b = (side * x0 * 1.58, top + 0.010)
-            c = (side * x0 * 1.10, top - depth * 0.50)
-            d = (side * x0 * 0.14, top - depth * point_drop)
+            # A collar is a folded plane with a point, not a narrow ribbon around
+            # the throat.  The wider spearhead is what makes the neckline read as
+            # tailoring at 256 px; the inner edge still follows the V, so it does
+            # not cross the throat.
+            a = (side * x0 * 1.02, top + 0.072)
+            b = (side * x0 * 1.86, top + 0.002)
+            c = (side * x0 * 1.25, top - depth * 0.54)
+            d = (side * x0 * 0.16, top - depth * point_drop)
             # The leaves close over the throat; only the narrow central notch shows
             # skin.  Subtracting the whole opening made a V-neck, not a shirt collar.
             leaf = S.poly([a, b, c, d], resample=32)
@@ -934,12 +951,12 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
     if not skip_placket:
         placket = S.lock([(0.0, placket_top), (0.0, placket_bottom)],
                          w0=lw * 2.2, w1=lw * 2.6, bulge=lw * 0.5, per_segment=4)
-        brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.52, soft=0.55)
+        brush.paint(canvas, placket, h.cloth_hi, clip=clip, alpha=0.66, soft=0.42)
         for side in (+1, -1):
             edge = S.lock([(side * lw * 1.15, placket_top),
                            (side * lw * 1.35, placket_bottom)],
                           w0=lw * 0.30, w1=lw * 0.34, per_segment=3)
-            brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.58, soft=0.22)
+            brush.paint(canvas, edge, h.cloth_line, clip=clip, alpha=0.72, soft=0.18)
             stitch = S.lock([(side * lw * 2.00, placket_top - 0.004),
                              (side * lw * 2.20, placket_bottom + 0.004)],
                             w0=lw * 0.18, w1=lw * 0.20, per_segment=3)
@@ -966,20 +983,20 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         b = (side * float(st.shoulder_w) * 0.53, top - 0.300)
         spine = [a, ((a[0] + b[0]) * 0.5 + side * 0.028,
                      (a[1] + b[1]) * 0.5), b]
-        fold = S.lock(spine, w0=0.050, w1=0.018, bulge=0.030, per_segment=6)
+        fold = S.lock(spine, w0=0.042, w1=0.014, bulge=0.026, per_segment=6)
         brush.paint(canvas, fold, h.cloth_shadow, clip=clip,
-                    alpha=0.30, soft=2.0)
+                    alpha=0.22, soft=1.15)
         # The crease is the line the eye actually reads; the broad fold above is
         # only its plane.  Keeping the crease narrow and harder stops the drape
         # from dissolving into a grey smudge at 384 px.
         crease = S.lock([(x + side * 0.010, y) for x, y in spine],
-                        w0=0.0048, w1=0.0022, bulge=0.0035, per_segment=5)
+                        w0=0.0040, w1=0.0018, bulge=0.0030, per_segment=5)
         brush.paint(canvas, crease, h.cloth_line, clip=clip,
-                    alpha=0.38, soft=0.30)
+                    alpha=0.58, soft=0.24)
         ridge = S.lock([(x - side * 0.018, y) for x, y in spine],
-                       w0=0.009, w1=0.004, bulge=0.006, per_segment=5)
+                       w0=0.008, w1=0.003, bulge=0.005, per_segment=5)
         brush.paint(canvas, ridge, palette.lighten(h.cloth_hi, 0.05), clip=clip,
-                    alpha=0.42, soft=0.55)
+                    alpha=0.50, soft=0.42)
 
     # Armhole seams: the curve where the sleeve meets the body.  A straight short
     # dash reads as a scratch; a seam has a welt, a stitch line and a little cast
@@ -994,23 +1011,49 @@ def paint_bust(canvas, st, h, genes: dict, kind: str, clip) -> None:
         brush.paint(canvas, S.lock([(px + side * 0.003, py - 0.003)
                                     for px, py in spine],
                                    w0=0.0064, w1=0.0034, per_segment=7),
-                    h.cloth_shadow, clip=clip, alpha=0.28, soft=1.2)
-        brush.paint(canvas, seam, h.cloth_line, clip=clip, alpha=0.70, soft=0.24)
+                    h.cloth_shadow, clip=clip, alpha=0.36, soft=0.90)
+        brush.paint(canvas, seam, h.cloth_line, clip=clip, alpha=0.78, soft=0.20)
         stitch = S.lock([(px - side * 0.0055, py) for px, py in spine],
                         w0=0.0012, w1=0.0009, per_segment=7)
         brush.paint(canvas, stitch, palette.lighten(h.cloth_hi, 0.08), clip=clip,
-                    alpha=0.74, soft=0.18)
+                    alpha=0.78, soft=0.16)
+
+    # A tailored chest yoke.  It belongs to coats, jackets and service tunics,
+    # not to a soft blouse: one shallow seam from armhole to armhole, with a
+    # shadow above it and a stitch below.  This is the line that turns a shaded
+    # torso into a constructed garment at avatar size.
+    if cut in ("jacket", "coat") or attire != "civil":
+        y = top - 0.102
+        q = float(st.shoulder_w) * 0.56
+        spine = [(-q, y + 0.018), (-q * 0.48, y + 0.002),
+                 (0.0, y - 0.004), (q * 0.48, y + 0.002), (q, y + 0.018)]
+        brush.paint(canvas,
+                    S.lock([(x, yy + 0.006) for x, yy in spine],
+                           w0=0.0060, w1=0.0034, per_segment=6),
+                    h.cloth_shadow, clip=clip, alpha=0.30, soft=0.85)
+        brush.paint(canvas, S.lock(spine, w0=0.0017, w1=0.0012,
+                                   per_segment=6),
+                    h.cloth_line, clip=clip, alpha=0.62, soft=0.20)
+        brush.paint(canvas,
+                    S.lock([(x, yy - 0.005) for x, yy in spine],
+                           w0=0.0011, w1=0.0008, per_segment=6),
+                    palette.lighten(h.cloth_hi, 0.08), clip=clip,
+                    alpha=0.58, soft=0.16)
 
     # Shoulder topstitch: a single light thread following the trapezius.  On a
     # dark tunic it is the one line that says the shoulder has a seam at all,
     # and it is also a useful scale cue: it is thinner than the armhole welt.
     for side in (+1, -1):
-        xs = np.linspace(nw * 1.22, float(st.shoulder_w) * 0.54, 6)
+        xs = np.linspace(nw * 1.18, float(st.shoulder_w) * 0.62, 7)
         edge = [(side * float(x), head.shoulder_edge_y(st, side * float(x)) - 0.011)
                 for x in xs]
+        welt = S.lock([(x, y - 0.004) for x, y in edge],
+                      w0=0.0030, w1=0.0018, per_segment=6)
+        brush.paint(canvas, welt, h.cloth_shadow, clip=clip,
+                    alpha=0.34, soft=0.80)
         thread = S.lock(edge, w0=0.0014, w1=0.0011, per_segment=6)
         brush.paint(canvas, thread, palette.lighten(h.cloth_hi, 0.08), clip=clip,
-                    alpha=0.60, soft=0.18)
+                    alpha=0.72, soft=0.16)
 
     # Fastenings: a clasp for the cultures that pin a collar, buttons for the
     # others.  A service tunic always buttons, and a tunic front has more than a

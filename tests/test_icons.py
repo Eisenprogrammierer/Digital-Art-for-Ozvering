@@ -141,10 +141,12 @@ def test_a_seed_stretches_the_symbol_and_never_replaces_it():
 def test_no_two_charges_are_the_same_shape():
     """The vocabulary is small; small is not the same as redundant.
 
-    The closest pair is water and a flame -- a drop and a two-tongued flame agree on
-    about seven tenths of their area -- and they are six hues apart, which is the
-    other half of the answer.  Above the bound here, two charges would be one charge
-    with two names, and the set would be smaller than it claims to be.
+    Among the original nine the closest pair is water and a flame -- a drop and a
+    two-tongued flame agree on about seven tenths of their area -- and they are six
+    hues apart, which is the other half of the answer.  The bound below is looser
+    than that pair because the service charges share a vocabulary of bars, discs
+    and chevrons; above it, two charges would be one charge with two names, and the
+    set would be smaller than it claims to be.
     """
     names = list(motifs.KINDS)
     fields = {name: _fields(name) for name in names}
@@ -652,6 +654,81 @@ def test_an_empty_atlas_is_refused():
     except ValueError:
         return
     raise AssertionError("an empty atlas was written")
+
+# ------------------------------------------------------------------ the wear
+def test_wear_is_a_cumulative_history_not_ten_textures():
+    """Every stage contains the previous one, by construction.
+
+    The contract is geometric, not a matter of blending order: the union of the
+    marks that have been born by stage n is a subset of the union at stage n+1.
+    Tested on the signed field, where subset is the simple inequality
+    ``field(n + 1) <= field(n)`` everywhere, including in the gaps between marks.
+    """
+    from gen.icons import wear
+
+    axis = np.linspace(-0.75, 0.75, 150)
+    X, Y = np.meshgrid(axis, axis)
+    for name in ("rifle", "tank", "cannon", "plane", "anchor", "medical", "fort"):
+        spec = motifs.canonical(name)
+        earlier = wear.field(spec, 0, X, Y)
+        for level in wear.LEVELS:
+            later = wear.field(spec, level, X, Y)
+            assert np.all(later <= earlier + 1e-9), (name, level)
+            earlier = later
+        earlier = wear.chip_field(spec, 0, X, Y)
+        for level in wear.LEVELS:
+            later = wear.chip_field(spec, level, X, Y)
+            assert np.all(later <= earlier + 1e-9), (name, level, "chip")
+            earlier = later
+
+
+def test_ten_wear_stages_are_visible_at_thirty_two_pixels():
+    """The smallest render still changes at every stage.
+
+    A stage that is invisible at 32 px is not a stage a player can read on a
+    counter.  The comparison is against the pristine sprite and uses alpha *and*
+    colour, because a scratch can be a dark line on the plate or a chip out of its
+    rim and both are real damage.
+    """
+    from gen.icons import wear
+
+    spec = motifs.canonical("tank")
+    pristine = paint.draw(spec, 32, wear=0).to_uint8().astype(np.int16)
+    previous = 0.0
+    for level in wear.LEVELS:
+        canvas = paint.draw(spec, 32, wear=level).to_uint8().astype(np.int16)
+        diff = float(np.abs(canvas - pristine).mean())
+        assert diff > previous, (level, diff, previous)
+        assert diff > 0.15, (level, diff)
+        previous = diff
+
+
+def test_wear_does_not_depend_on_the_badge_or_the_order_of_the_call():
+    """The plate is the plate: a count on the corner must not redraw its cracks."""
+    from gen.icons import wear
+
+    spec = motifs.canonical("rifle")
+    badged = {**spec, "badge": badge.make(count=12)}
+    axis = np.linspace(-0.75, 0.75, 90)
+    X, Y = np.meshgrid(axis, axis)
+    for level in wear.LEVELS:
+        a = wear.field(spec, level, X, Y)
+        b = wear.field(badged, level, X, Y)
+        assert np.array_equal(a, b), level
+    assert paint.draw(spec, 64, wear=6).to_uint8().tobytes() == \
+        paint.draw(spec, 64, wear=6).to_uint8().tobytes()
+
+
+def test_two_families_share_one_symbol_vocabulary():
+    """NATO-like and HOI4-like are sets of roles, not two drawing styles."""
+    assert len(motifs.FAMILIES["nato"]) >= 10
+    assert len(motifs.FAMILIES["hoi4"]) >= 10
+    for family, members in motifs.FAMILIES.items():
+        assert len(set(members)) == len(members), family
+        assert all(name in motifs.KINDS for name in members), family
+    assert set(motifs.FAMILIES["nato"]) != set(motifs.FAMILIES["hoi4"])
+    assert {"rifle", "tank", "cannon", "plane", "medical"} <= \
+        set(motifs.FAMILIES["nato"]) & set(motifs.FAMILIES["hoi4"])
 
 
 if __name__ == "__main__":

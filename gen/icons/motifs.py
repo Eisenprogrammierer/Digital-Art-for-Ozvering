@@ -21,8 +21,10 @@ import numpy as np
 
 from core import sdf
 
-__all__ = ["KINDS", "PLATES", "kind", "checked", "field", "plate_field", "canonical",
-           "random_spec"]
+from .military import FAMILIES, MILITARY
+
+__all__ = ["KINDS", "PLATES", "FAMILIES", "kind", "checked", "field", "plate_field",
+           "canonical", "random_spec"]
 
 
 # --------------------------------------------------------------- the charges
@@ -158,6 +160,10 @@ KINDS = {
     "banner": (_banner, 0.980),
     "shield": (_shield, 0.440),
 }
+#: Unit and division charges.  They live in their own module because they are a
+#: vocabulary a game names by role, but they share this dictionary and therefore
+#: this plate, this light and this wire of ``random_spec``.
+KINDS.update(MILITARY)
 
 
 # ----------------------------------------------------------------- the plate
@@ -252,6 +258,10 @@ def canonical(kind_name: str) -> dict:
         "margin": 0.75,
         "bevel": 0.070,
         "radius": 0.075,
+        #: 0 is pristine; 1..10 are the cumulative wear stages in
+        #: :mod:`gen.icons.wear`.  It is a spec field like any other, so a sidecar
+        #: can name the stage a sprite is.  A random icon is new.
+        "wear": 0,
         #: A badge is *data* the game supplies, not a design choice the seed makes:
         #: a random icon has none, and a caller sets one with
         #: :func:`gen.icons.badge.make`.  That is why ``random_spec`` never fills it.

@@ -83,12 +83,21 @@ def _world_box(canvas, x0: float, x1: float, y0: float, y1: float) -> np.ndarray
     return (X >= x0) & (X <= x1) & (Y >= y0) & (Y <= y1)
 
 
-def _gold_pixels(canvas, x0: float, x1: float, y0: float, y1: float) -> int:
-    """Gold trim in a world-space box.  Skin, cloth and background do not pass."""
-    u8 = canvas.to_uint8().astype(np.float64) / 255.0
-    r, g, b = u8[..., 0], u8[..., 1], u8[..., 2]
-    gold = (r > 0.55) & (g > 0.38) & (b < 0.35) & (r > b * 1.45)
-    return int((gold & _world_box(canvas, x0, x1, y0, y1)).sum())
+def _metal_pixels(canvas, kit, x0: float, x1: float, y0: float, y1: float,
+                  tol: float = 0.12) -> int:
+    """Trim pixels close to a kit's own metal, in a world-space box.
+
+    The boards are cloth now, with metal braid and piping.  A fixed "gold" filter
+    was really testing the culture's metal hue, so a copper-alloy kit looked like
+    a missing board; asking the kit which metal it chose keeps the regression
+    about placement instead of about swatches.
+    """
+    u8 = canvas.to_uint8().astype(np.float64)[..., :3] / 255.0
+    dist = np.full(u8.shape[:2], 9.0)
+    for colour in (kit.metal, kit.metal_hi, kit.metal_shadow):
+        dist = np.minimum(dist, np.linalg.norm(
+            u8 - np.asarray(colour, dtype=np.float64)[None, None, :], axis=2))
+    return int(((dist < tol) & _world_box(canvas, x0, x1, y0, y1)).sum())
 
 
 def _hair_pixels(canvas, h, x0: float, x1: float, y0: float,
@@ -1501,10 +1510,11 @@ def test_the_boards_sit_on_the_shoulder_not_the_chest():
                 insignia="shoulder", awards="none", ornament="none",
                 faith="none", garment="auto")
     st = _style(base)
+    kit = regalia.build(base, hues.from_genes(base))
     top, sw = float(st.neck_y), float(st.shoulder_w)
     canvas = portraitlib.render(base, size=160)
-    shoulder = _gold_pixels(canvas, 0.22, sw * 0.55, top - 0.07, top + 0.06)
-    chest = _gold_pixels(canvas, 0.22, sw * 0.55, top - 0.22, top - 0.10)
+    shoulder = _metal_pixels(canvas, kit, 0.22, sw * 0.55, top - 0.07, top + 0.06)
+    chest = _metal_pixels(canvas, kit, 0.22, sw * 0.55, top - 0.22, top - 0.10)
     assert shoulder > 8, "the boards never reached the shoulder"
     assert shoulder > chest * 4, "the boards are still on the chest"
 
@@ -1514,13 +1524,14 @@ def test_a_mantle_hides_the_shoulder_boards():
     base.update(sex="female", age="adult", attire="military",
                 insignia="both", awards="none", ornament="none", faith="none")
     st = _style(base)
+    kit = regalia.build(base, hues.from_genes(base))
     top, sw = float(st.neck_y), float(st.shoulder_w)
     x0, x1 = 0.22, sw * 0.55
     y0, y1 = top - 0.07, top + 0.06
     tunic = portraitlib.render(dict(base, garment="auto"), size=160)
     mantle = portraitlib.render(dict(base, garment="mantle"), size=160)
-    boards = _gold_pixels(tunic, x0, x1, y0, y1)
-    covered = _gold_pixels(mantle, x0, x1, y0, y1)
+    boards = _metal_pixels(tunic, kit, x0, x1, y0, y1)
+    covered = _metal_pixels(mantle, kit, x0, x1, y0, y1)
     assert boards > 8, "the boards never reached the shoulder"
     assert covered < boards * 0.35, "the mantle left the boards showing"
 
@@ -1575,6 +1586,93 @@ def test_the_shoulder_girdle_and_jaw_are_sexed():
         female = _style(_genes(seed, sex="female", age="adult"))
         assert male.shoulder_w > female.shoulder_w + 0.06, f"seed {seed}: shoulders"
         assert male.shoulder_slope < female.shoulder_slope - 0.20, f"seed {seed}: slope"
+
+# ------------------------------------------------------ exact cloth and body
+def test_an_explicit_cloth_is_exact_in_every_dress_code():
+    """The colour control is a promise: black is black, not service brown.
+
+    The old service branch mixed a fixed dress-code tone into the sitter's cloth,
+    so ``cloth=#000000`` arrived on the bust as a brown.  The fix is at the source:
+    the kit's body material is the genome's ``cloth`` value for *every* attire, and
+    service identity lives in the collar, tabs, trim and metal instead.
+    """
+    for attire in regalia.ATTIRE:
+        g = _genes(41, attire=attire, cloth="#102030")
+        g = dna.decode(dna.encode(g))
+        h = hues.from_genes(g)
+        kit = regalia.build(g, h)
+        assert np.allclose(kit.service, h.cloth), attire
+        assert np.allclose(regalia.dress(kit, h).cloth, h.cloth), attire
+        assert portraitlib.colors(g)["cloth"] == "#102030", attire
+
+
+def test_a_full_body_figure_is_derived_from_the_same_genome():
+    """The portrait and the figure are one person, not two lucky seeds.
+
+    The body seed is the sitter's own ``face_seed`` -- independent of the outfit,
+    mood and hairstyle -- so putting on a coat cannot change the skeleton.  The
+    palette is the portrait colour script, and the figure's cloth is the exact gene
+    value rather than a generated neighbour.
+    """
+    from gen.portraits import character
+
+    g = _genes(12, cloth="#2d618c")
+    g = dna.decode(dna.encode(g))
+    body_seed = character.body_seed(g)
+    assert body_seed == dna.face_seed(g)
+    for change in ({"garment": "robe"}, {"garment": "mantle"},
+                   {"expression": "smile"}, {"hair_style": "long"}):
+        other = dna.decode(dna.encode({**g, **change}))
+        assert character.body_seed(other) == body_seed, change
+
+    scene = character.scene(g, facing="down", cycle="idle")
+    assert scene["dna"] == dna.encode(g)
+    assert scene["body_seed"] == body_seed
+    assert scene["colours"]["cloth"] == "#2d618c"
+    assert scene["colours"]["skin"] == hues.from_genes(g).as_dict()["skin"]
+    table = character.describe(g, facing="down", cycle="idle")
+    assert table["portrait_seed"] == dna.seed_of(g)
+    assert table["body_seed"] == body_seed
+    assert table["garment"] == scene["garment"]
+
+
+def test_the_figure_is_full_body_and_deterministic():
+    from gen.portraits import character
+
+    g = dna.decode(dna.encode(_genes(7)))
+    one = character.render(g, size=96, facing="down")
+    two = character.render(g, size=96, facing="down")
+    assert _hash(one) == _hash(two)
+    ys, xs = np.nonzero(one.a > 0.5)
+    assert ys.size and xs.size
+    top, bottom = ys.min() / one.h, ys.max() / one.h
+    assert top < 0.22, top
+    assert bottom > 0.86, bottom
+    assert (xs.max() - xs.min()) > 0.16 * one.w
+
+
+def test_a_long_garment_changes_the_figure_silhouette():
+    """A robe is long, a shirt is not, and the metadata says which one was drawn."""
+    from gen.portraits import character
+
+    g = dna.decode(dna.encode(_genes(20)))
+    shirt = character.render({**g, "garment": "shirt"}, size=80, facing="down")
+    robe = character.render({**g, "garment": "robe"}, size=80, facing="down")
+    assert character.scene({**g, "garment": "robe"})["garment"] == "robe"
+    assert _hash(shirt) != _hash(robe)
+    # A long hem puts cloth lower on the sprite than a tunic does.
+    u8s = shirt.to_uint8().astype(np.float64)
+    u8r = robe.to_uint8().astype(np.float64)
+    row_s = (u8s[..., 3] > 0).sum(axis=1)
+    row_r = (u8r[..., 3] > 0).sum(axis=1)
+    assert row_r[-12:].sum() > row_s[-12:].sum()
+    # A habit is a long robe *and* a shoulder cape, not a second name for the
+    # robe.  Without the cape the two cuts would render the same body.
+    habit = character.render(
+        {**g, "attire": "clerical", "garment": "habit"}, size=80, facing="down")
+    assert character.scene({**g, "attire": "clerical",
+                            "garment": "habit"})["garment"] == "habit"
+    assert _hash(habit) != _hash(robe), "the habit lost its shoulder cape"
 
 
 if __name__ == "__main__":

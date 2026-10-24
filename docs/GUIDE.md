@@ -162,6 +162,7 @@ older than seven days and keeps at most the newest two hundred.
 | Characters | `figures` | `figures.png` | Sprite sheet; cycle, frames, facing. |
 | Characters | `portrait` | `portrait.png` | One portrait; seed, size, style, hair, demography and phenotype; expression is an opt-in posed study. |
 | Characters | `portraits` | `portraits.png` | Contact sheet of seeded portraits; optional demographic and phenotype pins. |
+| Characters | `character` | `character.png` | Full-body figure derived from a portrait genome; the face and body share one seed. |
 | Characters | `lineage` | `lineage.png` | Two parents and their children. |
 | Heraldry | `arms` | `arms.png` | Coats of arms; count, cell size, forced shield. |
 | Heraldry | `blazon` | `blazon.png` | One coat, its EN/RU blazon and its tincture check. |
@@ -177,7 +178,7 @@ older than seven days and keeps at most the newest two hundred.
 | Materials | `texture` | `texture.png` | The core fBm/marble/wood/stone sheet. |
 | Characters | `wardrobe` | `wardrobe.png` | Garment cuts as objects: nine cuts, collars, patterns, cloth and trim. |
 | Characters | `decorations` | `decorations.png` | Awards as objects: medals, crosses, stars, ribbons, badges, armbands. |
-| Interface | `icons` | `icons.png` | Set, size sweep, badges, faction plate, atlas. |
+| Interface | `icons` | `icons.png` | Set, size sweep, badges, faction plate, atlas, role family and cumulative wear stages. |
 | Interface | `ui` | `ui.png` | Nine-slice UI kit sheet; optional SVG. |
 | Interface | `text` | `text.png` | Type specimen and metrics; slow. |
 | Core | `palette` | `palette.png` | Seeded OKLCH swatches. |
@@ -219,6 +220,7 @@ python cli.py demo --out out --seed 7
 python cli.py figures   --out out/figures.png --seed 7 --cycle walk --count 8 --facing right
 python cli.py portrait  --out out/one.png --seed 5 --size 384
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
+python cli.py character --out out/hero.png --seed 5 --size 256
 python cli.py lineage   --out out/lineage.png --seed 7 --children 6
 
 # Heraldry
@@ -243,6 +245,8 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 
 # Interface
 python cli.py icons --out out/icons.png --seed 3 --count 8 --size 192 --sizes 32,64,128
+python cli.py icons --out out/nato.png --seed 3 --family nato --no-wear
+python cli.py icons --out out/icons.png --seed 3 --family hoi4 --wear-size 48
 python cli.py ui    --out out/ui.png --seed 7 --count 3 --scale 2
 python cli.py ui    --out out/ui.png --seed 7 --count 3 --scale 2 --svg
 python cli.py text  --out out/text.png --size 20
@@ -333,6 +337,14 @@ python cli.py portrait --out out/pigment.png --seed 7 \
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
 ```
 
+`character` draws the same sitter full-body. The body seed is derived from the
+portrait's `face_seed`, so changing a garment, a mood or a hairstyle cannot change
+the skeleton; the cloth is the portrait's exact cloth, the cut becomes a robe,
+dress, habit or mantle silhouette, and a long hairstyle carries below the jaw.
+Use `--dna` with the string printed by `portrait` to make the pairing exact. The
+portrait sidecar stores the same figure recipe under `figure.scene`, so an engine
+can rebuild the body from the face.
+
 `sex`, `age`, `climate` and `culture` are genes like any other. `sex` adjusts
 presentation and a few proportions; `age` changes the life stage, greys the hair in
 the colour script and adds age detail; `climate` is the environment a lineage adapted
@@ -363,7 +375,7 @@ adds a sixth for the cut; all are appended after the phenotype layer:
 
 | gene | values | what it draws |
 | --- | --- | --- |
-| `--attire` | `civil`, `military`, `police`, `naval`, `ceremonial`, `clerical` | The dress code. A service dress replaces the shirt collar with a stand collar and the cloth with the service colour; `clerical` is a white Roman collar with a black tab; `naval` adds a double-breasted button front; `ceremonial` adds a sash and a breast star. |
+| `--attire` | `civil`, `military`, `police`, `naval`, `ceremonial`, `clerical` | The dress code. A service dress replaces the shirt collar with a stand collar; its body is the sitter's own `cloth` exactly, while accents, tabs, trim and metal identify the service. `clerical` is a white Roman collar with a black tab; `naval` adds a double-breasted button front; `ceremonial` adds a sash and a breast star. |
 | `--insignia` | `none`, `collar`, `shoulder`, `both` | Collar tabs and shoulder boards, with rank stars derived from the awards. |
 | `--awards` | `none`, `ribbon`, `medal`, `order`, `armband` | A ribbon bar, two medals, an order sash with an eight-point star, or a brassard on the visible upper arm. |
 | `--ornament` | `none`, `aiguillette`, `chain`, `brooch`, `earrings` | A braided shoulder cord, a pocket-watch chain, a jewelled pin, or an earlobe hoop with a drop. |
@@ -371,9 +383,10 @@ adds a sixth for the cut; all are appended after the phenotype layer:
 | `--garment` | `auto`, `shirt`, `blouse`, `jacket`, `coat`, `dress`, `robe`, `mantle`, `habit` | The cut. `auto` resolves to the shirt (civil), robe (clerical) or tunic (service). A blouse/dress opens a soft scoop with a bow or waist seam; a jacket/coat adds a tailored body and lapels and emphasizes the shoulders; a robe closes with a stand collar and cincture; a mantle is a short shoulder cape that conceals the boards; a habit is a robe, mantle and veil with a white wimple. |
 
 Every mark is geometry clipped to the bust, the collar or the skull, so a medal is
-a disc and a star is eight points, not a texture. Service colour is a mix of a
-fixed dress colour and the sitter's own `cloth` gene, so a regiment shares a
-uniform without sharing one fabric; the branch colour comes from `culture`. The
+a disc and a star is eight points, not a texture. Every dress code paints its body
+with the sitter's own `cloth` gene exactly, so an explicit colour stays exact from
+the collar to the figure; the branch colour in the tabs and trim comes from
+`culture`. The
 gates are part of generation: a child gets no awards or insignia, a civilian shirt
 gets no boards, and a Roman collar gets no tabs. A mantle omits the boards beneath
 it, and a habit's veil is painted after the hair so it covers the hairstyle. Force
@@ -573,13 +586,20 @@ skips the packed atlas when you only want the sheet.
 ### Icons and UI
 
 Icons are a plate with a charge, a badge for a count or tier, and a faction livery on
-the plate. The command writes the set, a size sweep, the packed atlas and a sidecar
-with every rectangle.
+the plate. The charge vocabulary includes the original resources and eighteen
+service and grand-strategy roles. `--family nato` or `--family hoi4` selects the
+roles a family uses; the symbols are shared, only the role set changes. By default
+the command also writes a ten-stage cumulative wear sheet and wear atlas, with
+scratches, gouges, chips, stains and cracks; `--no-wear` keeps the pristine output,
+and `--wear-size` sets the review tile size. The command writes the set, a size
+sweep, the packed atlas and a sidecar with every rectangle.
 
 ```bash
 python cli.py icons --out out/icons.png --seed 3 --count 8 --size 192 \
                     --sizes 32,64,128 --cols 9
 python cli.py icons --out out/icons.png --seed 3 --count 8 --name "Kingdom of Alder"
+python cli.py icons --out out/nato.png --seed 3 --family nato --no-wear
+python cli.py icons --out out/hoi4.png --seed 3 --family hoi4 --wear-size 48
 ```
 
 UI kits are nine-slice frames: the asset is `(PNG, corner insets, minimum size)`, not

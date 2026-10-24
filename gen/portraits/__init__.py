@@ -30,12 +30,12 @@ modifiers.  It renders to pixels, round-trips through a one-line string, and can
 be crossed with another genome to produce a child -- which, for a strategy game,
 is the point.
 """
-from . import (brush, cel, dna, expression, eyes, face, hair, head, hues, ink,
-               portrait, shape, style)
+from . import (brush, cel, character, dna, expression, eyes, face, hair, head,
+               hues, ink, portrait, shape, style)
 
 __all__ = [
-    "brush", "cel", "dna", "expression", "eyes", "face", "hair", "head", "hues",
-    "ink", "portrait", "shape", "style",
+    "brush", "cel", "character", "dna", "expression", "eyes", "face", "hair",
+    "head", "hues", "ink", "portrait", "shape", "style",
     "render", "render_seed", "compose", "canvas", "describe",
 ]
 

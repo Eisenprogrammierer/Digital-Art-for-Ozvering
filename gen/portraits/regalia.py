@@ -9,9 +9,10 @@ another without redrawing the person.
 
 The rules that keep this from becoming a costume shop:
 
-* **The genome still owns the cloth.**  A service colour is a mix of a fixed dress
-  colour and the sitter's own ``cloth`` gene, so a regiment has a uniform but two
-  soldiers do not have identical fabric.
+* **The genome still owns the cloth.**  Every dress code paints its body from the
+  sitter's own ``cloth`` gene, exactly: a service is identified by its collar,
+  tabs, trim and metal rather than by silently mixing the requested cloth towards
+  a fixed regimental colour.  Choosing black must produce black in every attire.
 * **Everything is geometry, painted after the bust.**  No image is sampled, no
   symbol is traced.  A medal is a disc, a ribbon is a rectangle, a star is eight
   points, an aiguillette is a braid of tapered locks.  At avatar size that is the
@@ -70,16 +71,6 @@ DEFAULTS = {
     "ornament": "none",
     "faith": "none",
     "garment": "auto",
-}
-
-#: Dress colours, in OKLCH.  They are the *material* of a service, mixed with the
-#: sitter's cloth gene so the uniform belongs to the character and not to a flag.
-_SERVICE = {
-    "military": (0.32, 0.042, 0.245),    # olive drab
-    "police": (0.27, 0.040, 0.635),      # service navy
-    "naval": (0.23, 0.036, 0.640),       # deeper navy
-    "ceremonial": (0.29, 0.078, 0.020),  # deep maroon
-    "clerical": (0.19, 0.006, 0.000),    # black
 }
 
 #: Branch colours.  A service is one colour; the arm of it is another.  The
@@ -148,12 +139,15 @@ def build(genes: dict, h: Hues) -> Kit:
         k.tab_edge = np.asarray(h.metal, dtype=np.float64)
         k.gold = np.asarray(h.metal, dtype=np.float64)
     else:
-        base = palette.oklch_to_srgb(_SERVICE[k.attire])
-        k.service = palette.mix(base, h.cloth, 0.16)
-        k.service_hi = palette.lighten(k.service, 0.045)
-        k.service_light = palette.lighten(k.service, 0.085)
-        k.service_shadow = palette.darken(k.service, 0.070)
-        k.service_line = palette.darken(k.service, 0.180)
+        # The sitter's cloth is the material.  Service identity lives only in the
+        # fixed accents, tabs, trim and metal: mixing a service colour into the
+        # body made an explicit black arrive brown, which is the one thing a
+        # colour control may not do.
+        k.service = np.asarray(h.cloth, dtype=np.float64)
+        k.service_hi = np.asarray(h.cloth_hi, dtype=np.float64)
+        k.service_light = palette.lighten(h.cloth_hi, 0.040)
+        k.service_shadow = np.asarray(h.cloth_shadow, dtype=np.float64)
+        k.service_line = np.asarray(h.cloth_line, dtype=np.float64)
         if k.attire == "police":
             k.accent = palette.oklch_to_srgb((0.50, 0.095, 0.625))
             k.tab = palette.mix(k.service, k.accent, 0.55)
@@ -523,9 +517,9 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
         # keep it from reading as a yellow stripe at 384 px.
         for k in (-1, 0, 1):
             cord = S.lock([(px, py + 0.0055 * k) for px, py in spine],
-                          w0=0.0032, w1=0.0028, per_segment=6)
+                          w0=0.0050, w1=0.0044, per_segment=6)
             brush.paint(canvas, cord, kit.gold_shadow if k else kit.gold,
-                        clip=clip, alpha=0.66 if k else 0.94, soft=0.18)
+                        clip=clip, alpha=0.74 if k else 0.98, soft=0.18)
         brush.paint(canvas, board & S.lock(
             [(px, py + 0.020) for px, py in spine],
             w0=0.0050, w1=0.0040, per_segment=6),

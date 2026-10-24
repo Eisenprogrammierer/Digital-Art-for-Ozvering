@@ -59,6 +59,7 @@ from gen.icons import badge as icon_badge  # noqa: E402
 from gen.icons import livery as icon_livery  # noqa: E402
 from gen.icons import motifs as icon_motifs  # noqa: E402
 from gen.icons import paint as icon_paint  # noqa: E402
+from gen.icons import wear as icon_wear  # noqa: E402
 from gen.wardrobe import awards as wardrobe_awards  # noqa: E402
 from gen.wardrobe import garment as wardrobe_garment  # noqa: E402
 from gen.maps import autotile as map_autotile  # noqa: E402
@@ -84,6 +85,7 @@ from gen.textures import tile as tilelib  # noqa: E402
 from gen.textures import truchet as tex_truchet  # noqa: E402
 from gen.textures import wang as tex_wang  # noqa: E402
 from gen.portraits import accessories as portrait_accessories  # noqa: E402
+from gen.portraits import character as portrait_character  # noqa: E402
 from gen.portraits import demography as portrait_demography  # noqa: E402
 from gen.portraits import dna as portrait_dna  # noqa: E402
 from gen.portraits import phenotype as portrait_phenotype  # noqa: E402
@@ -274,18 +276,25 @@ def _unit3(v) -> np.ndarray:
 # --------------------------------------------------------------------------
 # icons: a plate with a charge on it, and an atlas to ship the set in
 # --------------------------------------------------------------------------
-def make_icon(seed: int, size: int = 192) -> Canvas:
+def make_icon(seed: int, size: int = 192, wear: int | None = None) -> Canvas:
     """One complete icon from a seed -- the CLI's smallest door into `gen.icons`.
 
     This used to be the icon generator.  It is one line now, deliberately: the
-    charge vocabulary, the plate and the five passes live in the package, and a
+    charge vocabulary, the plate and the passes live in the package, and a
     second implementation left behind in the CLI is how the two drift apart.
+    ``wear`` renders one of the ten cumulative damage stages; ``None`` keeps the
+    seed's own stage, which is zero for a fresh random icon.
     """
-    return icon_paint.icon(seed, size)
+    spec = icon_motifs.random_spec(seed)
+    if wear is not None:
+        spec = icon_wear.stage(spec, wear)
+    return icon_paint.draw(spec, size)
 
 
 def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: int = 9,
-               sweep=(32, 64, 128), atlas: bool = True, factions=None) -> Path:
+               sweep=(32, 64, 128), atlas: bool = True, factions=None,
+               family: str | None = None, wear: bool = False,
+               wear_size: int = 48) -> Path:
     """The icon set, seeds drawn from it, one icon at three sizes, and the atlas.
 
     The first tiles are the *set*: every charge, one plate, one hue family, which is
@@ -304,8 +313,12 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
     rule too; that is what a metal is, not a gap in the table.
     """
     factions = list(factions or FACTIONS)
+    if family is not None and family not in icon_motifs.FAMILIES:
+        raise ValueError(f"family must be one of {tuple(icon_motifs.FAMILIES)}, not {family!r}")
+    kind_names = (list(icon_motifs.FAMILIES[family]) if family
+                  else list(icon_motifs.KINDS))
     set_tiles = [(name, icon_paint.draw(icon_motifs.canonical(name), size))
-                 for name in icon_motifs.KINDS]
+                 for name in kind_names]
     seed_tiles = [(f"seed {seed + i}", make_icon(seed + i, size)) for i in range(count)]
     sweep_tiles = [(f"blade at {s}px", icon_paint.draw(icon_motifs.canonical("blade"), s))
                    for s in sweep]
@@ -332,12 +345,17 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
     img.save(out, "PNG", optimize=True)
 
     _sidecar(out, seed, "procedural:gen.icons.paint",
-             set=list(icon_motifs.KINDS),
+             set=kind_names,
+             family=family,
+             families={name: list(members)
+                       for name, members in icon_motifs.FAMILIES.items()},
              seeded=[seed + i for i in range(count)],
              sizes=list(sweep),
              tiers=list(range(1, icon_badge.TIERS + 1)),
              counts=[3, 12, 99],
-             factions=factions)
+             factions=factions,
+             wear=list(icon_wear.LEVELS),
+             wear_policy="cumulative")
 
     # The atlas is what a game actually loads: one image and a table of rectangles.
     # Its density is in the sidecar, because how much of the sheet is sprite rather
@@ -348,6 +366,45 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
         image.save(path)
         _sidecar(path, seed, "procedural:export.atlas", **info)
         _report(path)
+
+    # The wear sheet: every charge in the family at all ten stages.  It is a
+    # separate file because a stage is a variant of an icon, not a second icon on
+    # the design sheet -- and because ten rows of damage would bury the pristine
+    # set the sheet exists to show.  The atlas is the shippable form: its member
+    # names carry both the kind and the stage, so an engine can pick
+    # ``rifle:w07`` without a second table.
+    if wear:
+        wear_tiles = [(f"{kind}:w{level:02d}",
+                       icon_paint.draw(icon_motifs.canonical(kind), wear_size,
+                                       wear=level))
+                      for kind in kind_names for level in icon_wear.LEVELS]
+        wear_path = out.with_name(f"{out.stem}-wear.png")
+        wear_canvases = [c for _, c in wear_tiles]
+        wear_gap = 14
+        wear_sheet = render.sheet(wear_canvases, cols=len(icon_wear.LEVELS),
+                                  gap=wear_gap, background=(0.94, 0.94, 0.96))
+        wear_img = png.to_image(wear_sheet)
+        for i, (label, tile) in enumerate(wear_tiles):
+            tx, ty, _, _ = _grid_pos(wear_canvases, len(icon_wear.LEVELS),
+                                     wear_gap, i)
+            # The atlas keeps ``kind:w07`` for engines; the review sheet shortens
+            # the caption so it fits under a 48 px tile without touching the row
+            # below.
+            kind, level = label.split(":")
+            _label(wear_img, (tx + 3, ty + tile.h + 1),
+                   f"{kind} {level.lstrip('w')}", font=_font(8))
+        wear_img.save(wear_path, "PNG", optimize=True)
+        _sidecar(wear_path, seed, "procedural:gen.icons.wear",
+                 family=family, kinds=kind_names, stages=list(icon_wear.LEVELS),
+                 policy="cumulative", size=int(wear_size))
+        if atlas:
+            wear_atlas, wear_info = atlaslib.build(wear_tiles, padding=1)
+            wear_atlas_path = out.with_name(f"{out.stem}-wear-atlas.png")
+            wear_atlas.save(wear_atlas_path)
+            _sidecar(wear_atlas_path, seed, "procedural:export.atlas",
+                     stages=list(icon_wear.LEVELS), **wear_info)
+            _report(wear_atlas_path)
+        _report(wear_path)
     return _report(out)
 
 
@@ -1168,6 +1225,7 @@ def demo_portraits(out: Path, seed: int = 7, count: int = 8, size: int = 256, co
                         "seed": seed + i,
                         "dna": portrait_dna.encode(g),
                         "description": portrait_dna.describe(g),
+                        "figure": portrait_character.scene(g),
                         "genes": g,
                     }
                     for i, g in enumerate(genomes)
@@ -1269,7 +1327,51 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
     img.save(out, "PNG", optimize=True)
     meta = out.with_suffix(".json")
     meta.write_text(
-        json.dumps({"seed": seed, "dna": text, "genes": genes}, indent=2) + "\n",
+        json.dumps({"seed": seed, "dna": text,
+                    "figure": portrait_character.scene(genes),
+                    "genes": genes}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _report(meta)
+    return _report(out)
+
+
+def character_one(out: Path, seed: int | None = None, dna: str | None = None,
+                  size: int = 256, cycle: str = "idle", facing: str = "down",
+                  sex: str | None = None, age: str | None = None,
+                  climate: str | None = None, culture: str | None = None,
+                  overrides: dict | None = None) -> Path:
+    """Render the full-body figure of one portrait genome.
+
+    The DNA is the input, so the portrait and the figure are the same person: the
+    body seed is the sitter's own hash, and the palette and visible garment come
+    from the same genes.  ``--dna`` makes the pairing exact; a seed makes a new
+    genome, which is then printed and stored in the sidecar.
+    """
+    if dna is not None:
+        genes = portrait_dna.decode(dna)
+        if seed is None:
+            seed = portrait_dna.seed_of(genes)
+    else:
+        seed = 0 if seed is None else int(seed)
+        genes = portrait_dna.random_genes(seed)
+    _apply_demography(genes, sex=sex, age=age, climate=climate, culture=culture)
+    _apply_overrides(genes, overrides)
+    genes = portrait_dna.decode(portrait_dna.encode(genes))  # validate and re-clamp
+
+    text = portrait_dna.encode(genes)
+    print(f"seed {seed}")
+    print(f"  {portrait_dna.describe(genes)}")
+    print(f"  {text}")
+    img = png.to_image(portrait_character.render(
+        genes, size=size, cycle=cycle, facing=facing))
+    img.save(out, "PNG", optimize=True)
+    meta = out.with_suffix(".json")
+    meta.write_text(
+        json.dumps({"seed": seed, "dna": text,
+                    "figure": portrait_character.describe(
+                        genes, cycle=cycle, facing=facing),
+                    "genes": genes}, indent=2) + "\n",
         encoding="utf-8",
     )
     _report(meta)
@@ -2326,6 +2428,12 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--no-atlas", action="store_true", help="skip the packed atlas")
     i.add_argument("--name", action="append", default=None,
                    help="a faction name to dress the set in (repeatable)")
+    i.add_argument("--family", default=None, choices=tuple(icon_motifs.FAMILIES),
+                   help="restrict the set to a NATO-like or HOI4-like role family")
+    i.add_argument("--no-wear", action="store_true",
+                   help="skip the ten-stage cumulative wear sheet and atlas")
+    i.add_argument("--wear-size", type=int, default=48,
+                   help="tile size for the wear sheet")
 
     wd = sub.add_parser("wardrobe", help="garment cuts and seeded wardrobe variants")
     wd.add_argument("--out", default="out/wardrobe.png", type=Path)
@@ -2418,6 +2526,19 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
     pr.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
     _add_phenotype_args(pr)
+
+    ch = sub.add_parser("character", help="full-body figure derived from a portrait genome")
+    ch.add_argument("--out", default="out/character.png", type=Path)
+    ch.add_argument("--seed", type=int, default=None)
+    ch.add_argument("--dna", default=None, help="a genome string, as printed by portrait")
+    ch.add_argument("--size", type=int, default=256)
+    ch.add_argument("--cycle", default="idle", choices=figurelib.cycles())
+    ch.add_argument("--facing", default="down", choices=figurelib.FACINGS)
+    ch.add_argument("--sex", default=None, choices=list(portrait_demography.SEXES))
+    ch.add_argument("--age", default=None, choices=list(portrait_demography.AGES))
+    ch.add_argument("--climate", default=None, choices=list(portrait_demography.CLIMATES))
+    ch.add_argument("--culture", default=None, choices=list(portrait_demography.CULTURES))
+    _add_phenotype_args(ch)
 
     ps = sub.add_parser("portraits", help="contact sheet of generated portraits")
     ps.add_argument("--out", default="out/portraits.png", type=Path)
@@ -2566,7 +2687,8 @@ def main(argv=None) -> int:
     elif args.cmd == "icons":
         demo_icons(args.out, seed=args.seed, count=args.count, size=args.size,
                    cols=args.cols, sweep=_ints(args.sizes), atlas=not args.no_atlas,
-                   factions=args.name)
+                   factions=args.name, family=args.family, wear=not args.no_wear,
+                   wear_size=args.wear_size)
     elif args.cmd == "wardrobe":
         demo_wardrobe(args.out, seed=args.seed, count=args.count, size=args.size,
                       cols=args.cols, cut=args.cut, pattern=args.pattern,
@@ -2612,6 +2734,11 @@ def main(argv=None) -> int:
                      hair=args.hair, expression=args.expression, sex=args.sex, age=args.age,
                      climate=args.climate, culture=args.culture,
                      overrides=_phenotype_overrides(args))
+    elif args.cmd == "character":
+        character_one(args.out, seed=args.seed, dna=args.dna, size=args.size,
+                      cycle=args.cycle, facing=args.facing, sex=args.sex,
+                      age=args.age, climate=args.climate, culture=args.culture,
+                      overrides=_phenotype_overrides(args))
     elif args.cmd == "portraits":
         demo_portraits(args.out, seed=args.seed, count=args.count, size=args.size, cols=args.cols,
                        sex=args.sex, age=args.age, climate=args.climate, culture=args.culture,

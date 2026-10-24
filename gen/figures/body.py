@@ -67,7 +67,8 @@ LINE_PX = 1.7
 BEVEL_PX = 2.2
 
 
-def style(seed=0, tincture=None, rng=None) -> dict:
+def style(seed=0, tincture=None, rng=None, colours=None, garment=None,
+          build: float = 1.0, hair_long: bool = False) -> dict:
     """The colours and the build of one figure.
 
     ``tincture`` is the one input from outside: a faction's field tincture, taken
@@ -75,6 +76,16 @@ def style(seed=0, tincture=None, rng=None) -> dict:
     their plates in, so a figure stands in a colour its own faction wears.  Without
     one the tunic is drawn from the seed, which is what a figure that belongs to
     nobody wears.
+
+    ``colours`` is the second door, and it is how a full-body figure is derived
+    from a portrait: the skin, hair, cloth and leather can be pinned in the
+    portrait's own exact sRGB values instead of sampled from the figure seed.  It
+    is deliberately a *complete override* of those materials -- mixing a portrait
+    cloth with a generated one is how a black uniform turns brown on the way from
+    the head to the boots.  ``garment`` selects the silhouette
+    (``robe``/``dress``/``habit`` are long; ``mantle`` and ``habit`` add a
+    shoulder cape), ``build`` scales the body width, and ``hair_long`` extends the
+    figure's hair below the jaw.  All of them default to the old drawing exactly.
     """
     rng = rng if rng is not None else np.random.default_rng(int(seed) + 0x7C3B)
     skin = palette.oklch_to_srgb((0.70 + 0.13 * rng.random(), 0.035 + 0.045 * rng.random(),
@@ -88,6 +99,14 @@ def style(seed=0, tincture=None, rng=None) -> dict:
     else:
         cloth = palette.oklch_to_srgb((0.42 + 0.12 * rng.random(), 0.07 + 0.06 * rng.random(),
                                        float(rng.random())))
+    if colours:
+        # These are sRGB, like every colour the rest of the package hands to the
+        # canvas.  A key that is absent keeps the generated material, so a caller
+        # may pin only the cloth if that is all it has.
+        skin = tuple(float(v) for v in colours.get("skin", skin))
+        hair = tuple(float(v) for v in colours.get("hair", hair))
+        cloth = tuple(float(v) for v in colours.get("cloth", cloth))
+        leather = tuple(float(v) for v in colours.get("leather", leather))
     # Hose and belt are the same cloth at two depths, which is what keeps a figure
     # to five colours and no more: a sprite that needs eight is a sprite whose
     # silhouette is carrying the drawing.
@@ -98,11 +117,14 @@ def style(seed=0, tincture=None, rng=None) -> dict:
         "hose": cel.shadow(cloth, depth=0.08, chroma=0.95),
         "leather": leather,
         "belt": cel.shadow(leather, depth=0.06, chroma=1.10, hue=0.03),
-        "line": ink.line_colour(palette.mix(skin, cloth, 0.5), depth=0.52),
+        "line": (tuple(float(v) for v in colours["line"]) if colours and "line" in colours
+                 else ink.line_colour(palette.mix(skin, cloth, 0.5), depth=0.52)),
         "line_px": LINE_PX,
         "bevel_px": BEVEL_PX,
-        "width": 0.90 + 0.20 * rng.random(),
+        "width": (0.90 + 0.20 * rng.random()) * float(build),
         "light": LIGHT,
+        "garment": str(garment or "shirt"),
+        "hair_long": bool(hair_long),
     }
 
 
@@ -224,9 +246,19 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
     out["tunic"] = shape.lock([pelvis, collar], w0=w["waist"], w1=w["chest"],
                               bulge=0.55 * (w["chest"] - w["waist"])) \
         | shape.circle(0.46 * w["chest"], *collar)
-    hem = (pelvis[0], pelvis[1] - HEIGHT * 0.085)
+    garment = str(st.get("garment", "shirt"))
+    long_garment = garment in ("robe", "dress", "habit")
+    if long_garment:
+        # A robe, a dress and a habit reach the ankle.  The legs are still drawn
+        # underneath, so the boots show below the hem and the figure does not
+        # become a cone; the length is the one silhouette fact a portrait's
+        # garment can carry into a body this small.
+        hem = (pelvis[0], float(pts["foot_near"][1]) + HEIGHT * 0.025)
+    else:
+        hem = (pelvis[0], pelvis[1] - HEIGHT * 0.085)
     out["skirt"] = shape.lock([_mid(pelvis, chest, -0.04), hem],
-                              w0=w["waist"] * 1.04, w1=w["skirt"])
+                              w0=w["waist"] * (1.12 if long_garment else 1.04),
+                              w1=w["skirt"] * (1.14 if long_garment else 1.0))
     # The belt is laid across the torso's own axis, so it follows a lean instead of
     # staying level while the body it is tied to tips forward.
     ax, ay = chest[0] - pelvis[0], chest[1] - pelvis[1]
@@ -236,7 +268,20 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
     out["belt"] = shape.lock([(pelvis[0] + nx * half, pelvis[1] + ny * half),
                               (pelvis[0] - nx * half, pelvis[1] - ny * half)],
                              w0=w["belt"] * 1.15, w1=w["belt"] * 1.15)
-
+    if garment in ("mantle", "habit"):
+        # A mantle -- and the shoulder cape of a habit -- is a second cloth layer
+        # over the shoulders and upper torso, not a second pair of sleeves.  It
+        # is a trapezoid from the shoulder line to the waist, so the figure keeps
+        # the same arms and the layer reads as an overgarment even at 48 px.
+        left, right = pts["shoulder_far"], pts["shoulder_near"]
+        top_y = 0.5 * (left[1] + right[1]) + 0.035 * HEIGHT
+        bottom_y = pelvis[1] + 0.020 * HEIGHT
+        half = 0.5 * abs(right[0] - left[0]) + w["chest"] * 0.44
+        cx = 0.5 * (left[0] + right[0])
+        out["cape"] = shape.poly([
+            (cx - half, top_y), (cx + half, top_y),
+            (cx + half * 0.80, bottom_y), (cx - half * 0.80, bottom_y),
+        ])
     out["neck"] = shape.lock([_mid(chest, neck, 1.0), _mid(head, neck, 0.35)],
                              w0=w["neck"] * 1.05, w1=w["neck"] * 0.85)
     rx, ry = 0.5 * w["head_x"], 0.5 * w["head_y"]
@@ -260,6 +305,11 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
             (head[0] - rx * 0.25, head[1] - ry * 0.55),
             (head[0] - rx * 0.12, head[1] - ry * 0.02),
         ], per_segment=6, resample=72))
+        if st.get("hair_long"):
+            out["hair"] = out["hair"] | shape.lock(
+                [(head[0] - rx * 0.80, head[1] + ry * 0.30),
+                 (head[0] - rx * 1.14, head[1] - ry * 1.50)],
+                w0=rx * 0.78, w1=rx * 0.48)
         return out
 
     # A head seen head-on has no nose: the profile's nose is the one feature that
@@ -281,6 +331,14 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
             (head[0], head[1] + ry * 0.18),
             (head[0] - rx * 0.72, head[1] + ry * 0.30),
         ], per_segment=6, resample=72))
+        if st.get("hair_long"):
+            out["hair"] = out["hair"] | shape.lock(
+                [(head[0] - rx * 1.00, head[1] + ry * 0.10),
+                 (head[0] - rx * 0.98, head[1] - ry * 1.55)],
+                w0=rx * 0.42, w1=rx * 0.24) | shape.lock(
+                [(head[0] + rx * 1.00, head[1] + ry * 0.10),
+                 (head[0] + rx * 0.98, head[1] - ry * 1.55)],
+                w0=rx * 0.42, w1=rx * 0.24)
     else:
         # The back of a head is the whole head of hair, with a small bun at the
         # crown to say which side of the skull the hair is tied on.  No face: there
@@ -288,6 +346,11 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
         # worse lie than a silhouette.
         out["hair"] = shape.ellipse(rx * 1.07, ry * 1.05, head[0], head[1]) \
             | shape.ellipse(rx * 0.30, ry * 0.30, head[0], head[1] + ry * 0.92)
+        if st.get("hair_long"):
+            out["hair"] = out["hair"] | shape.lock(
+                [(head[0], head[1] - ry * 0.75),
+                 (head[0], head[1] - ry * 2.15)],
+                w0=rx * 1.04, w1=rx * 0.78)
     return out
 
 
@@ -347,6 +410,8 @@ def paint(canvas, pts: dict, st: dict, ground: float | None = None,
 
     fill(p["tunic"] | p["skirt"], st["cloth"])
     fill(p["belt"], st["belt"])
+    if "cape" in p:
+        fill(p["cape"], st["cloth"])
 
     fill(p["leg_near"], st["hose"])
     fill(p["boot_near"], st["leather"])

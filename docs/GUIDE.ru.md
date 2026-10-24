@@ -164,6 +164,7 @@ out/studio/20261020-201325-1a2b3c/
 | Characters | `figures` | `figures.png` | Спрайт-лист; цикл, кадры, направление. |
 | Characters | `portrait` | `portrait.png` | Один портрет; сид, размер, стиль, волосы, демография и фенотип; выражение — опытная поза. |
 | Characters | `portraits` | `portraits.png` | Лист портретов; можно закрепить демографические и фенотипические гены. |
+| Characters | `character` | `character.png` | Полная фигура из генома портрета; лицо и тело используют один сид. |
 | Characters | `lineage` | `lineage.png` | Два родителя и их дети. |
 | Heraldry | `arms` | `arms.png` | Гербы; количество, размер ячейки, щит. |
 | Heraldry | `blazon` | `blazon.png` | Один герб, его EN/RU-блазон и проверка тинктур. |
@@ -179,7 +180,7 @@ out/studio/20261020-201325-1a2b3c/
 | Materials | `texture` | `texture.png` | Базовый лист fBm/мрамор/дерево/камень. |
 | Characters | `wardrobe` | `wardrobe.png` | Одежда как объект: девять покроев, воротники, узоры, ткань и отделка. |
 | Characters | `decorations` | `decorations.png` | Награды как объект: медали, кресты, звезды, колодки, значки, повязки. |
-| Interface | `icons` | `icons.png` | Набор, размеры, бейджи, ливрея, атлас. |
+| Interface | `icons` | `icons.png` | Набор, размеры, бейджи, ливрея, атлас, семейство ролей и стадии износа. |
 | Interface | `ui` | `ui.png` | Nine-slice UI-кит; опционально SVG. |
 | Interface | `text` | `text.png` | Образец шрифта и метрики; медленно. |
 | Core | `palette` | `palette.png` | Сидовые OKLCH-свотчи. |
@@ -220,6 +221,7 @@ python cli.py demo --out out --seed 7
 python cli.py figures   --out out/figures.png --seed 7 --cycle walk --count 8 --facing right
 python cli.py portrait  --out out/one.png --seed 5 --size 384
 python cli.py portraits --out out/portraits.png --seed 7 --count 8 --size 256
+python cli.py character --out out/hero.png --seed 5 --size 256
 python cli.py lineage   --out out/lineage.png --seed 7 --children 6
 
 # Геральдика
@@ -244,6 +246,8 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 
 # Интерфейс
 python cli.py icons --out out/icons.png --seed 3 --count 8 --size 192 --sizes 32,64,128
+python cli.py icons --out out/nato.png --seed 3 --family nato --no-wear
+python cli.py icons --out out/hoi4.png --seed 3 --family hoi4 --wear-size 48
 python cli.py ui    --out out/ui.png --seed 7 --count 3 --scale 2
 python cli.py ui    --out out/ui.png --seed 7 --count 3 --scale 2 --svg
 python cli.py text  --out out/text.png --size 20
@@ -333,6 +337,14 @@ python cli.py portrait --out out/pigment.png --seed 7 \
 python cli.py lineage --out out/lineage.png --seed 7 --children 6
 ```
 
+`character` рисует того же человека в полный рост. Сид тела выводится из
+`face_seed` портрета, поэтому смена одежды, настроения или причёски не меняет
+скелет; ткань берётся точным цветом портрета, покрой становится силуэтом рясы,
+платья, хабита или мантии, а длинная причёска продолжается ниже челюсти.
+`--dna` со строкой, которую печатает `portrait`, делает пару точной. В sidecar
+портрета лежит тот же рецепт фигуры в `figure.scene`, поэтому движок может
+пересобрать тело по лицу.
+
 `sex`, `age`, `climate` и `culture` — такие же гены, как остальные. `sex` меняет
 презентацию и некоторые пропорции; `age` задаёт возрастную стадию, седину в цветовом
 скрипте и возрастные детали; `climate` — среда, к которой приспособлена линия, поэтому
@@ -364,7 +376,7 @@ goatee, short_beard, full_beard). Непрерывные оси — ширина
 
 | ген | значения | что рисует |
 | --- | --- | --- |
-| `--attire` | `civil`, `military`, `police`, `naval`, `ceremonial`, `clerical` | Форма одежды. Служебный мундир заменяет рубашечный воротник стоячим и ткань — цветом службы; `clerical` — белый римский воротник с чёрной вставкой; `naval` добавляет двубортный ряд пуговиц; `ceremonial` — орденскую ленту и звезду. |
+| `--attire` | `civil`, `military`, `police`, `naval`, `ceremonial`, `clerical` | Форма одежды. Служебный мундир заменяет рубашечный воротник стоячим; тело шьётся из точного гена `cloth`, а службу обозначают акценты, петлицы, отделка и металл. `clerical` — белый римский воротник с чёрной вставкой; `naval` добавляет двубортный ряд пуговиц; `ceremonial` — орденскую ленту и звезду. |
 | `--insignia` | `none`, `collar`, `shoulder`, `both` | Петлицы и погоны; звёзды чина выводятся из наград. |
 | `--awards` | `none`, `ribbon`, `medal`, `order`, `armband` | Колодка, две медали, орденская лента с восьмиконечной звездой или нарукавная повязка на видимом плече. |
 | `--ornament` | `none`, `aiguillette`, `chain`, `brooch`, `earrings` | Плетёный аксельбант, цепочка карманных часов, брошь или серьга с подвеской. |
@@ -372,9 +384,10 @@ goatee, short_beard, full_beard). Непрерывные оси — ширина
 | `--garment` | `auto`, `shirt`, `blouse`, `jacket`, `coat`, `dress`, `robe`, `mantle`, `habit` | Покрой. `auto` раскрывается в рубашку (гражданское), рясу (духовенство) или тунику (служба). Блуза/платье открывают мягкий вырез с бантом или поясом; пиджак/пальто добавляют корпус и лацканы и подчёркивают плечи; ряса закрывается стоячим воротником и поясом; мантия — короткая накидка на плечи, скрывающая погоны; хабит — ряса, мантия и вуаль с белым вимплом. |
 
 Каждая отметка — геометрия, обрезанная по бюсту, воротнику или черепу: медаль —
-диск, звезда — восемь лучей, а не текстура. Цвет службы смешивается с геном
-`cloth` самого портретируемого, поэтому полк носит одинаковый мундир, но не одну
-ткань; цвет рода войск берётся из `culture`. Ограничения — часть генерации:
+диск, звезда — восемь лучей, а не текстура. Каждая форма одежды шьёт тело из
+точного гена `cloth` портретируемого, поэтому явный цвет остаётся точным от
+воротника до фигуры; службу обозначают акценты, петлицы, отделка и металл, а цвет
+рода войск берётся из `culture`. Ограничения — часть генерации:
 ребёнок не получает наград и знаков различия, на рубашке нет погон, а на римском
 воротнике — петлиц. Под мантией погоны не рисуются вовсе, а вуаль хабита кладётся
 после волос, поэтому закрывает причёску. Закрепляйте гены, когда нужно намеренное
@@ -573,12 +586,20 @@ python cli.py texture --out out/texture.png --seed 3 --size 256
 ### Иконки и UI
 
 Иконка — это плита с фигурой, бейдж количества или уровня и ливрея фракции на плите.
-Команда пишет набор, размеры, атлас и sidecar с прямоугольниками.
+В словарь входят исходные ресурсы и восемнадцать служебных и стратегических ролей.
+`--family nato` или `--family hoi4` выбирает набор ролей; сами символы общие, у
+семейства меняется только состав. По умолчанию команда также пишет лист десяти
+накопительных стадий износа и атлас износа — царапины, борозды, сколы, пятна и
+трещины; `--no-wear` оставляет чистый вариант, а `--wear-size` задаёт размер
+плиток для просмотра. Команда пишет набор, размеры, атлас и sidecar с
+прямоугольниками.
 
 ```bash
 python cli.py icons --out out/icons.png --seed 3 --count 8 --size 192 \
                     --sizes 32,64,128 --cols 9
 python cli.py icons --out out/icons.png --seed 3 --count 8 --name "Kingdom of Alder"
+python cli.py icons --out out/nato.png --seed 3 --family nato --no-wear
+python cli.py icons --out out/hoi4.png --seed 3 --family hoi4 --wear-size 48
 ```
 
 UI-киты — nine-slice рамки: ассет — это `(PNG, вставки углов, минимальный размер)`, а

@@ -198,20 +198,24 @@ def modify(p: dict, genes: dict) -> dict:
         # These are still anime proportions -- this is an adult in the same
         # drawing tradition, not a photograph pasted into it.
         p["eye_y"] = float(p["eye_y"]) + 0.010
-        p["eye_w"] = float(p["eye_w"]) - 0.018
+        # A slightly narrower eye with a little more space at the bridge is the
+        # difference between an adult and an enlarged child's eye.  The nose and
+        # mouth move up by the same hair's breadth, so the lower face gains a
+        # plane rather than simply getting longer.
+        p["eye_w"] = float(p["eye_w"]) - 0.020
         p["eye_up"] = float(p["eye_up"]) - 0.012
         p["eye_down"] = float(p["eye_down"]) - 0.008
-        p["eye_dx"] = float(p["eye_dx"]) + 0.004
+        p["eye_dx"] = float(p["eye_dx"]) + 0.006
         p["iris_r"] = float(p["iris_r"]) - 0.010
         p["pupil_r"] = float(p["pupil_r"]) - 0.0020
         p["nose_w"] = float(p["nose_w"]) + 0.005
         p["nose_h"] = float(p["nose_h"]) + 0.004
-        p["nose_gap"] = float(p["nose_gap"]) + 0.001
+        p["nose_gap"] = float(p["nose_gap"]) + 0.0005
         p["mouth_w"] = float(p["mouth_w"]) + 0.010
-        p["mouth_gap"] = float(p["mouth_gap"]) + 0.004
+        p["mouth_gap"] = float(p["mouth_gap"]) + 0.002
         p["lip_full"] = float(p["lip_full"]) - 0.018
-        p["jaw_w"] = float(p["jaw_w"]) + 0.008
-        p["chin_w"] = float(p["chin_w"]) + 0.012
+        p["jaw_w"] = float(p["jaw_w"]) + 0.006
+        p["chin_w"] = float(p["chin_w"]) + 0.010
         p["neck_w"] = float(p["neck_w"]) + 0.012
         if sex == "male":
             p["jaw_w"] = float(p["jaw_w"]) + 0.004

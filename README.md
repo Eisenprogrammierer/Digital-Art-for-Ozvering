@@ -59,7 +59,8 @@ and foam, and the hex its hero stands on with the direction that hero faces, for
 atlases the
 rectangle each sprite or tile occupies and how densely the sheet packed -- per level,
 for a mip chain -- for the
-icons the tiers and counts it badged and the factions it dressed a set in, for an
+icons the family, tiers and counts it badged, the factions it dressed a set in and
+the wear stages it can show, for an
 animation the rectangle of every frame with the phase it was drawn at and the rate it
 plays at, for a figure's sheet the cycle, the facing, the table and the figure itself
 -- its proportions, its gait and the five colours it wears -- and for the
@@ -81,6 +82,8 @@ the sidecars are *for*.
 python cli.py demo    --out out --seed 7        # everything
 python cli.py icons   --out out/icons.png --seed 3 --count 8 --size 192 \
                       --sizes 32,64,128 --cols 9   # set, seed, badges, faction plate, atlas
+python cli.py icons   --out out/icons.png --seed 3 --family nato --no-wear
+                                                   # a role family, pristine plates only
 python cli.py shapes  --out out/shapes.png      # SDF reference sheet
 python cli.py texture --out out/texture.png --seed 3 --size 256
 python cli.py palette --out out/palette.png --seed 3 --count 6
@@ -95,6 +98,7 @@ python cli.py portrait   --seed 5 --sex female --age elder --climate arid --out 
 python cli.py portrait   --seed 7 --sex male --attire military --insignia both --awards medal --out out/colonel.png
 python cli.py portrait   --seed 7 --sex female --attire clerical --garment habit --faith cross --out out/novice.png
 python cli.py portrait   --seed 7 --eyewear spectacles --scar cheek --skin-color '#b98262' --out out/face.png
+python cli.py character  --seed 5 --size 256 --out out/hero.png  # the same genome, full body
 python cli.py wardrobe   --out out/wardrobe.png --seed 3 --count 6 --size 256
 python cli.py decorations --out out/decorations.png --seed 3 --count 6 --size 256
 python cli.py portraits  --seed 7 --count 8 --size 256
@@ -119,12 +123,12 @@ python cli.py gallery    --manifest out --stats # measured sizes instead of reme
 python cli.py studio     --port 8000            # the browser workbench; no extra dependency
 python tests/test_core.py                       # 69 tests, no pytest needed
 python tests/test_heraldry.py                   # 80 tests
-python tests/test_portraits.py                  # 75 tests
+python tests/test_portraits.py                  # 79 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
 python tests/test_cli.py                        # 9 tests -- the wiring, not the pictures
-python tests/test_icons.py                      # 33 tests
+python tests/test_icons.py                      # 37 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 28 tests
 python tests/test_gallery.py                    # 21 tests
@@ -190,8 +194,10 @@ gets looked at, not a single icon.
 
 | Module | What it provides |
 | --- | --- |
-| `motifs` | The charge vocabulary -- nine symbols, each a distance field in a normalised box -- the four plate shapes, and `random_spec(seed, kind)`, which turns a seed into a spec without ever changing *which* charge was asked for. |
-| `paint` | `draw(spec, size)`: the five passes, plus a badge when the spec carries one. Plus `clamp`/`validate` on the spec, and the two measurements the tests hold an icon to, `silhouette` and `contrast`. |
+| `motifs` | The charge vocabulary -- twenty-seven symbols, each a distance field in a normalised box -- the four plate shapes, the `FAMILIES` role sets, and `random_spec(seed, kind)`, which turns a seed into a spec without ever changing *which* charge was asked for. |
+| `military` | The eighteen service and grand-strategy charges -- infantry, armour, artillery, air, naval, airborne, signals, medical, logistics, command and their kin -- in the same SDF vocabulary as the original symbols. |
+| `paint` | `draw(spec, size, wear=...)`: the five passes, a wear pass when asked for, and a badge when the spec carries one. Plus `clamp`/`validate` on the spec, and the two measurements the tests hold an icon to, `silhouette` and `contrast`. |
+| `wear` | Ten cumulative damage stages: scratches, gouges, chips, stains and cracks as signed fields, with `stage`/`stages`, `field` and `chip_field` exposed for tests and callers. |
 | `badge` | A **count** or a **tier** on the plate's corner: `make(count=12)` draws a numeral, `make(tier=3)` a row of pips, and `clamp` refuses a badge it cannot draw rather than rounding one. |
 | `livery` | A faction's **own colours**, worn on the plate: `hue`/`chroma`/`light_step` read from the coat, and `tint(spec, name)` dresses a spec without ever touching the charge. |
 | `export.atlas` | `trim`, `pack`, `build`: a set of canvases in, one sheet plus the rectangle table out, with the density of the packing measured rather than asserted. |
@@ -222,10 +228,11 @@ worst case over ten seeds is 0.5 -- a gem whose seed happened to switch it from 
 six-sided brilliant to the three-faced crystal, which is a change of category and
 not of style, and the floor the test uses (0.4) is a floor on *recognition*.
 
-The same measurement runs the other way, over the nine charges against each other.
-The closest pair is water and a flame -- a drop, and a flame drawn with two tongues
--- which agree on about seven tenths of their area. That is fine, because they are
-six hues apart, and hue is the other half of the answer. It is also exactly the
+The same measurement runs the other way, over the twenty-seven charges against each
+other. Among the original nine the closest pair is water and a flame -- a drop, and
+a flame drawn with two tongues -- which agree on about seven tenths of their area.
+That is fine, because they are six hues apart, and hue is the other half of the
+answer. It is also exactly the
 kind of collision a small vocabulary has to be *checked* for: the first version of
 `ore` was a five-sided gem, and a five-sided gem sitting alone on a shield plate
 *is* a shield. The vocabulary lost a symbol that day, not a pixel.
@@ -257,6 +264,30 @@ violet, water is blue, flame is red, blade is a cold steel blue -- and the seed
 jitters it by two hundredths of a turn, which is enough to make a set look grown
 and not enough to make a player wonder what the icon meant.
 
+### Service charges are roles, not a second style
+
+The original nine symbols are resources. `gen.icons.military` adds eighteen
+service and grand-strategy charges -- rifle, tank, cannon, plane, anchor, helmet,
+parachute, crosshair, chevron, star, crown, supply, truck, signal, medical, fort,
+ship and rocket -- drawn in the same plate-and-charge vocabulary. `FAMILIES` maps
+the roles a NATO-like or HOI4-like set expects onto that one vocabulary, so the two
+families share their infantry, armour and medical symbols rather than growing two
+drawing styles. The family is metadata over a set, not a different renderer.
+
+### Ten wear stages, one history
+
+`gen.icons.wear` answers a strategy-game question the pristine icon cannot: how
+worn is this unit? The answer is a cumulative field, not ten unrelated textures.
+Stage 0 is pristine; `stages(spec)` returns the ten damaged stages 1 through 10,
+and every mark born at stage *k* is still present at stage *k+1* -- the test holds
+the signed fields to that subset relation rather than trusting the paint order.
+Scratches arrive first, then gouges and chips, then stains and cracks; the badge is
+deliberately excluded from the damage key, so changing a count on the corner never
+redraws the cracks on the plate. `paint.draw(spec, size, wear=n)` clips the field
+to the plate and paints it before the badge. The CLI writes a wear sheet and atlas
+beside the pristine set by default; `--no-wear` asks for the old pristine output,
+and `--wear-size` controls the smaller review tiles.
+
 ### Five passes and one light
 
 The construction is short enough to state completely, and every icon in the game
@@ -273,10 +304,11 @@ is drawn by it:
 5. **charge** -- the symbol itself, embossed with a shallower bevel than the
    plate's, because the symbol is small and a deep bevel eats it.
 
-There is a sixth pass, the **badge**, and it is not in this list because it is not
-always there: it is drawn only when a spec carries one, on top of the other five,
-and it is the one part of an icon allowed outside the plate's silhouette. It has its
-own section below, because the reason for it is a question the construction so far
+Two optional passes sit outside that list. The **wear** pass is drawn only when
+the stage is above zero, before the badge, and is clipped to the plate. The
+**badge** is drawn only when a spec carries one, on top of everything else, and it
+is the one part of an icon allowed outside the plate's silhouette. It has its own
+section below, because the reason for it is a question the construction so far
 cannot answer.
 
 Every one of those passes is lit by the same `LIGHT = (-0.45, 0.65)` as the
@@ -384,10 +416,11 @@ The atlas reports its own density -- the fraction of the sheet that is sprite
 rather than gap -- and that number exists for one reason: it is how you find out
 what a convention costs before you agree to it.
 
-Measured on the icon set this package generates -- the nine charges and eight
-seeded icons at 192 px -- the constraint-free packing fills 0.81 of its sheet, while
-the same set rounded up to power-of-two dimensions fills about half of one (0.53).
-Nothing was lost: the pixels are all there, but the texture is twice the size, and
+Measured on the icon set this package generates -- the full charge vocabulary and
+eight seeded icons at 192 px -- the constraint-free packing fills about four fifths
+of its sheet, while the same set rounded up to power-of-two dimensions fills about
+half of one. Nothing was lost: the pixels are all there, but the texture is twice
+the size, and
 the reason is not subtle. Each icon's trimmed sprite is 128 px across with two
 pixels of padding, so four of them need 520 px, and a 512 px sheet is eight pixels
 too narrow to hold them. Power-of-two dimensions are still the default, because that
@@ -814,6 +847,7 @@ of flat tones, and "simple" is a style rather than a compromise.
 | `accessories` | Removable face marks: spectacles, round glasses, a monocle, a pince-nez, dark glasses, and a scar on the brow, cheek, lip, chin or several. Appended after the outfit, kept out of the face seed, and painted at the right layer -- scars before the hair, temples over it. |
 | `dna` | The genome: `random_genes`, `encode`/`decode`, `breed`, `mutate`, `apply_to`, `describe`. |
 | `portrait` | Framing and layer order: passport `compose`/`render`/`render_seed`, plus the opt-in `compose_posed`/`render_posed` study. |
+| `character` | The bridge from a portrait genome to a full-body figure: stable body seed, portrait palette and exact cloth, garment cut, mantle or habit cape, and long hair, plus `scene`/`render`/`frames`/`describe`. |
 
 ### Five decisions, in the order they matter
 
@@ -1137,10 +1171,11 @@ outfit genes are:
 The painter is still geometry: a medal is a disc, a ribbon is a rectangle, a star
 is eight points, an aiguillette is three parallel tapered locks. Every mark is
 clipped to the thing it sits on -- the bust, the collar, the skull -- so a
-decoration cannot float in the background or move a feature. Service colours are a
-mix of a fixed dress colour and the sitter's own `cloth` gene, so a regiment has a
-uniform without every soldier sharing the same fabric; the branch colour comes from
-the culture gene. The outfit is append-only and drawn after the phenotype layer; accessories are
+decoration cannot float in the background or move a feature. The garment body is
+the sitter's own `cloth` gene exactly; service identity lives in the accents, tabs,
+trim and metal, and the branch colour comes from the culture gene. That is what
+makes an explicit `--cloth-color` render the same colour on shoulders, sleeves and
+figure instead of drifting through a fixed service shade. The outfit is append-only and drawn after the phenotype layer; accessories are
 appended after the outfit. An old string decodes to civilian dress, and a generated genome is gated like a
 real dress code: a child is not decorated, a civilian shirt has no boards, and a
 Roman collar has no collar tabs. Forcing a gene can still produce a deliberate
@@ -1185,6 +1220,28 @@ patterns. `gen/wardrobe/awards.py` has six kinds (`medal`, `cross`, `star`,
 a plain spec dictionary, clamp unknown names, render deterministically at any size,
 and write a sheet plus a sidecar that lists every spec. They are in the studio under
 **Characters**, with the same choices as flags.
+
+### A portrait is also a body
+
+A strategy game needs the same person standing on the map, and the worst way to get
+one is to generate a second, unrelated seed: the face and the body would be two
+people who happen to share a save file. `gen.portraits.character` is the bridge.
+The body seed comes from `dna.face_seed` -- the hash of the sitter, not of the
+outfit or the mood -- so changing a shirt or a smile cannot change the body. The
+palette comes from `hues.from_genes`, which pins the cloth exactly, so a black
+uniform is black on the head and black on the legs. The dress code becomes a
+silhouette: robe, dress and habit are long; a mantle or habit adds its shoulder
+cape; a long hairstyle extends the figure's hair below the jaw. `character.render` and `frames` call the
+same `gen.figures` rig as every other sprite, and `scene` returns the metadata a
+sidecar needs -- body seed, proportions, gait, colours, garment, build, hair length
+and facing.
+
+The CLI writes that PNG and JSON with `character --seed N`, or from an existing
+genome with `--dna`. Portrait sidecars carry the same `figure.scene`, and the
+`portraits` contact sheet embeds it per tile, so the map sprite can always be
+rebuilt from the face it belongs to. The figure package's new style arguments
+(`colours`, `garment`, `build`, `hair_long`) are opt-in; omitting them leaves the
+original figure output byte-for-byte unchanged.
 
 ### What the tests hold down
 
@@ -1259,8 +1316,8 @@ figure" has to be defined exactly once.
 | --- | --- |
 | `rig` | Seventeen joints in a tree, a rest pose that holds the proportions, forward kinematics as one pass down a tuple, and a seeded jitter that makes one figure leggy and another stocky. |
 | `cycle` | `idle`, `walk`, `run` and `attack` as periodic functions of phase, each a dict of *deltas* from the rest pose, plus the pelvis's rise -- and every one of them closes exactly at `2*pi`. |
-| `body` | The drawing: limbs as tapered locks, a tunic, a belt, hose, boots and hair, from the portrait package's own brush, ink and cel pass, with the far side drawn first and shaded. |
-| `figure` | `render(seed, cycle, phase, size)`, `frames(...)` for a whole cycle and `describe(seed)` for the table a sidecar carries. |
+| `body` | The drawing: limbs as tapered locks, a tunic, a belt, hose, boots and hair, from the portrait package's own brush, ink and cel pass, with the far side drawn first and shaded. Optional `colours`, `garment`, `build` and `hair_long` let a portrait's body reuse the same drawing without changing the defaults. |
+| `figure` | `render(seed, cycle, phase, size)`, `frames(...)` for a whole cycle and `describe(seed)` for the table a sidecar carries, all passing the optional portrait style through. |
 
 ### A bone is named after what it is
 

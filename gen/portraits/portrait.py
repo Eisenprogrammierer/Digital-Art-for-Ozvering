@@ -43,6 +43,7 @@ from core import palette
 
 from . import (accessories, brush, cel, demography, detail, dna, expression, eyes,
               face, garments, hair, head, hues, humanize, regalia)
+from . import shape as S
 from . import style as style_mod
 from .shape import union_all
 
@@ -158,11 +159,31 @@ def compose_posed(genes: dict, size=384, background: bool = True,
 
     bust = brush.Surface(c, head.shoulders(st))
     bust.paint(c, dh.cloth)
-    bust.bands(c, [dh.cloth_shadow], (0.40,), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
-               bevel=0.05, soft=1.8)
+    # Tailoring is a plane change, not a gradient.  Two closer cel bands and a
+    # much tighter blur give the shoulders a front, a turn and a shadow instead
+    # of the broad airbrushed dome that made every garment look like a pillow.
+    bust.bands(c, [dh.cloth_shadow, palette.darken(dh.cloth_shadow, 0.055)],
+               (0.46, 0.21), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
+               bevel=0.035, soft=0.62)
     bust.stroke(c, st.ink_w * st.line * 0.85, dh.cloth_line, inset=st.ink_w * st.line * 0.42)
     neck_kind = demography.collar(genes)
     bust_cov = bust.full_coverage(c)
+    # A hard, lit shoulder plane along the real trapezius edge.  It is clipped
+    # to the torso, so it cannot draw a plate over the background, and it is
+    # painted before the seams and collar: the construction marks sit on top of
+    # the form rather than in place of it.
+    w = float(st.shoulder_w)
+    nx = max(float(st.neck_w) * 1.35, 0.135)
+    for side in (+1, -1):
+        edge = [(side * (nx + (w * 0.86 - nx) * i / 8.0),
+                 head.shoulder_edge_y(st, side * (nx + (w * 0.86 - nx) * i / 8.0))
+                 - 0.010)
+                for i in range(9)]
+        plane = S.lock(edge, w0=0.017, w1=0.008, bulge=0.004, per_segment=6)
+        brush.paint(c, plane, palette.lighten(dh.cloth_hi, 0.035),
+                    clip=bust_cov, alpha=0.24, soft=0.70)
+        brush.paint(c, plane.place(cy=-0.020), dh.cloth_shadow,
+                    clip=bust_cov, alpha=0.16, soft=1.0)
     detail.paint_bust(c, st, dh, genes, neck_kind, bust_cov)
     regalia.paint_bust(c, st, dh, genes, kit, neck_kind, bust_cov)
     # Hair in front of the body casts onto the neck and the collar.  This goes
@@ -178,7 +199,12 @@ def compose_posed(genes: dict, size=384, background: bool = True,
 
     # --- 4. head ----------------------------------------------------------
     skull_surf.paint(c, h.skin)
-    skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21), volume=head.volume(st, turn),
+    # A passport photograph is lit from the front, not from the side of a film
+    # poster.  The side-key used everywhere else in the package turned one whole
+    # cheek into a hard shadow and made the eye socket read as a bruise; the
+    # portrait keeps a small modelling offset but puts the key near the lens.
+    skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21),
+                     volume=head.volume(st, turn), light=(-0.18, 0.52),
                      bevel=0.055, soft=1.6)
     # No ear repaint.  The ear's exposed half sits exactly at the face's edge,
     # where the skin patch and the helix arc read as a pair of tan bumps or wire

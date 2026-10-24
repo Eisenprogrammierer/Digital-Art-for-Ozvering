@@ -48,7 +48,8 @@ def background(canvas, seed=0) -> None:
 
 def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
            tincture=None, backdrop=None, light=LIGHT,
-           facing: str = "right") -> Canvas:
+           facing: str = "right", colours=None, garment=None,
+           build: float = 1.0, hair_long: bool = False) -> Canvas:
     """One frame of one figure.  Pure: the same call is the same bytes.
 
     ``facing`` is one of :data:`FACINGS`.  A left-facing figure is the right-facing
@@ -65,7 +66,8 @@ def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
     angles = rig.pose(cycle_lib.angles(cycle, phase, s))
     root = (0.0, rig.STAND + cycle_lib.rise(cycle, phase, s))
     pts = body.to_world(rig.points(angles, lengths, root=root))
-    st = body.style(seed, tincture=tincture)
+    st = body.style(seed, tincture=tincture, colours=colours, garment=garment,
+                    build=build, hair_long=hair_long)
     st["light"] = light
 
     canvas = Canvas(int(size), int(size), scale=float(size))
@@ -82,7 +84,8 @@ def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
 
 def frames(seed=0, cycle: str = "walk", count: int = 8, size: int = 96,
            tincture=None, backdrop=None, light=LIGHT,
-           facing: str = "right") -> tuple:
+           facing: str = "right", colours=None, garment=None,
+           build: float = 1.0, hair_long: bool = False) -> tuple:
     """A whole cycle: the frames and the phases they were drawn at.
 
     The phases tile one turn from 0 inclusive to ``2*pi`` exclusive, so the loop
@@ -96,7 +99,9 @@ def frames(seed=0, cycle: str = "walk", count: int = 8, size: int = 96,
     period = cycle_lib.period(cycle)
     phases = [period * (i / count) for i in range(count)]
     frames_out = [render(seed, cycle, p, size=size, tincture=tincture,
-                         backdrop=backdrop, light=light, facing=facing)
+                         backdrop=backdrop, light=light, facing=facing,
+                         colours=colours, garment=garment, build=build,
+                         hair_long=hair_long)
                   for p in phases]
     return frames_out, phases
 
@@ -106,7 +111,8 @@ def cycles() -> tuple:
     return cycle_lib.CYCLES
 
 
-def describe(seed=0, tincture=None) -> dict:
+def describe(seed=0, tincture=None, colours=None, garment=None,
+             build: float = 1.0, hair_long: bool = False) -> dict:
     """The figure as a table: its proportions, its gait, its colours.
 
     What an asset registry wants and a caption cannot say: the numbers behind the
@@ -114,7 +120,8 @@ def describe(seed=0, tincture=None) -> dict:
     a sheet of them can be told apart without looking.
     """
     lengths = rig.proportions(seed)
-    st = body.style(seed, tincture=tincture)
+    st = body.style(seed, tincture=tincture, colours=colours, garment=garment,
+                    build=build, hair_long=hair_long)
     return {
         "seed": int(seed),
         "height": body.HEIGHT,

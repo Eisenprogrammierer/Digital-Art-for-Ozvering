@@ -67,11 +67,11 @@ HAIR_STYLES = {
     "short":  dict(vol=0.045, bangs=7, bw=0.245, blen=0.55, sides=0, sw=0.100, sdrop=0.180, near=False,
                    back=8, kw=0.300, kdrop=0.180, crest=0, spike=0, cap_r=3.00, flare=1.02, temple_lift=0.045, peak=0.008, sideburn=0,
                    tuft=0.0),
-    "bob":    dict(vol=0.078, bangs=7, bw=0.260, blen=0.75, sides=2, sw=0.200, sdrop=0.560,
+    "bob":    dict(vol=0.078, bangs=7, bw=0.260, blen=0.75, sides=3, sw=0.200, sdrop=0.560,
                    back=9, kw=0.345, kdrop=0.740, crest=0, spike=0, cap_r=1.70, flare=1.18),
-    "long":   dict(vol=0.090, bangs=7, bw=0.275, blen=0.60, sides=2, sw=0.210, sdrop=1.080,
+    "long":   dict(vol=0.090, bangs=7, bw=0.275, blen=0.60, sides=3, sw=0.210, sdrop=1.080,
                    back=10, kw=0.360, kdrop=1.100, crest=0, spike=0, cap_r=1.25, flare=1.36),
-    "hime":   dict(vol=0.080, bangs=9, bw=0.240, blen=0.82, sides=2, sw=0.210, sdrop=1.000,
+    "hime":   dict(vol=0.080, bangs=9, bw=0.240, blen=0.82, sides=3, sw=0.210, sdrop=1.000,
                    back=10, kw=0.350, kdrop=1.000, crest=0, spike=0, cap_r=1.30, flare=1.30,
                    straight=True),
     "twin":   dict(vol=0.076, bangs=7, bw=0.245, blen=0.65, sides=0, sw=0.270, sdrop=0.900, near=False,
@@ -365,7 +365,11 @@ def _strand(spine, tip_w: float, top: float, per_segment: int, resample: int) ->
     top of it, so the line disappears into the mass instead of crossing it.
     """
     w = max(float(tip_w), 1e-3)
-    return (S.lock(spine, w0=w * 0.55, w1=w * 0.95, bulge=0.0,
+    # Four fifths of the parent's tip, not ninety-five hundredths: the two are
+    # sampled on the same spine but not on the same polygon, and a tail that
+    # curves at its end can put a strand vertex a thousandth of a unit outside
+    # its clump.  That is ink on skin, which is the one thing this must not do.
+    return (S.lock(spine, w0=w * 0.48, w1=w * 0.80, bulge=0.0,
                    per_segment=per_segment, resample=resample), float(top))
 
 
@@ -398,7 +402,11 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
     strand line has to fade out as it approaches *its own* root, and only the
     builder knows where that is.  The strands come back with them.
     """
-    n = int(p["bangs"])
+    # A fringe is a row of locks, and six is not a row: the cap behind them
+    # shows through as one smooth visor and each lock gets so wide that it has
+    # to be shaded as a slab.  Three extra clumps cost almost nothing and give
+    # the fringe the density the silhouette promised.
+    n = int(p["bangs"]) + 5
     bw, vol = float(p["bw"]), float(p["vol"])
     fill = float(p.get("blen", 1.0))
     straight = bool(p.get("straight", False))
@@ -434,7 +442,7 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
             # A combed fringe has uneven ends; a row of identical tips is a
             # sawtooth, but a row of identical *lengths* is a bowl.  The tip keeps
             # a tenth of the clump's width: a needle tip is the sawtooth.
-            jitter, tip_w = float(rng.uniform(0.52, 1.45)), None
+            jitter, tip_w = float(rng.uniform(0.35, 1.55)), None
         sweep = float(np.clip((uu - part_u) * 2.20, -0.85, 0.85))
         # The fringe stops *above* the brow.  A swept fringe should leave one
         # side of the forehead visible and cross the other side diagonally; a
@@ -462,7 +470,7 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
             # bottom edge is a series of steps.  Without this every clump lands in
             # the same narrow band (the brow ceiling) and the row reads as a level
             # curtain however uneven the jitter is.
-            tier = 1.0 if i % 2 == 0 else 0.34
+            tier = 1.0 if i % 2 == 0 else 0.22
             local_fill = float(np.clip(local_fill * 0.55 + tier * 0.45, 0.08, 0.98))
         length = (short + (long - short) * local_fill) * jitter * edge
         # A hard ceiling at one height is what made every long clump end on the
@@ -478,13 +486,14 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
         mid = np.array([root[0] * 1.05 + sway * 0.40 + sweep * 0.050,
                         root[1] - length * 0.50])
         spine = [root, mid, tip]
-        cw = bw * float(rng.uniform(0.32, 0.50))
+        cw = bw * float(rng.uniform(0.15, 0.25))
         if tip_w is None:
-            # A fringe clump is a ribbon, not a needle.  The old tenth-width tip
-            # made a row of spikes whose gaps read as triangular holes in the
-            # forehead; a broad cut end lets neighbouring clumps overlap while
-            # their different lengths still draw a layered hem.
-            tip_w = cw * float(rng.uniform(0.40, 0.58))
+            # A combed lock narrows towards its cut end.  A full-width tip made
+            # every clump end on the same broad curve, so nine locks still read
+            # as one visor; a tenth-width needle makes a saw.  The middle of that
+            # range gives each lock a point that can be seen without becoming a
+            # row of spikes.
+            tip_w = cw * float(rng.uniform(0.10, 0.22))
         bulge = bw * 0.045
         out.append(S.lock(spine, w0=cw, w1=tip_w, bulge=bulge,
                           per_segment=7, resample=32))
@@ -493,8 +502,11 @@ def _bangs(st, p: dict, rng, turn: float) -> tuple:
         # and the same width profile.  The old strand was the whole clump eroded
         # by a tenth of a pixel, which is why the fringe read as one flat slab:
         # it painted a tonal wash over every clump instead of drawing a strand.
-        strands.append((_inner_lock(spine, cw, tip_w, bulge, 7, 32),
-                        mid[1] + 0.03))
+        # The strand runs from just under the root to the cut end.  Fading it at
+        # the midpoint left the upper half of the fringe a flat field, which is
+        # exactly the part the eye reads first.
+        strands.append((_inner_lock(spine, cw, tip_w, bulge, 7, 32, shrink=0.44),
+                        float(root[1]) - 0.025))
     return out, roots, strands
 
 
@@ -532,13 +544,16 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
                         float(st.head_w) * 1.02)
             tip = np.array([sign * (out_x - 0.032), root[1] - length])
             mid = np.array([sign * (out_x + bow), root[1] - length * 0.42])
-            base_w = sw * 0.88 * (1.0 - 0.30 * k) * float(rng.uniform(0.90, 1.06))
+            # A curtain is one lock among many, not a whole flap.  Narrower
+            # sheets, more of them, and the cap underneath still closes the gaps:
+            # this is the difference between hair and a stack of plates.
+            base_w = sw * 0.52 * (1.0 - 0.28 * k) * float(rng.uniform(0.84, 1.10))
             # A curtain is narrow at the parting and widens as it falls past the
             # cheek, then narrows again at the cut end.  The old tip kept most of
             # the lock's width, which is what turned a bob into two rounded flaps
             # hanging over the ears.
             spine = [root, mid, tip]
-            cw0, cw1 = base_w * 0.30, base_w * float(rng.uniform(0.34, 0.50))
+            cw0, cw1 = base_w * 0.26, base_w * float(rng.uniform(0.18, 0.32))
             bulge = base_w * 0.13
             out.append(S.lock(spine, w0=cw0, w1=cw1, bulge=bulge,
                               per_segment=7, resample=34))
@@ -576,7 +591,7 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
                         float(st.head_w) * 0.98)
             tip = np.array([sign * (out_x - 0.040), root[1] - length])
             mid = np.array([sign * (out_x + 0.026), root[1] - length * 0.46])
-            front_w = sw * float(rng.uniform(0.30, 0.40))
+            front_w = sw * float(rng.uniform(0.36, 0.46))
             spine = [root, mid, tip]
             out.append(S.lock(spine, w0=front_w, w1=front_w * 0.56,
                               bulge=front_w * 0.20, per_segment=7, resample=32))
@@ -584,26 +599,33 @@ def _sidelocks(st, p: dict, rng, turn: float) -> tuple:
             strands.append((_inner_lock(spine, front_w, front_w * 0.56,
                                         front_w * 0.20, 7, 32),
                             mid[1] + 0.03))
-        # The outer, shorter layer is painted last.  It is the piece a layered
-        # bob actually shows: the long curtain continues below it, so the hem is
-        # a step where the short layer ends, not one broad cut.  This is also the
-        # only lock allowed to sit outside the cap: it is what makes the lower
-        # silhouette the lock row rather than the hull.
+        # The outer layers are painted last.  A single short layer gives a bob
+        # one step; two layers at different lengths and radii give the side a
+        # *stack* of cut ends, which is what the lower silhouette has to be if it
+        # is not to read as the smooth hull of a helmet.  They are also the only
+        # locks allowed outside the cap, so the eye follows their steps rather
+        # than the skull's arc.
         if n:
-            th = np.pi * (0.180 if sign > 0 else 0.820)
-            root = _root(st, vol, th, turn, inset=sw * 0.62)
-            length = drop * float(rng.uniform(0.86, 1.00))
-            out_x = max(float(st.head_w) * 1.04 + vol * 0.30 - sw * 0.10,
-                        float(st.head_w) * 1.08) + float(rng.uniform(0.0, 0.012))
-            tip = np.array([sign * (out_x - 0.038), root[1] - length])
-            mid = np.array([sign * (out_x + 0.044), root[1] - length * 0.46])
-            ow = sw * float(rng.uniform(0.52, 0.64))
-            spine = [root, mid, tip]
-            out.append(S.lock(spine, w0=ow, w1=ow * 0.42,
-                              bulge=ow * 0.20, per_segment=7, resample=34))
-            roots.append(float(root[1]))
-            strands.append((_inner_lock(spine, ow, ow * 0.42, ow * 0.20, 7, 34),
-                            mid[1] + 0.03))
+            for j in range(3):
+                th = np.pi * ((0.174 + 0.012 * j) if sign > 0
+                              else (0.826 - 0.012 * j))
+                root = _root(st, vol, th, turn, inset=sw * (0.62 - 0.020 * j))
+                length = drop * (0.38 + 0.22 * j) * float(rng.uniform(0.78, 1.24))
+                out_x = max(float(st.head_w) * (1.025 + 0.010 * j)
+                            + vol * 0.28 - sw * (0.105 - 0.010 * j),
+                            float(st.head_w) * (1.060 + 0.010 * j))
+                out_x += float(rng.uniform(-0.006, 0.014)) + 0.006 * j
+                tip = np.array([sign * (out_x - 0.030 - 0.006 * j),
+                                root[1] - length])
+                mid = np.array([sign * (out_x + 0.038 - 0.004 * j),
+                                root[1] - length * 0.46])
+                ow = sw * float(rng.uniform(0.24, 0.34)) * (1.0 - 0.06 * j)
+                spine = [root, mid, tip]
+                out.append(S.lock(spine, w0=ow, w1=ow * 0.20,
+                                  bulge=ow * 0.22, per_segment=7, resample=34))
+                roots.append(float(root[1]))
+                strands.append((_inner_lock(spine, ow, ow * 0.16, ow * 0.22,
+                                            7, 34), mid[1] + 0.03))
     return out, roots, strands
 
 
@@ -750,8 +772,9 @@ def _cap_flow(st, p: dict, rng, turn: float) -> tuple:
     The cap is one filled surface, and one filled surface is a helmet no matter
     what colour it is.  These locks are paint-only and clipped to the cap: they
     never alter the silhouette and cannot reach the face, but they put the
-    direction back into the crown.  Each side gets five sheets of unequal width,
-    so the top of the head reads as hair combed away from a part rather than as a
+    direction back into the crown.  Each side gets seven sheets of unequal width
+    -- four combed down to the hairline and three over the upper temple -- so the
+    top of the head reads as hair combed away from a part rather than as a
     pressed-felt dome.  The lines return separately because they are painted
     after every sheet, exactly like the strands inside a fringe clump.
     """
@@ -761,11 +784,15 @@ def _cap_flow(st, p: dict, rng, turn: float) -> tuple:
     part_x = part * float(st.head_w) * 0.26
     locks, lines = [], []
     for side in (+1.0, -1.0):
-        for k in range(5):
-            u = (k + 0.5) / 5.0
-            tip_x = side * float(st.head_w) * (0.11 + 0.68 * u)
-            tip_y = hairline + 0.010 - 0.036 * u
-            root_x = part_x + side * float(st.head_w) * (0.015 + 0.095 * u)
+        for k in range(4):
+            u = (k + 0.5) / 4.0
+            # The combing has to reach the silhouette.  A handful of sheets that
+            # stopped a third of the way out left the sides of the cap one smooth
+            # field, which no amount of extra shading can disguise: the outer
+            # third is exactly what the eye sees as a helmet rim.
+            tip_x = side * float(st.head_w) * (0.16 + 1.02 * u)
+            tip_y = hairline + 0.010 - 0.040 * u
+            root_x = part_x + side * float(st.head_w) * (0.015 + 0.115 * u)
             root_y = hairline + 0.195 + 0.020 * (1.0 - u)
             mid = np.array([(root_x + tip_x) * 0.5 + side * 0.012,
                             (root_y + tip_y) * 0.5 + 0.010], dtype=np.float64)
@@ -777,7 +804,33 @@ def _cap_flow(st, p: dict, rng, turn: float) -> tuple:
             bulge = w0 * 0.10
             locks.append((S.lock(spine, w0=w0, w1=w1, bulge=bulge,
                                  per_segment=6, resample=28), side))
-            lines.append((_inner_lock(spine, w0, w1, bulge, 6, 28, shrink=0.085),
+            lines.append((_inner_lock(spine, w0, w1, bulge, 6, 28, shrink=0.110),
+                          side))
+        # The combing cannot all end at the hairline.  The upper sides of the
+        # cap are above that line and were left as one smooth field, which is
+        # exactly the smooth rim that read as a helmet.  Three more sheets per
+        # side run from the parting over the temple and out to the cap's own
+        # edge, still paint-only and still clipped.
+        for k in range(3):
+            u = (k + 0.5) / 3.0
+            # Follow the cap's own arc rather than a straight ray: the cap is
+            # narrower near the top than its bounding box, and a sheet aimed at
+            # the box lands outside the silhouette and is clipped away entirely.
+            tip_x = side * float(st.head_w) * (0.82 + 0.30 * u)
+            tip_y = hairline + 0.170 - 0.090 * u
+            root_x = part_x + side * float(st.head_w) * (0.030 + 0.050 * u)
+            root_y = hairline + 0.215
+            mid = np.array([(root_x + tip_x) * 0.5 + side * 0.018,
+                            (root_y + tip_y) * 0.5 + 0.028], dtype=np.float64)
+            spine = [np.array([root_x, root_y]), mid,
+                     np.array([tip_x, tip_y])]
+            w0 = float(st.head_w) * (0.072 + 0.020 * (1.0 - u)) \
+                * float(rng.uniform(0.90, 1.12))
+            w1 = w0 * 0.52
+            bulge = w0 * 0.16
+            locks.append((S.lock(spine, w0=w0, w1=w1, bulge=bulge,
+                                 per_segment=6, resample=28), side))
+            lines.append((_inner_lock(spine, w0, w1, bulge, 6, 28, shrink=0.120),
                           side))
     return locks, lines
 
@@ -975,7 +1028,7 @@ def _trim_cap_for_locks(cap: Shape, st, sides) -> Shape:
     # The cut sits a little above the ear, where a bob's curtain actually takes
     # over from the skull.  A straight line is hidden under the roots and the
     # overlapping locks; it is not a visible hem.
-    trim_y = float(st.eye_y) + 0.065
+    trim_y = float(st.eye_y) + 0.045
     below = S.box(float(st.head_w) * 3.0, 1.0, 0.0, 0.0, trim_y - 1.0)
     lower = cap & below
     # Keep a narrow backing only where the locks already cover it.  It prevents a
@@ -1024,7 +1077,7 @@ def build(st, genes: dict, rng=None, turn: float = 0.0, skull: Shape | None = No
     clear = union_all(_eye_clearance(eye_st or st, turn, eye_expr, asym))
     bangs = [clump - clear for clump in bangs]
     side_seed = int(rng.integers(0, 2**31 - 1))
-    sides = [_roughen_hull(lock, side_seed + 37 * i, amp=0.011, freq=12.0) - clear
+    sides = [_roughen_hull(lock, side_seed + 37 * i, amp=0.012, freq=12.0) - clear
              for i, lock in enumerate(sides)]
     # The ink inside a lock is clipped by the same opening as the lock.  Clipping
     # only the clump leaves its strand crossing the eye at full strength, which is
@@ -1162,16 +1215,17 @@ def _paint_locks(canvas, st, hues, h: Hair, locks, strands=()) -> None:
         # deliberately tiny -- a few percent -- so it layers the mass without
         # turning each lock into its own coloured stripe.
         if i % 3 == 1:
-            s.paint(canvas, hues.hair_shadow, alpha=0.090)
+            s.paint(canvas, hues.hair_shadow, alpha=0.135)
         elif i % 3 == 2:
-            s.paint(canvas, hues.hair_fine, alpha=0.055)
+            s.paint(canvas, hues.hair_fine, alpha=0.085)
         s.bands(canvas, [hues.hair_shadow, hues.hair_deep], (0.44, 0.15),
                 volume=dome, bevel=0.030, soft=0.8)
         # The lock boundaries are carried by the tint and the bands.  Inking
         # every one of them was the straw: at 256 px each outline is a wire.
 
 
-def _paint_strands(canvas, hues, strands, lw: float, clip=None, alpha: float = 0.52) -> None:
+def _paint_strands(canvas, hues, strands, lw: float, clip=None, alpha: float = 0.52,
+                   colour=None) -> None:
     """The lines drawn *inside* locks, in one pass after every fill is down.
 
     Shared by the fringe and the crest, which differ only in where the fade
@@ -1191,7 +1245,8 @@ def _paint_strands(canvas, hues, strands, lw: float, clip=None, alpha: float = 0
         amt = np.clip((top - Yg[rows, cols]) / 0.10, 0.0, 1.0)
         if clip is not None:
             amt = amt * clip[rows, cols]
-        s.paint(canvas, hues.line_hair, mask=amt, alpha=float(alpha), soft=1.0)
+        s.paint(canvas, hues.line_hair if colour is None else colour,
+                mask=amt, alpha=float(alpha), soft=1.0)
 
 
 def paint_back(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
@@ -1253,7 +1308,7 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
     #
     if h.fringe_base is not None:
         base = brush.Surface(canvas, h.fringe_base, pad=2.6 * lw)
-        base.paint(canvas, palette.mix(hues.hair, hues.hair_shadow, 0.10))
+        base.paint(canvas, palette.mix(hues.hair, hues.hair_shadow, 0.30))
         base.bands(canvas, [hues.hair_shadow, hues.hair_deep], (0.50, 0.16),
                    volume=dome, bevel=0.0, soft=0.5)
 
@@ -1267,17 +1322,32 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
             # of tint on alternating clumps is enough to separate them at 384 px
             # without each one becoming its own coloured stripe.
             if i % 3 == 1:
-                s.paint(canvas, hues.hair_fine, alpha=0.125)
+                s.paint(canvas, hues.hair_fine, alpha=0.230)
             elif i % 3 == 2:
-                s.paint(canvas, hues.hair_shadow, alpha=0.105)
+                s.paint(canvas, hues.hair_shadow, alpha=0.205)
             # A soft inner contour along each clump.  Not an ink line: the colour
             # is close to the fill's own shadow and the blur is wider than a
             # stroke, so it reads as the crease where one lock lies over the next.
             # Without it the fringe is a row of same-valued shapes and the hem is
             # the only thing that separates them.
-            s.stroke(canvas, lw * 0.52,
-                     palette.mix(hues.hair_shadow, hues.hair, 0.30),
-                     inset=lw * 0.12, alpha=0.16, soft=1.1)
+            s.stroke(canvas, lw * 0.48,
+                     palette.mix(hues.hair_shadow, hues.hair, 0.24),
+                     inset=lw * 0.12, alpha=0.06, soft=1.2)
+            # The cut end of a fringe clump has an underside.  Without it the
+            # row of tips merges into one smooth visor at avatar size; with it
+            # each lock ends on its own small plane and the hem reads layered.
+            fbx0, fby0, fbx1, fby1 = clump.bbox
+            fw = max(float(fbx1) - float(fbx0), 1e-4)
+            fcx = 0.5 * (float(fbx0) + float(fbx1))
+            fh = min(0.010, max(0.004, (float(fby1) - float(fby0)) * 0.045))
+            brush.paint(canvas,
+                        clump & S.box(fw * 0.40, fh * 0.52, fh * 0.25,
+                                      fcx, float(fby0) + fh * 0.56),
+                        hues.hair_deep, clip=clump, alpha=0.18, soft=0.45)
+            brush.paint(canvas,
+                        clump & S.box(fw * 0.34, fh * 0.18, fh * 0.10,
+                                      fcx, float(fby0) + fh * 1.45),
+                        hues.hair_fine, clip=clump, alpha=0.075, soft=0.60)
         else:
             # A sidelock is a broad sheet hanging beside the face.  Each one needs
             # its own value as well as its own edge, or three overlapping curtains
@@ -1286,31 +1356,90 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
             cx = 0.5 * (float(clump.bbox[0]) + float(clump.bbox[2]))
             sgn = 1.0 if cx >= 0.0 else -1.0
             if k % 3 == 1:
-                s.paint(canvas, hues.hair_fine, alpha=0.085)
+                s.paint(canvas, hues.hair_fine, alpha=0.135)
             elif k % 3 == 2:
-                s.paint(canvas, hues.hair_shadow, alpha=0.070)
+                s.paint(canvas, hues.hair_shadow, alpha=0.120)
             # The sideburn is a fifth of a curtain's width; a fixed 0.04 shift
             # would move a shading shape completely outside it.  Scale the bands
             # to the lock so the same painter can shade both.
             width = max(float(clump.bbox[2]) - float(clump.bbox[0]), 1e-4)
             inner = clump - clump.place(cx=sgn * min(0.040, width * 0.28))
             outer = clump - clump.place(cx=-sgn * min(0.046, width * 0.32))
-            brush.multiply(canvas, inner, 0.66, clip=clump, alpha=0.36)
-            # A lit outside edge, not just a slightly less dark flap.  On black
-            # hair a multiply of 1.06 is nothing; the lock needs a real rim value
-            # or the curtain is a silhouette with no thickness.
+            brush.multiply(canvas, inner, 0.61, clip=clump, alpha=0.46)
+            # A lit outside edge, not just a slightly less dark flap.  On pale
+            # hair a strong line turns every lock into a plate, so the rim is a
+            # narrow breath of light; the inner multiply and the strand carry the
+            # separation.
             brush.paint(canvas, outer, hues.hair_fine, clip=clump,
-                        alpha=0.145, soft=1.0)
+                        alpha=0.085, soft=1.2)
             # A soft crease inside the lock: this is what makes three overlapping
             # curtains read as three locks instead of one rectangular flap.
             if width > 0.035:
-                s.stroke(canvas, lw * 0.55,
-                         palette.mix(hues.hair_shadow, hues.hair, 0.26),
-                         inset=lw * 0.10, alpha=0.20, soft=1.0)
+                s.stroke(canvas, lw * 0.58,
+                         palette.mix(hues.hair_shadow, hues.hair, 0.22),
+                         inset=lw * 0.10, alpha=0.31, soft=0.9)
+                # The cut end of every curtain gets its own underside and a lit
+                # lip above it.  Without this the outermost lock is a silhouette
+                # with no thickness, and the eye reads the smooth union as a bob
+                # helmet even when the contour steps.  The bands are clipped to
+                # the lock, so they cannot spill onto the cheek.
+                height = max(float(clump.bbox[3]) - float(clump.bbox[1]), 1e-4)
+                bottom = float(clump.bbox[1])
+                hem = min(0.014, max(0.006, height * 0.055))
+                brush.paint(canvas,
+                            clump & S.box(width * 0.46, hem * 0.55,
+                                          hem * 0.30, cx, bottom + hem * 0.52),
+                            hues.hair_deep, clip=clump, alpha=0.26, soft=0.42)
+                brush.paint(canvas,
+                            clump & S.box(width * 0.38, hem * 0.22,
+                                          hem * 0.12, cx, bottom + hem * 1.42),
+                            hues.hair_fine, clip=clump, alpha=0.11, soft=0.70)
+    # The per-clump contour painted inside the loop is mostly covered by the
+    # clump in front of it, which is precisely why the fringe still read as one
+    # incised slab.  Here every clump gets a second, *exposed* contour: only the
+    # part of the lock that the later locks did not cover is stroked, so the line
+    # follows the visible boundary between two locks instead of their hidden
+    # construction seam.  It is still a tone, not an ink line -- the silhouette
+    # is inked once elsewhere -- but it is the difference between a stack of
+    # locks and a dome with grooves scratched into it.
+    clumps = h.bangs + h.sides
+    for i, clump in enumerate(clumps):
+        front = union_all(clumps[i + 1:]) if i + 1 < len(clumps) else None
+        visible = clump if front is None else (clump - front)
+        bx0, by0, bx1, by1 = clump.bbox
+        hh = max(float(by1) - float(by0), 1e-4)
+        # The part of this lock that is still visible after the locks in front
+        # have been laid down.  The cut end of that sliver is a real edge -- the
+        # one the eye reads as a lock ending over the one behind it -- so it gets
+        # an underside.  The *sides* of the sliver are construction seams and
+        # deliberately do not: stroking the whole exposed contour drew a fishbone
+        # of chevrons across the fringe.
+        # A lock is a plane, not a line.  Every other exposed sliver gets a
+        # broad, soft value step; the step is the lock's own plane lying over the
+        # one behind, and because it is the *visible* part only, it cannot draw a
+        # construction seam across the lock in front of it.  This is what stops
+        # the fringe being one flat visor without returning to the fishbone.
+        if i % 2:
+            brush.paint(canvas, visible, hues.hair_shadow, alpha=0.27, soft=1.8)
+        else:
+            brush.paint(canvas, visible, hues.hair_fine, alpha=0.13, soft=1.8)
+        lift = min(0.014, max(0.006, hh * (0.050 if i < len(h.bangs) else 0.070)))
+        hem = visible - visible.place(cy=lift)
+        brush.paint(canvas, hem, hues.hair_deep, alpha=0.34, soft=0.42)
+        lip = (visible - visible.place(cy=lift * 1.75)) - hem
+        brush.paint(canvas, lip, hues.hair_fine, alpha=0.075, soft=0.55)
+
     # Fringe roots are construction detail, not a visible plane.  Repaint the
     # cap above the hairline so the lighter fringe colour cannot show through as
     # angular shards across the crown; the hem below the hairline still reads.
     cap_cov = brush.mask(canvas, h.cap)
+    _, Ycrown = canvas.grid()
+    # Crown paint stops at the hairline.  The cap itself continues below as a
+    # backing under the locks, but the flow lines and crown sheets are *combing*,
+    # not fringe: painted over the backing they drew a fan of long lines across
+    # the clumps, which is the fishbone that made the fringe look engraved.
+    crown_cov = cap_cov * np.clip(
+        (Ycrown - (head.hairline_y(st) - 0.030)) / 0.030, 0.0, 1.0)
     if cap_cov.max() > 0.0:
         _, Yg = canvas.grid()
         above = np.clip((Yg - (head.hairline_y(st) - 0.015)) / 0.030, 0.0, 1.0)
@@ -1324,7 +1453,16 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         _, Yc = canvas.grid()
         roll = np.clip((Yc - (head.hairline_y(st) - 0.04)) / 0.34, 0.0, 1.0)
         brush.paint_cov(canvas, cap_cov * (1.0 - roll), hues.hair_shadow,
-                        alpha=0.16, soft=2.0)
+                        alpha=0.225, soft=2.0)
+        # A single vertical roll is still a cylinder.  A shallow left-to-right
+        # key gives the crown a light side and a dark side, which is what makes
+        # the dome read as a volume rather than a painted pellet.
+        _, Xc = canvas.grid()
+        key = np.clip((Xc / max(float(st.head_w), 1e-6) + 1.0) * 0.5, 0.0, 1.0)
+        brush.paint_cov(canvas, crown_cov * key, hues.hair_shadow,
+                        alpha=0.085, soft=2.6)
+        brush.paint_cov(canvas, crown_cov * (1.0 - key),
+                        hues.hair_fine, alpha=0.065, soft=2.6)
         # The parting is a soft, short valley, not a hard drawn line.  Without
         # it the crown is one combed plate and the fringe has no origin.
         part = float(h.p.get("part") or 0.0)
@@ -1335,11 +1473,34 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         brush.paint(canvas, part_line & h.cap, hues.hair_shadow,
                     alpha=0.13, soft=1.6)
         for i, lock in enumerate(h.crown):
-            # Multiply, rather than paint a flat sheet, so the crown keeps the
-            # cap's texture and reads as a change of plane instead of a band of
-            # a different hair colour.
-            brush.multiply(canvas, lock & h.cap, 0.975 if i % 2 else 1.035,
-                           alpha=0.050 if i % 2 else 0.040)
+            # Crown sheets carry the same value difference as the fringe clumps.
+            # A one-percent multiply is invisible on pale hair, and the top of
+            # the head then stays a single pressed-felt dome.  The sheet is
+            # clipped to the cap, so this is still paint on the existing form,
+            # not a second silhouette.
+            body = lock & h.cap
+            if i % 2:
+                brush.paint(canvas, body, hues.hair_shadow,
+                            clip=crown_cov, alpha=0.340, soft=0.65)
+            else:
+                brush.paint(canvas, body, hues.hair_fine,
+                            clip=crown_cov, alpha=0.230, soft=0.75)
+            # A broad lock needs an edge, not just a value.  The edge is soft and
+            # clipped to the crown; on five sheets it reads as the seam between
+            # combs, while the same line on every fringe clump was the fishbone.
+            brush.paint(canvas, lock.outline(lw * 0.42), hues.hair_shadow,
+                        clip=crown_cov, alpha=0.255, soft=0.65)
+        # One lit ridge and one crease along each sheet's own long edge.  These
+        # are what make the crown read as overlapping locks rather than as a
+        # soft airbrushed gradient.
+        for i, lock in enumerate(h.crown):
+            cx = 0.5 * (float(lock.bbox[0]) + float(lock.bbox[2]))
+            sgn = 1.0 if cx >= 0.0 else -1.0
+            ridge = (lock - lock.place(cx=sgn * 0.012)) & h.cap
+            brush.paint(canvas, ridge, hues.hair_fine, clip=crown_cov,
+                        alpha=0.085 if i % 2 else 0.055, soft=0.70)
+            crease = (lock - lock.place(cx=-sgn * 0.014)) & h.cap
+            brush.multiply(canvas, crease, 0.82, clip=crown_cov, alpha=0.30)
         # Directional sheets.  Without these the crown is a pressed-felt dome
         # however good its silhouette is.  They are clipped to the cap, so they
         # can neither change the outline nor reach the forehead.
@@ -1349,23 +1510,35 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
             # is invisible, and the crown stays a plate.  Each sheet now gets a
             # broad value and a narrower ridge highlight along one edge.
             if i % 3 == 1:
-                brush.paint(canvas, lock, hues.hair_fine, clip=h.cap,
-                            alpha=0.115, soft=1.5)
+                brush.paint(canvas, lock, hues.hair_fine, clip=crown_cov,
+                            alpha=0.205, soft=1.2)
             elif i % 3 == 2:
-                brush.paint(canvas, lock, hues.hair_shadow, clip=h.cap,
-                            alpha=0.100, soft=1.5)
+                brush.paint(canvas, lock, hues.hair_shadow, clip=crown_cov,
+                            alpha=0.190, soft=1.2)
             else:
-                brush.paint(canvas, lock, hues.hair_fine, clip=h.cap,
-                            alpha=0.085, soft=1.5)
+                brush.paint(canvas, lock, hues.hair_fine, clip=crown_cov,
+                            alpha=0.155, soft=1.2)
             ridge = lock - lock.place(cx=float(side) * 0.018)
-            brush.paint(canvas, ridge, hues.hair_hi, clip=h.cap,
-                        alpha=0.050, soft=0.8)
-        for line, _side in h.flow_lines:
-            # The strands are nearly invisible on purpose: a full starburst of
-            # lit lines converged on the parting and read as a wire frame.  They
-            # survive only as a faint grain; the sheets above carry the direction.
-            brush.paint(canvas, line, hues.hair_fine, clip=h.cap,
-                        alpha=0.045, soft=0.9)
+            brush.paint(canvas, ridge, hues.hair_hi, clip=crown_cov,
+                        alpha=0.125, soft=0.75)
+            # The broad dark side of the same sheet.  A tint alone still averages
+            # into the cap when seven sheets overlap; one shaded flank per sheet
+            # gives each combed lock a readable edge without drawing a wire.
+            crease = lock - lock.place(cx=-float(side) * 0.016, cy=-0.004)
+            brush.paint(canvas, crease, hues.hair_shadow, clip=crown_cov,
+                        alpha=0.235, soft=0.95)
+        for i, (line, _side) in enumerate(h.flow_lines):
+            # The sheets carry the direction; the fine lines are the grain that
+            # keeps the crown from reading as a smooth shell.  Too faint and the
+            # top of the head is a helmet; too strong and it is a wire frame.
+            # Alternating lit and shaded threads read as combed strands, while a
+            # field of identical light lines reads as a wire frame.
+            if i % 3 == 1:
+                brush.paint(canvas, line, hues.hair_shadow, clip=crown_cov,
+                            alpha=0.230, soft=0.75)
+            else:
+                brush.paint(canvas, line, hues.hair_fine, clip=crown_cov,
+                            alpha=0.310, soft=0.75)
     # A fringe is a volume, not a flat ribbon: one smooth gradient over the whole
     # fringe, with no per-clump patches to break it into polygons.
     if h.bangs:
@@ -1393,21 +1566,38 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         front_cov = front_cov * np.clip((head.hairline_y(st) - Yg) / 0.020, 0.0, 1.0)
         n_b = len(h.bangs)
         if n_b:
-            _paint_strands(canvas, hues, h.front_strands[:n_b], lw * 0.90,
-                           clip=front_cov)
+            # Half the fringe strands are the dark grain of a lock and half are
+            # the lit fibre beside it.  One value for all of them, however dark,
+            # was invisible against the mass at 384 px; alternating the pair is
+            # what makes a fringe of clumps read as a head of hair, not a shell.
+            bangs = h.front_strands[:n_b]
+            _paint_strands(canvas, hues, bangs[0::2], lw * 0.82,
+                           clip=front_cov, alpha=0.60, colour=hues.hair_deep)
+            _paint_strands(canvas, hues, bangs[1::2], lw * 0.72,
+                           clip=front_cov, alpha=0.50,
+                           colour=palette.mix(hues.hair_fine, hues.hair_hi, 0.42))
+            # A second, lit fibre beside each strand.  One line per clump is a
+            # diagram of a lock; the pair is what makes a fringe look combed at
+            # 384 px.  The offset copy is clipped to the whole fringe, so it can
+            # never put ink on the forehead even where it leaves its own clump.
+            lit = [(strand.place(cx=0.010 if j % 2 == 0 else -0.010), top)
+                   for j, (strand, top) in enumerate(bangs)]
+            _paint_strands(canvas, hues, lit, lw * 0.58,
+                           clip=front_cov, alpha=0.36,
+                           colour=palette.mix(hues.hair_fine, hues.hair_hi, 0.55))
         # A curtain is already separated by its fill, rim and crease.  A dark
         # line down its centre at full fringe weight is the wire that made the
         # side edge look drawn; it survives only as a faint internal grain.
         if len(h.sides):
             _paint_strands(canvas, hues, h.front_strands[n_b:], lw * 0.62,
-                           clip=front_cov, alpha=0.16)
+                           clip=front_cov, alpha=0.29)
     # A broad, low sheen is part of the hair's material even on a matte cut; the
     # narrow crown arcs are only a specular core when the gloss axis asks for it.
     if cap_cov.max() > 0.0:
         for lock in h.shine:
-            brush.paint(canvas, lock, hues.hair_hi, clip=h.cap,
+            brush.paint(canvas, lock, hues.hair_hi, clip=crown_cov,
                         alpha=0.095, soft=1.4)
-            brush.multiply(canvas, lock & h.cap, 1.09, alpha=0.14)
+            brush.multiply(canvas, lock, 1.09, clip=crown_cov, alpha=0.14)
     gloss = float(h.p.get("gloss", 0.0))
     if gloss > 0.12:
         # The narrow crown arcs are a specular core.  On matte hair they read as
@@ -1416,7 +1606,7 @@ def paint_front(canvas, st, hues, h: Hair, turn: float = 0.0, clip=None):
         for lock in h.shine:
             # The shine lives on the cap, not on the fringe; clipping it to the
             # fringe mask (as the strand pass is) erases it.
-            brush.multiply(canvas, lock, 1.24 + 0.070 * gloss, alpha=0.55)
+            brush.multiply(canvas, lock, 1.24 + 0.070 * gloss, clip=crown_cov, alpha=0.55)
 
 
 def describe(h: Hair) -> str:
