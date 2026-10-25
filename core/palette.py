@@ -40,7 +40,6 @@ __all__ = [
     "random_palette",
 ]
 
-# Bjorn Ottosson's OKLab matrices (https://bottosson.github.io/posts/oklab/)
 _M1 = np.array(
     [
         [0.4122214708, 0.5363325363, 0.0514459929],
@@ -59,9 +58,6 @@ _M1_INV = np.linalg.inv(_M1)
 _M2_INV = np.linalg.inv(_M2)
 
 
-# --------------------------------------------------------------------------
-# transfer functions
-# --------------------------------------------------------------------------
 def srgb_to_linear(c) -> np.ndarray:
     """Decode an sRGB-encoded value in ``[0, 1]`` to linear light."""
     c = np.asarray(c, dtype=np.float64)
@@ -76,9 +72,6 @@ def linear_to_srgb(c) -> np.ndarray:
     return np.clip(out, 0.0, 1.0)
 
 
-# --------------------------------------------------------------------------
-# OKLab / OKLCH
-# --------------------------------------------------------------------------
 def srgb_to_oklab(rgb) -> np.ndarray:
     """sRGB (0..1, gamma-encoded) -> OKLab ``(L, a, b)``."""
     lin = srgb_to_linear(rgb)
@@ -167,9 +160,6 @@ def _lch_to_linear_arr(L, C, h) -> np.ndarray:
     return (lms_**3) @ _M1_INV.T
 
 
-# --------------------------------------------------------------------------
-# hex convenience
-# --------------------------------------------------------------------------
 def hex_to_srgb(s: str) -> np.ndarray:
     """``"#rrggbb"`` (or ``"rrggbb"``) -> sRGB triple in ``[0, 1]``."""
     s = s.strip().lstrip("#")
@@ -194,9 +184,6 @@ def oklch_to_hex(lch) -> str:
     return srgb_to_hex(oklch_to_srgb(lch))
 
 
-# --------------------------------------------------------------------------
-# mixing and ramps (all in OKLab / OKLCH)
-# --------------------------------------------------------------------------
 def mix(c1, c2, t: float) -> np.ndarray:
     """Linear blend of two sRGB colours in OKLab; ``t=0`` gives ``c1``."""
     lab = (1.0 - t) * srgb_to_oklab(c1) + t * srgb_to_oklab(c2)
@@ -262,9 +249,6 @@ def delta_e(c1, c2) -> float:
     return float(np.linalg.norm(srgb_to_oklab(c1) - srgb_to_oklab(c2)))
 
 
-# --------------------------------------------------------------------------
-# palette construction
-# --------------------------------------------------------------------------
 def color(L: float, C: float, hue: float) -> np.ndarray:
     """Build an sRGB colour from OKLCH; hue in turns, chroma auto-fitted."""
     return oklch_to_srgb((float(np.clip(L, 0.0, 1.0)), float(C), float(hue)))
@@ -311,9 +295,6 @@ def distinct_palette(n: int, seed: int = 0, min_de: float = 0.16, L: float = 0.6
     jitter = float(rng.random())
     hues = (jitter + np.arange(resolution) / resolution) % 1.0
 
-    # One tonal level suffices for well-spread sets; a demanding target pulls in
-    # extra lightness levels, which is also what gives an icon set its light and
-    # dark variants.
     levels = 1 if n * min_de <= 0.9 else 5
     offsets = np.linspace(-0.22, 0.22, levels) if levels > 1 else np.array([0.0])
     cands = np.concatenate([np.stack([color(L + dl, C, h) for h in hues]) for dl in offsets])

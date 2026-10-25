@@ -48,9 +48,7 @@ __all__ = [
     "rule_ok",
 ]
 
-# --------------------------------------------------------------------------
-# arrangements: where the charges sit, normalised to the field's half-extents
-# --------------------------------------------------------------------------
+
 def _row(n, y, spread=0.52):
     if n == 1:
         return [(0.0, y)]
@@ -78,8 +76,6 @@ def _bend(n, spread=0.46):
         return [(0.0, 0.0)]
     return [(-spread + 2.0 * spread * i / (n - 1), spread - 2.0 * spread * i / (n - 1)) for i in range(n)]
 
-
-#: name -> (positions, default charge size as a fraction of the field's short side)
 ARRANGEMENTS = {
     "one": ([(0.0, 0.0)], 0.46),
     "two": ([(-0.34, 0.04), (0.34, 0.04)], 0.36),
@@ -143,9 +139,6 @@ def charge_field(name: str, half_extent: float, cx: float = 0.0, cy: float = 0.0
     return lambda x, y: ch((x - cx) / s, (y - cy) / s) * s
 
 
-# --------------------------------------------------------------------------
-# shapes
-# --------------------------------------------------------------------------
 def resolve_shape(spec: dict):
     """``(field_fn, hw, hh)`` for a spec's shield or flag."""
     shape = spec.get("shield", "heater")
@@ -161,9 +154,6 @@ def resolve_shape(spec: dict):
     return _shields.get(shape)
 
 
-# --------------------------------------------------------------------------
-# composition
-# --------------------------------------------------------------------------
 def compose(spec: dict, field_fn, hw: float, hh: float, shade=None):
     """The full paint list of a spec, as ``(field, tincture, emboss)`` triples.
 
@@ -231,9 +221,6 @@ def render(spec: dict, size=512, background=None, shade=None):
     return c
 
 
-# --------------------------------------------------------------------------
-# validation
-# --------------------------------------------------------------------------
 def rule_ok(below, above) -> bool:
     """Convenience wrapper over :func:`gen.heraldry.tinctures.check`."""
     return _tinctures.check(below, above)[0]
@@ -319,7 +306,7 @@ def validate(spec: dict, strict: bool = True) -> list:
             dy=float(ord_spec.get("dy", 0.0)),
             field=field_fn,
         )
-        mask = lambda x, y: np.maximum(ord_fn(x, y), field_fn(x, y))  # noqa: E731
+        mask = lambda x, y: np.maximum(ord_fn(x, y), field_fn(x, y))
         for under in _footprint_tinctures(fspec, field_layers, mask, hw, hh):
             ok, why = _tinctures.check(under, ord_spec["tincture"], strict)
             if not ok:
@@ -351,9 +338,7 @@ def validate(spec: dict, strict: bool = True) -> list:
             if not ok:
                 warnings.append(f"charge {name}: {why}")
         if not invisible:
-            # Literal disappearance over part of the ground the charge covers:
-            # the charge's own tincture appearing *behind* it.  Class clashes
-            # across a partition are left alone; this is not a class question.
+
             for px, py in pts[:count]:
                 for qx, qy in _field.sample_points(px, py, s * 0.9, 7):
                     u = _field.tincture_at([(r, t) for r, t, _ in under_layers], qx, qy)
@@ -365,12 +350,8 @@ def validate(spec: dict, strict: bool = True) -> list:
                     break
     return warnings
 
-
-# --------------------------------------------------------------------------
-# blazon text
-# --------------------------------------------------------------------------
 _NUM_EN = {1: "a", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
-#: Spelled-out numbers, for "Barry of six" and "Gyronny of eight".
+
 _NUM_WORD = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
 _NUM_RU = {
     1: {"m": "один", "f": "одна", "n": "одно"},
@@ -386,8 +367,6 @@ _NUM_RU = {
 _NUM_RU_INSTR = {2: "двумя", 3: "тремя", 4: "четырьмя", 5: "пятью", 6: "шестью", 7: "семью", 8: "восемью", 9: "девятью"}
 _ONE_RU_INSTR = {"m": "одним", "f": "одной", "n": "одним"}
 
-#: Russian names for divisions and variations, as used in described blazons.
-#: Prepositional case, because they always appear as "В <word> поле".
 _RU_FIELD = {
     "per_pale": "рассечённом",
     "per_fess": "пересечённом",
@@ -506,8 +485,7 @@ def _charge_ru(ch: _charges.Charge, t, count: int, forced: bool):
     elif count <= 4 and ch.gender == "f":
         noun, adj = ch.ru_pl, t.ru_adj.get("nom_pl", t.ru)
     elif count <= 4:
-        # Genitive plural adjective over a genitive singular noun head, with the
-        # charge's own modifier in front of the head it modifies.
+
         noun = f"{adjp} {sg}" if adjp else sg
         adj = _gen_adj(t.ru_adj, ch.gender, True)
     else:
@@ -517,8 +495,7 @@ def _charge_ru(ch: _charges.Charge, t, count: int, forced: bool):
 
 def _charges_text(cspec: dict, lang: str) -> str:
     ch = _charges.get(cspec["name"])
-    # A charge that names its own tincture -- a bezant is a roundel Or, a plate
-    # a roundel Argent -- must not be given the adjective a second time.
+
     forced = ch.forced
     t = _tinctures.get(forced or cspec.get("tincture", "argent"))
     count = int(cspec.get("count", 1))
@@ -567,9 +544,6 @@ def blazon_text(spec: dict, lang: str = "en") -> str:
     ospec = spec.get("ordinary")
     cs = list(spec.get("charges", []))
 
-    # Does any charge actually lie on the ordinary?  Answer it from the geometry
-    # rather than from the spec: if the tincture under the anchor is the
-    # ordinary's, the charge is "charged upon" it.
     on_ordinary = False
     if ospec and cs:
         under_layers = _base_layers(spec, field_fn, hw, hh)
@@ -590,8 +564,7 @@ def blazon_text(spec: dict, lang: str = "en") -> str:
             elif on_ordinary:
                 out.append("с " + " и ".join(_charges_text_instr(c) for c in cs))
             elif cs:
-                # Attach the comma to what precedes it: appending a separate
-                # ", ..." element would rejoin with a space before the comma.
+
                 out[-1] = out[-1] + ", " + " и ".join(_charges_text(c, "ru") for c in cs)
         elif cs:
             out.append(" и ".join(_charges_text(c, "ru") for c in cs))
@@ -618,10 +591,6 @@ def blazon_text(spec: dict, lang: str = "en") -> str:
 def _tincture_at_layers(layers, x: float, y: float):
     return _field.tincture_at([(r, t) for r, t, _ in layers], x, y)
 
-
-# --------------------------------------------------------------------------
-# the generator
-# --------------------------------------------------------------------------
 _PLAIN_ODDS = 0.34
 _DIVISION_ODDS = 0.30
 
@@ -763,8 +732,7 @@ def random_arms(seed: int = 0, shield: str | None = None, charges: bool = True, 
             spec["field"] = {"kind": "plain", "tinctures": [str(rng.choice(_GOOD_FURS))]}
         else:
             name = str(rng.choice(_GOOD_VARIATIONS))
-            # Gyronny must divide the circle into an even number of gyrons;
-            # six, eight and twelve are the forms that actually occur.
+
             n = int(rng.choice([6, 8, 8, 12])) if name == "gyronny" else int(rng.integers(4, 9))
             first = str(rng.choice(metals + colours))
             second = _contrasting_all(rng, [_tinctures.get(first)], [t for t in all_t if t != first])
@@ -776,13 +744,10 @@ def random_arms(seed: int = 0, shield: str | None = None, charges: bool = True, 
 
     if ordinary and float(rng.random()) < 0.62:
         field_layers = _field.field_layers(spec["field"], hw, hh)
-        # Try ordinaries in random order and keep the first that can be given a
-        # tincture contrasting with every division it crosses.  On a field that
-        # carries both a metal and a colour many ordinaries cannot -- and then
-        # the right answer is a different ordinary, not a compromise.
+
         for name in (str(n) for n in rng.permutation(_GOOD_ORDINARIES)):
             ord_fn = _ordinaries.sdf_for(name, hw, hh, field=field_fn)
-            mask = lambda x, y, f=ord_fn: np.maximum(f(x, y), field_fn(x, y))  # noqa: E731
+            mask = lambda x, y, f=ord_fn: np.maximum(f(x, y), field_fn(x, y))
             unders = _footprint_tinctures(spec["field"], field_layers, mask, hw, hh)
             tin = _legal(rng, unders, all_t, allow_none=True)
             if tin is not None:
@@ -790,9 +755,7 @@ def random_arms(seed: int = 0, shield: str | None = None, charges: bool = True, 
                 break
 
     if charges and float(rng.random()) < (0.72 if "ordinary" in spec else 0.55):
-        # Same principle: try arrangements in random order and keep the first
-        # whose anchors all admit one legal tincture.  A "one" charge at the
-        # centre always does, so this loop always terminates in a legal choice.
+
         name = str(rng.choice(_GOOD_CHARGES))
         if "ordinary" in spec:
             cands = [(a, 3) for a in ("between_fess_three", "around_cross", "around_chevron")]
@@ -820,7 +783,7 @@ def random_arms(seed: int = 0, shield: str | None = None, charges: bool = True, 
             ch["emboss"] = float(rng.uniform(0.05, 0.11))
         spec["charges"] = [ch]
     elif charges and "ordinary" not in spec:
-        # A field alone is a thin blazon; give it something to carry.
+
         name = str(rng.choice(_GOOD_CHARGES))
         pts, size = placements("one", 1, hw, hh, None)
         anchors, foot = _charge_unders(field_fn, hw, hh, spec, name, size * min(hw, hh), pts, 1)

@@ -26,19 +26,9 @@ __all__ = [
     "LIGHT",
 ]
 
-#: The one light direction this project has, in world units and with y up.
-#:
-#: It lives in the core rather than in the packages because "every asset here is
-#: lit the same way" is a property of the toolkit and not of any one generator --
-#: and eight copies of a literal kept in step by a test are not one light, they
-#: are eight lights that agree today.  Every shading call defaults to it, so the
-#: packages that do not name a light get this one rather than a ninth.
 LIGHT = (-0.45, 0.65)
 
 
-# --------------------------------------------------------------------------
-# rasterisation
-# --------------------------------------------------------------------------
 def coverage(d, dx: float = 1.0):
     """Anti-aliased coverage of a distance field, in ``[0, 1]``.
 
@@ -48,9 +38,6 @@ def coverage(d, dx: float = 1.0):
     return np.clip(0.5 - np.asarray(d, dtype=np.float64) / dx, 0.0, 1.0)
 
 
-# --------------------------------------------------------------------------
-# lighting from the field
-# --------------------------------------------------------------------------
 def height_normals(h, dx: float = 1.0, y_up: bool = True) -> np.ndarray:
     """Normals of a height field ``h(x, y)``, shaped ``(..., 3)``.
 
@@ -121,16 +108,13 @@ def shade(
     rgb = base * (ambient + diffuse * lambert)[..., None] + spec * specular[..., None]
 
     if rim > 0.0:
-        # Fresnel-ish edge light: bright where the surface turns away from us.
+
         edge = np.clip(1.0 - n[..., 2], 0.0, 1.0) ** 2.0
         rgb = rgb + rim * edge[..., None]
 
     return np.clip(rgb, 0.0, 1.0)
 
 
-# --------------------------------------------------------------------------
-# blur and shadows
-# --------------------------------------------------------------------------
 def box_blur(a, radius: int) -> np.ndarray:
     """Separable box blur via cumulative sums: O(n) per axis, any radius."""
     a = np.asarray(a, dtype=np.float64)
@@ -189,15 +173,12 @@ def drop_shadow(alpha, scale: float = 1.0, offset=(0.0, -0.06), sigma: float = 0
     a shadow keeps its proportions when the asset is re-rendered larger.
     """
     dx_px = offset[0] * scale
-    dy_px = -offset[1] * scale  # world y up -> pixel rows down
+    dy_px = -offset[1] * scale
     a = gaussian_blur(np.clip(alpha, 0.0, 1.0), sigma * scale)
     a = translate_array(a, dx_px, dy_px)
     return np.clip(a * opacity, 0.0, 1.0)
 
 
-# --------------------------------------------------------------------------
-# contact sheets / atlases
-# --------------------------------------------------------------------------
 def cells(count: int, cols: int, cw: int, ch: int, gap: int = 0) -> list:
     """Where the ``count`` cells of a ``cols``-wide grid begin, in pixels.
 

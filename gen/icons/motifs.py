@@ -27,7 +27,6 @@ __all__ = ["KINDS", "PLATES", "FAMILIES", "kind", "checked", "field", "plate_fie
            "canonical", "random_spec"]
 
 
-# --------------------------------------------------------------- the charges
 def _coin(x, y, s: dict):
     """A ring, with a second ring stamped inside it: money reads at any size."""
     t = 0.042 + 0.030 * s["weight"]
@@ -145,10 +144,6 @@ def _shield(x, y, s: dict):
         body = sdf.smooth_difference(body, bar, 0.02)
     return body
 
-
-#: The vocabulary.  Each entry is the charge and the hue that *means* it: a player
-#: reads a resource icon by colour before shape, so the two agreeing is what makes
-#: a set feel designed rather than generated.  Hues are in OKLCH turns.
 KINDS = {
     "coin": (_coin, 0.110),
     "grain": (_grain, 0.135),
@@ -160,16 +155,9 @@ KINDS = {
     "banner": (_banner, 0.980),
     "shield": (_shield, 0.440),
 }
-#: Unit and division charges.  They live in their own module because they are a
-#: vocabulary a game names by role, but they share this dictionary and therefore
-#: this plate, this light and this wire of ``random_spec``.
+
 KINDS.update(MILITARY)
 
-
-# ----------------------------------------------------------------- the plate
-#: The grounds an icon can be set on.  A *set* of icons shares one of these -- the
-#: plate is the frame, the charge is the icon -- which is why the canonical spec
-#: uses the same plate for every kind.
 PLATES = ("round", "hex", "circle", "shield")
 
 
@@ -192,7 +180,6 @@ def plate_field(plate: str, X, Y, spec: dict):
     return sdf.polygon(X, Y, _poly_points(pts, m * 1.20))
 
 
-# ------------------------------------------------------------------- a spec
 def checked(name) -> str:
     """A charge's name, checked.  Raises for a name that is not one.
 
@@ -242,10 +229,7 @@ def canonical(kind_name: str) -> dict:
         "kind": name,
         "plate": "round",
         "hue": float(KINDS[name][1]),
-        #: The plate's own hue.  ``None`` means the plate wears the charge's hue --
-        #: the set's one-hue script -- and a number is a faction's field, which is
-        #: what :mod:`gen.icons.livery` hands in.  A second *source*, not a second
-        #: script: the charge never moves, so a kind is still its kind's colour.
+
         "plate_hue": None,
         "chroma": 0.115,
         "light": 0.745,
@@ -258,13 +242,9 @@ def canonical(kind_name: str) -> dict:
         "margin": 0.75,
         "bevel": 0.070,
         "radius": 0.075,
-        #: 0 is pristine; 1..10 are the cumulative wear stages in
-        #: :mod:`gen.icons.wear`.  It is a spec field like any other, so a sidecar
-        #: can name the stage a sprite is.  A random icon is new.
+
         "wear": 0,
-        #: A badge is *data* the game supplies, not a design choice the seed makes:
-        #: a random icon has none, and a caller sets one with
-        #: :func:`gen.icons.badge.make`.  That is why ``random_spec`` never fills it.
+
         "badge": None,
     }
 

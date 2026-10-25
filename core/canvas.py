@@ -48,7 +48,6 @@ class Canvas:
             self.rgb[:] = palette.srgb_to_linear(background)
             self.a[:] = 1.0
 
-    # ---------------------------------------------------------------- frame
     @property
     def dx(self) -> float:
         """World units per pixel -- the natural anti-aliasing width."""
@@ -74,7 +73,6 @@ class Canvas:
         c.a = self.a.copy()
         return c
 
-    # ---------------------------------------------------------- composition
     def over(self, rgb, a, x0: int = 0, y0: int = 0):
         """Source-over compositing of a straight-alpha tile at pixel offset."""
         rgb = np.asarray(rgb, dtype=np.float64)
@@ -128,7 +126,6 @@ class Canvas:
         out = self.rgb * self.a[..., None] + bg * (1.0 - self.a)[..., None]
         return out, np.ones_like(self.a)
 
-    # --------------------------------------------------------------- export
     def to_uint8(self, background=None) -> np.ndarray:
         """8-bit RGBA array for export; applies the sRGB transfer function.
 
@@ -170,5 +167,5 @@ class Canvas:
 
         return png.save(self, path, background=background)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
         return f"Canvas({self.w}x{self.h}, scale={self.scale:g})"

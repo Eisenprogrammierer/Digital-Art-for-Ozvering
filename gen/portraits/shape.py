@@ -50,15 +50,11 @@ __all__ = [
     "resample_loop",
 ]
 
-#: A world-space rectangle ``(x0, y0, x1, y1)``.
 Box = "tuple[float, float, float, float]"
 
 _INF = float("inf")
 
 
-# --------------------------------------------------------------------------
-# bounds
-# --------------------------------------------------------------------------
 def bbox_of(points) -> tuple:
     """Bounding box of a point array shaped ``(n, 2)``."""
     p = np.asarray(points, dtype=np.float64).reshape(-1, 2)
@@ -106,9 +102,6 @@ def window(canvas, bbox, pad: float | None = None):
     return X[r0:r1, c0:c1], Y[r0:r1, c0:c1], r0, c0
 
 
-# --------------------------------------------------------------------------
-# the shape type
-# --------------------------------------------------------------------------
 class Shape:
     """A distance field together with the box below which it is positive."""
 
@@ -121,11 +114,10 @@ class Shape:
     def __call__(self, x, y):
         return self.f(x, y)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
         b = self.bbox
         return f"Shape(bbox=({b[0]:.3f}, {b[1]:.3f}, {b[2]:.3f}, {b[3]:.3f}))"
 
-    # -- composition ------------------------------------------------------
     def __or__(self, other) -> "Shape":
         other = as_shape(other)
         return Shape(
@@ -202,9 +194,6 @@ def as_shape(o, bbox=None) -> Shape:
     raise TypeError(f"expected a Shape or a field, got {type(o).__name__}")
 
 
-# --------------------------------------------------------------------------
-# primitives (field + known bounds)
-# --------------------------------------------------------------------------
 def poly(points, resample: int | None = None) -> Shape:
     """Exact field of a polygon, optionally resampled to ``resample`` vertices.
 
@@ -267,9 +256,7 @@ def union_all(shapes, pad: float = 0.035) -> Shape:
         for s, bx in zip(shapes, boxes):
             m = (x >= bx[0]) & (x <= bx[2]) & (y >= bx[1]) & (y <= bx[3])
             if np.ndim(m) == 0:
-                # A scalar query (a test, a hairline sample) must not be indexed
-                # with a 0-d mask: numpy turns the boolean into an index, not a
-                # window, and ``out[m]`` then fails or drops a dimension.
+
                 if bool(m):
                     out = np.minimum(out, s.f(x, y))
                 continue
@@ -299,9 +286,6 @@ def intersection_all(shapes) -> Shape:
     return Shape(g, b)
 
 
-# --------------------------------------------------------------------------
-# curve builders
-# --------------------------------------------------------------------------
 def arc(a, b, apex: float, bias: float = 0.5, n: int = 24) -> np.ndarray:
     """Quadratic arc from ``a`` to ``b`` bowing ``apex`` towards the left normal.
 

@@ -57,22 +57,11 @@ __all__ = [
     "sites",
 ]
 
-#: The sea draws its seeds from its own stream.  Sharing one with the land would
-#: put a sea capital wherever a land capital happened to be, which is a
-#: coincidence no chart has ever shown.
 _SEA_SALT = 4099
 
-#: Stems and endings for province names.  Deliberately few: twenty times sixteen
-#: is more distinct names than a map has provinces, and a generator that invents
-#: words out of nowhere produces things nobody can pronounce.
 _STEM = ("ald", "bren", "cor", "dun", "el", "fen", "gar", "hal", "ith", "kel",
          "mar", "nor", "ost", "rav", "sel", "tor", "vas", "wyn", "yr", "zel")
 
-#: Endings, in the two or three spellings the ground of a province tends to take.
-#: The name is the only place a player ever reads what a province is like, so the
-#: ending carries the geography: a province mostly of hills ends in ``-fell`` and
-#: one mostly of marsh ends in ``-fen``, and no province has to be told apart by a
-#: prefix that repeats five times on one map.
 _END = {
     "": ("mere", "vale", "march", "fell", "reach", "moor", "holt", "stead",
          "wick", "gard", "heim", "bury", "thorpe", "dale", "crest", "haven"),
@@ -84,16 +73,13 @@ _END = {
     "marsh": ("fen", "moor", "mere"),
     "desert": ("reach", "waste", "dune"),
     "shore": ("haven", "mere", "wick"),
-    # The water's own endings, and deliberately none of them a land ending: a land
-    # province and a sea province may draw the same stem, since the stem is the
-    # province's number, and the ending is the whole of what tells them apart.
+
     "deep water": ("deep", "gulf", "trench"),
     "ocean": ("sea", "ocean", "sound"),
     "shallows": ("shoal", "shelf", "strand", "bay"),
 }
 
 
-# ------------------------------------------------------------------ search
 def _masked_bfs(grid: HexGrid, flat_mask, start: int) -> np.ndarray:
     """Hex distance from ``start`` to every cell of a mask, ``-1`` elsewhere.
 
@@ -112,7 +98,7 @@ def _masked_bfs(grid: HexGrid, flat_mask, start: int) -> np.ndarray:
     while frontier.size:
         step += 1
         r, c = np.divmod(frontier, grid.cols)
-        nbr = grid.nbr[r, c]                 # (k, 6, 2)
+        nbr = grid.nbr[r, c]
         rr = nbr[..., 0].reshape(-1)
         cc = nbr[..., 1].reshape(-1)
         keep = rr >= 0
@@ -152,8 +138,7 @@ def components(grid: HexGrid, mask) -> list:
                     comp.append(k)
                     q.append(k)
         out.append(np.array(comp, dtype=np.int64))
-    # Largest first, ties by the earliest cell in reading order: the order decides
-    # which landmass gets the remainder of the seeds, so it must not be incidental.
+
     out.sort(key=lambda a: (-int(a.size), int(a[0])))
     return out
 
@@ -187,7 +172,7 @@ def _pick(grid: HexGrid, flat_mask, pool, count: int, rng, tries: int = 24) -> l
             if d > 0 and (best_d is None or d > best_d):
                 best, best_d = c, d
         if best is None:
-            break  # the pool is smaller than the seeds asked of it
+            break
         chosen.append(best)
         new = _masked_bfs(grid, flat_mask, best)
         dist = new if dist is None else np.minimum(dist, new)
@@ -272,7 +257,6 @@ def relax(grid: HexGrid, mask, labels, passes: int = 2):
     return labels, seeds
 
 
-# ---------------------------------------------------------------- provinces
 def _divide(grid: HexGrid, f: dict, mask, count: int, seed: int, passes: int,
             salt: int) -> dict:
     """Divide one kind of ground into parts, and describe each part.
@@ -320,9 +304,7 @@ def _divide(grid: HexGrid, f: dict, mask, count: int, seed: int, passes: int,
                 other = int(label_flat[nr * grid.cols + nc])
                 if other >= 0 and other != i:
                     neighbours.add(other)
-        # No two provinces on one map may share a name: a name is the handle a
-        # player uses, and the generator has enough of them that a collision is
-        # only ever a hashing accident, not a shortage.
+
         label = name(seed, i, gname)
         salt_used = 0
         while label in used and salt_used < 64:

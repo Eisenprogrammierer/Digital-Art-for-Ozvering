@@ -16,11 +16,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import credits, curve, mat, noise, palette, render, sdf  # noqa: E402
-from core.canvas import Canvas  # noqa: E402
+from core import credits, curve, mat, noise, palette, render, sdf
+from core.canvas import Canvas
 
 
-# --------------------------------------------------------------- geometry
 def test_circle_signs():
     assert np.isclose(sdf.circle(0.0, 0.0, 1.0), -1.0)
     assert np.isclose(sdf.circle(1.0, 0.0, 1.0), 0.0, atol=1e-12)
@@ -29,11 +28,10 @@ def test_circle_signs():
 
 
 def test_box_rounded_matches_extents():
-    # The corner radius eats into the corners only: the flat faces keep their
-    # extent, so the shortest face stays 0.5 from the centre whatever r is.
+
     assert np.isclose(sdf.box(0.0, 0.0, 1.0, 0.5, 0.2), -0.5)
     assert np.isclose(sdf.box(0.0, 0.0, 1.0, 0.5, 0.0), -0.5)
-    # Outside the flat edge the distance is measured from the rounded corner.
+
     assert np.isclose(sdf.box(1.0, 0.0, 1.0, 0.5, 0.0), 0.0, atol=1e-12)
     assert np.isclose(sdf.box(2.0, 0.0, 1.0, 0.5, 0.0), 1.0, atol=1e-12)
     assert np.isclose(sdf.box(1.2, 0.8, 1.0, 0.5, 0.3), np.hypot(0.5, 0.6) - 0.3, atol=1e-12)
@@ -54,11 +52,11 @@ def test_polygon_inside_negative_for_both_windings():
 
 
 def test_concave_polygon_distance():
-    # An L-shape: the re-entrant corner must not push the sign the wrong way.
+
     pts = [(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)]
-    assert sdf.polygon(0.5, 0.5, pts) < 0.0  # inside
-    assert sdf.polygon(1.6, 1.6, pts) > 0.0  # in the notch, outside
-    assert np.isclose(sdf.polygon(0.0, 0.0, pts), 0.0, atol=1e-12)  # on a vertex
+    assert sdf.polygon(0.5, 0.5, pts) < 0.0
+    assert sdf.polygon(1.6, 1.6, pts) > 0.0
+    assert np.isclose(sdf.polygon(0.0, 0.0, pts), 0.0, atol=1e-12)
 
 
 def test_operators_ordering():
@@ -66,21 +64,19 @@ def test_operators_ordering():
     d2 = sdf.box(0.0, 0.0, 0.5, 0.5, 0.0)
     assert np.isclose(sdf.union(d1, d2), -1.0)
     assert np.isclose(sdf.intersection(d1, d2), -0.5)
-    assert sdf.difference(d1, d2) > 0.0  # the centre is carved away
+    assert sdf.difference(d1, d2) > 0.0
 
 
 def test_smooth_union_fillets_and_stays_valid():
     a = sdf.circle(0.0, 0.0, 1.0)
-    # Smooth union is *sound*: it never overestimates.  Unioning a shape with
-    # itself costs exactly k/4 of thickness -- the material the fillet needs.
+
     k = 0.3
     assert sdf.smooth_union(a, a, k) <= a
     assert np.isclose(sdf.smooth_union(a, a, k), a - k / 4.0)
     assert np.isclose(sdf.smooth_union(a, a, 0.0), a)
 
-    # Two discs that do not touch: the fillet must add material in the gap.
-    left = lambda x, y: sdf.circle(x, y, 0.5, -0.7, 0.0)  # noqa: E731
-    right = lambda x, y: sdf.circle(x, y, 0.5, 0.7, 0.0)  # noqa: E731
+    left = lambda x, y: sdf.circle(x, y, 0.5, -0.7, 0.0)
+    right = lambda x, y: sdf.circle(x, y, 0.5, 0.7, 0.0)
     gap_hard = sdf.union(left(0.0, 0.0), right(0.0, 0.0))
     gap_smooth = sdf.smooth_union(left(0.0, 0.0), right(0.0, 0.0), 0.4)
     assert np.isclose(gap_hard, 0.2)
@@ -96,9 +92,9 @@ def test_outline_thickness():
 
 
 def test_transforms_rotate_and_mirror():
-    vertical = lambda x, y: sdf.box(x, y, 0.2, 1.0, 0.0)  # noqa: E731
+    vertical = lambda x, y: sdf.box(x, y, 0.2, 1.0, 0.0)
     turned = sdf.rotated(vertical, 90.0)
-    assert np.isclose(turned(0.9, 0.0), -0.1, atol=1e-9)  # now a wide, flat box
+    assert np.isclose(turned(0.9, 0.0), -0.1, atol=1e-9)
     assert turned(0.0, 0.9) > 0.0
 
     off = sdf.moved(vertical, 3.0, 0.0)
@@ -121,7 +117,6 @@ def test_matrix_inverse_and_uniform_scale():
     assert np.isclose(x[0], 2.0) and np.isclose(y[0], -1.0)
 
 
-# ------------------------------------------------------------------- noise
 def test_noise_range_and_determinism():
     g = Canvas(64, 64).grid()
     n1 = noise.fbm(*g, seed=5, freq=3.0, octaves=4)
@@ -135,7 +130,7 @@ def test_value_noise_bounds_and_continuity():
     x = np.linspace(0.0, 4.0, 257)
     n = noise.value_noise(x, np.zeros_like(x), seed=1, freq=1.0)
     assert n.min() >= 0.0 and n.max() <= 1.0
-    assert np.abs(np.diff(n)).max() < 0.5  # smooth, not white noise
+    assert np.abs(np.diff(n)).max() < 0.5
 
 
 def test_ridged_turbulence_worley_ranges():
@@ -169,17 +164,16 @@ def test_hash_is_stable_and_spread():
 def test_worley_edges_form_cell_walls():
     g = Canvas(96, 96, scale=96.0).grid()
     e = noise.worley_edges(*g, seed=3, freq=3.0)
-    assert np.all(e >= -1e-12)  # F2 >= F1 by definition
+    assert np.all(e >= -1e-12)
     assert e.max() > 0.2
-    assert 0.002 < (e < 0.01).mean() < 0.5  # thin walls, not solid fill
-    # A cell centre is far from its own wall, a wall is exactly on the boundary.
+    assert 0.002 < (e < 0.01).mean() < 0.5
+
     f1 = noise.worley(*g, seed=3, freq=3.0)
     assert e[np.unravel_index(np.argmin(f1), f1.shape)] > 0.0
     assert np.array_equal(e, noise.worley_edges(*g, seed=3, freq=3.0))
     assert not np.allclose(e, noise.worley_edges(*g, seed=4, freq=3.0))
 
 
-# ------------------------------------------------------------------ colour
 def test_oklab_roundtrip():
     rgb = np.array([0.2, 0.55, 0.9])
     assert np.allclose(palette.oklab_to_srgb(palette.srgb_to_oklab(rgb)), rgb, atol=1e-6)
@@ -196,7 +190,7 @@ def test_mix_endpoints_and_lightness_monotonic():
     assert np.allclose(palette.mix(a, b, 0.0), a, atol=1e-6)
     assert np.allclose(palette.mix(a, b, 1.0), b, atol=1e-6)
     mid = palette.mix(a, b, 0.5)
-    assert not np.allclose(mid, (a + b) / 2.0, atol=1e-3)  # not a naive sRGB mix
+    assert not np.allclose(mid, (a + b) / 2.0, atol=1e-3)
 
 
 def test_ramp_map_matches_mix_many():
@@ -224,9 +218,9 @@ def test_harmony_and_distinct_palette():
     worst = min(
         palette.delta_e(cols[i], cols[j]) for i in range(len(cols)) for j in range(i + 1, len(cols))
     )
-    assert worst >= 0.12 * 0.9  # target, not a promise: hue arc + lightness spread
+    assert worst >= 0.12 * 0.9
     assert np.array_equal(cols, palette.distinct_palette(6, seed=4, min_de=0.12))
-    # Fewer colours can be spread at least as far apart.
+
     three = palette.distinct_palette(3, seed=4, min_de=0.12)
     assert len(three) == 3
     assert min(palette.delta_e(three[0], three[1]), palette.delta_e(three[1], three[2])) >= worst
@@ -247,7 +241,6 @@ def test_lighten_darken_shift_hue():
     assert np.isclose(palette.srgb_to_oklch(palette.shift_hue(c, 0.25))[2], (palette.srgb_to_oklch(c)[2] + 0.25) % 1.0, atol=1e-6)
 
 
-# ------------------------------------------------------------------ render
 def test_coverage_midpoint_and_saturation():
     assert np.isclose(render.coverage(0.0, 1.0), 0.5)
     assert np.isclose(render.coverage(-1.0, 1.0), 1.0)
@@ -255,10 +248,10 @@ def test_coverage_midpoint_and_saturation():
 
 
 def test_height_normals_are_unit_and_oriented():
-    h = np.tile(np.linspace(0.0, 1.0, 16), (16, 1))  # rises to the +x
+    h = np.tile(np.linspace(0.0, 1.0, 16), (16, 1))
     n = render.height_normals(h, dx=1.0, y_up=True)
     assert np.allclose(np.linalg.norm(n, axis=-1), 1.0)
-    assert n[8, 8, 0] < 0.0  # surface tilts away from +x
+    assert n[8, 8, 0] < 0.0
     assert n[8, 8, 2] > 0.0
 
 
@@ -269,24 +262,20 @@ def test_shade_is_bounded_and_edge_aware():
     rgb = render.shade(np.array([0.5, 0.5, 0.5]), d, dx=c.dx, bevel=0.1)
     assert rgb.shape == (64, 64, 3)
     assert rgb.min() >= 0.0 and rgb.max() <= 1.0
-    # The bevel makes the two sides of the disc differ.
+
     assert not np.allclose(rgb[32, 15], rgb[32, 48])
 
 
 def test_an_inset_bevel_is_the_same_ramp_turned_over():
-    # `shade(inset=True)` is a recess, and the test is the physical signature:
-    # a raised moulding is lit on its top face and dark on its bottom, and
-    # knocked in the two swap.  The geometry, the light and the bevel width are
-    # all identical, so the only thing the comparison can be measuring is the
-    # sign of the slope.
+
     c = Canvas(128, 128, scale=48.0)
     X, Y = c.grid()
     d = sdf.box(X, Y, 0.6, 0.6, 0.15)
     base = np.array([0.5, 0.5, 0.5])
     raised = render.shade(base, d, dx=c.dx, bevel=0.1)
     recessed = render.shade(base, d, dx=c.dx, bevel=0.1, inset=True)
-    top = slice(36, 39)      # inside the band along the upper edge
-    bottom = slice(90, 93)   # ... and along the lower one
+    top = slice(36, 39)
+    bottom = slice(90, 93)
     cols = slice(54, 74)
     for img, top_is_bright in ((raised, True), (recessed, False)):
         hi = float(img[top, cols].mean())
@@ -317,7 +306,7 @@ def test_drop_shadow_offset_direction():
     mask[30:34, 30:34] = 1.0
     sh = render.drop_shadow(mask, scale=64.0, offset=(0.0, -0.08), sigma=0.01, opacity=0.5)
     assert sh.shape == mask.shape
-    assert sh[38, 32] > sh[24, 32]  # world -y means lower rows in the raster
+    assert sh[38, 32] > sh[24, 32]
     assert sh.max() <= 0.5 + 1e-9
 
 
@@ -362,13 +351,12 @@ def test_the_sheet_table_is_the_layout_the_sheet_draws():
             raise AssertionError("a grid with no columns or no pixels should be refused")
 
 
-# ------------------------------------------------------------------ canvas
 def test_canvas_grid_is_centred_and_y_up():
     c = Canvas(8, 4, scale=4.0)
     X, Y = c.grid()
     assert X.shape == (4, 8) and Y.shape == (4, 8)
     assert np.isclose(X.mean(), 0.0) and np.isclose(Y.mean(), 0.0)
-    assert Y[0, 0] > Y[-1, 0]  # row 0 is the top of the image, world y points up
+    assert Y[0, 0] > Y[-1, 0]
     assert np.isclose(c.dx, 0.25)
 
 
@@ -385,8 +373,7 @@ def test_canvas_composite_is_associative_ish():
     c.over_srgb((1.0, 0.0, 0.0), half)
     c.over_srgb((0.0, 0.0, 1.0), half)
     assert np.isclose(c.a[0, 0], 0.75)
-    # Source-over in linear light: the second source keeps half its weight, the
-    # first keeps half of the remaining half.
+
     expected = palette.srgb_to_linear((1.0, 0.0, 0.0)) * 0.25 + palette.srgb_to_linear((0.0, 0.0, 1.0)) * 0.5
     assert np.allclose(c.rgb[0, 0], expected / 0.75, atol=1e-9)
 
@@ -397,7 +384,7 @@ def test_canvas_blit_clips_out_of_bounds():
     c.blit(tile.rgb, tile.a, -2, -2)
     assert np.allclose(c.rgb[0, 0], 0.0)
     assert np.allclose(c.rgb[3, 3], palette.srgb_to_linear((1.0, 1.0, 1.0)))
-    c.blit(tile.rgb, tile.a, 99, 99)  # completely outside: must not raise
+    c.blit(tile.rgb, tile.a, 99, 99)
 
 
 def test_to_uint8_roundtrip_of_flat_colour():
@@ -427,35 +414,29 @@ def test_a_pixel_the_file_calls_invisible_exports_no_colour():
     sh = render.drop_shadow(plate, scale, offset=(0.0, -0.02), sigma=sigma, opacity=0.42)
     c.over_srgb((0.03, 0.03, 0.05), sh)
 
-    # The tail is real: this many pixels round to invisible and still hold colour,
-    # so a test that only checked the export would be checking nothing.
     invisible = (np.round(c.a * 255.0) == 0.0) & (c.rgb.max(axis=-1) > 0.0)
     assert invisible.sum() > 100, int(invisible.sum())
 
     arr = c.to_uint8()
     assert not (((arr[..., 3] == 0) & (arr[..., :3] > 0).any(axis=-1))).any()
 
-    # And it is a *repair*: every pixel the file calls visible is exactly what a
-    # plain quantisation would have written, so nothing the eye can see moved.
     visible = arr[..., 3] > 0
     plain = np.clip(np.round(palette.linear_to_srgb(c.rgb) * 255.0), 0, 255).astype(np.uint8)
     assert np.array_equal(arr[..., :3][visible], plain[visible])
 
 
-# ------------------------------------------------------------------ curves
 def test_bezier_hits_its_endpoints_and_degree_two_midpoint():
     p = curve.bezier_quadratic((0.0, 0.0), (1.0, 1.0), (2.0, 0.0), n=9)
     assert p.shape == (9, 2)
     assert np.allclose(p[0], (0.0, 0.0)) and np.allclose(p[-1], (2.0, 0.0))
-    # At t = 1/2 a quadratic Bezier is the control polygon weighted (1, 2, 1)/4:
-    # (0 + 2*1 + 2, 0 + 2*1 + 0)/4.
+
     assert np.allclose(p[4], (1.0, 0.5))
 
 
 def test_bezier_cubic_is_flat_when_control_points_are_collinear():
     p = curve.bezier_cubic((0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), n=17)
     assert np.allclose(p[:, 1], 0.0)
-    assert np.all(np.diff(p[:, 0]) > 0.0)  # monotone in x
+    assert np.all(np.diff(p[:, 0]) > 0.0)
 
 
 def test_bezier_rejects_a_single_point():
@@ -481,7 +462,7 @@ def test_chaikin_keeps_closed_shapes_inside_their_convex_hull():
     c = curve.chaikin(square, iterations=3, closed=True)
     assert c.shape == (4 * 2**3, 2)
     assert c.min() >= -1e-12 and c.max() <= 1.0 + 1e-12
-    # Corner cutting cannot introduce mass: the centroid is preserved.
+
     assert np.allclose(c.mean(axis=0), square.mean(axis=0))
 
 
@@ -498,13 +479,12 @@ def test_arc_length_and_resample():
     assert np.allclose(s, [0.0, 1.0, 2.0, 3.0, 4.0])
     r = curve.resample_closed(square, n=8)
     assert r.shape == (8, 2)
-    # Even spacing by arc length: every step of the resampled loop is equal.
+
     step = np.linalg.norm(np.roll(r, -1, axis=0) - r, axis=1)
     assert np.allclose(step, step[0], atol=1e-9)
     assert np.isclose(step[0], 0.5)
 
 
-# -------------------------------------------------------------- end to end
 def test_icon_generation_is_deterministic():
     import cli
 
@@ -529,7 +509,6 @@ def test_png_write_is_byte_identical():
         assert p1.stat().st_size > 0
 
 
-# ---------------------------------------------------------------- credits
 def test_every_source_can_actually_be_credited():
     """A source without a credit line is a licence violation, not a tidy-up.
 
@@ -542,8 +521,7 @@ def test_every_source_can_actually_be_credited():
         assert s["attribution"].strip()
         assert s["author"] in s["attribution"]
         if s["license"].startswith("CC "):
-            # A CC licence is a *versioned* one, and the attribution has to name
-            # the licence it is granted under, not just "Creative Commons".
+
             assert any(ch.isdigit() for ch in s["license"])
             assert s["url"].startswith("http")
             assert "Creative Commons" in s["attribution"]
@@ -596,17 +574,13 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
         assert images == {"icons.png", "icons-atlas.png", "shapes.png", "texture.png",
                           "palette.png", "portraits.png", "ui.png", "maps.png",
                           "tiles.png", "tiles-atlas.png", "factions.png"}
-        # A vector is an asset too, and the manifest lists it as itself rather than
-        # as the PNG it is not.
+
         vectors = {p.name for p in d.glob("*.svg")}
         assert vectors == {"ui.slate.svg", "ui.title-bar.svg", "ui.seed-3.svg"}, vectors
         listed = {e["image"] for e in credits.manifest(d)}
         assert listed == images | vectors
         assert not any("no sidecar" in p for p in credits.check(d))
 
-        # The UI sidecar also carries the one fact an engine cannot work out from
-        # the insets: whether each kit's *middle* survives a resize.  The corners
-        # are stated by the source; the body was measured, at two sizes.
         import json
 
         ui = json.loads((d / "ui.json").read_text(encoding="utf-8"))
@@ -615,8 +589,6 @@ def test_every_sheet_the_demos_write_has_a_sidecar():
             assert isinstance(kit["panel"]["stretchable"], bool), kit["style"]
             assert kit["panel"]["stretch_error"] >= 0.0, kit["style"]
 
-        # The atlas sidecar is the other half of "an asset is more than a picture":
-        # one image, plus the table of rectangles an engine needs to cut it up.
         packed = json.loads((d / "icons-atlas.json").read_text(encoding="utf-8"))
         assert packed["members"] and 0.0 < packed["density"] <= 1.0
         for entry in packed["members"]:
@@ -649,7 +621,6 @@ def test_no_picture_the_demos_write_has_a_colour_where_it_has_no_alpha():
             assert not bad.any(), (p.name, int(bad.sum()))
 
 
-# ------------------------------------------------------- the credits screen
 def test_the_wrapped_credits_screen_keeps_every_word_of_the_attribution():
     """A credit line broken by the edge of a texture is a credit line that is gone.
 
@@ -670,8 +641,7 @@ def test_the_wrapped_credits_screen_keeps_every_word_of_the_attribution():
             for s in credits.sources():
                 for word in s["attribution"].split():
                     assert word in words, f"{cols} columns lost {word!r}"
-            # The manifest has to survive the wrap too, or the screen credits the
-            # music and quietly drops the assets.
+
             assert "a.png" in [w for text in (t for _, t in rows) for w in text.split()]
             assert all(len(text) <= cols for _, text in rows), "a row overran the width"
 
@@ -688,7 +658,6 @@ def test_the_credits_screen_is_sized_by_its_text_and_is_deterministic():
         assert one.tobytes() == two.tobytes(), "the same credits must draw the same screen"
         assert len(set(one.tobytes())) > 1, "the screen is not blank"
 
-        # The height follows the words: one more asset, one more line.
         (d / "b.json").write_text(
             '{"seed": 6, "source": "procedural:y", "license": "MIT", "things": [1]}',
             encoding="utf-8")
@@ -759,7 +728,6 @@ def test_no_line_on_the_credits_screen_touches_the_edge():
         assert a[-1].std(axis=0).max() == 0, "ink reaches the bottom edge"
 
 
-# --------------------------------------------------------- the pre-ship gate
 def _build(tmp) -> Path:
     """A tiny but *real* build: sheets that write sidecars, and the credits."""
     import cli
@@ -813,8 +781,7 @@ def test_the_gate_reports_an_asset_nobody_recorded():
         (d / "mystery.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         problems = credits.check(d)
         assert any("mystery.png" in p and "no sidecar" in p for p in problems), problems
-        # The credits screen is the attribution itself, and is the one picture the
-        # rule does not apply to.
+
         assert not any(credits.SCREEN_NAME in p for p in problems), problems
 
 
@@ -834,7 +801,7 @@ def test_the_gate_reports_a_sidecar_that_says_nothing():
         assert any("vague.json" in p and "neither a source" in p for p in problems), problems
         assert any("silent.json" in p and "no source" in p for p in problems), problems
         assert any("unowned.json" in p and "no licence" in p for p in problems), problems
-        # A *data* file is not a picture with a missing envelope: it says so.
+
         (d / "world.json").write_text('{"format": "ozart/campaign/1", "seed": 1}',
                                       encoding="utf-8")
         problems = credits.check(d)
@@ -893,16 +860,15 @@ def test_the_gate_reports_a_credit_line_the_build_does_not_ship():
         good = (d / credits.TEXT_NAME).read_text(encoding="utf-8")
         for s in credits.sources():
             assert s["attribution"] in good
-        # A stale block: written before the second source was added.
+
         (d / credits.TEXT_NAME).write_text("ozart -- credits\n", encoding="utf-8")
         problems = credits.check(d)
         assert any("not in it verbatim" in p for p in problems), problems
-        # A build with no block at all is the same violation with nothing to read.
+
         (d / credits.TEXT_NAME).unlink()
         problems = credits.check(d)
         assert any("is not in the build" in p for p in problems), problems
-        # ...unless the caller draws the credits itself, which is a decision and not
-        # an omission, so an explicit block is used instead of the file.
+
         assert credits.check(d, good) == []
 
 
@@ -955,7 +921,6 @@ def test_a_sidecar_names_the_picture_that_is_actually_there():
         credits.write(d)
         assert "far.svg" in (d / credits.TEXT_NAME).read_text(encoding="utf-8")
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -965,7 +930,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

@@ -40,37 +40,32 @@ import numpy as np
 
 __all__ = ["EXPRESSIONS", "LIMITS", "get", "neutral", "warp"]
 
-#: How far a warp may move the layout.  ``face_dy`` is in head units and
-#: ``face_spread`` is a proportion, so the bound means the same thing on a chibi head
-#: and on a seinen one.
 LIMITS = {"face_dy": 0.030, "face_spread": 0.22}
 
-#: The neutral row every other expression is a delta on.
 _NEUTRAL = dict(
-    # -- the whole face: the layout, not a feature ------------------------
-    face_dy=0.0,        # the whole face lifts (+) or drops (-), head units
-    face_spread=0.0,    # the features spread apart (+) or close up (-), proportion
-    # -- the features on it ------------------------------------------------
-    brow_dy=0.0,        # whole brow, world units
-    brow_inner_dy=0.0,  # inner end only: + grief, - anger
-    brow_arch=0.0,      # extra arch height
-    eye_up_s=1.0,       # upper lid apex scale
-    eye_down_s=1.0,     # lower lid apex scale
-    lower_dy=0.0,       # the lower lid lifts by this much (a smile squashes the eye)
-    squint=0.0,         # 0..1, closes the opening from both sides
-    mouth_curve=0.0,    # extra smile curvature, world units
-    mouth_open=0.0,     # 0 is a line; > 0 is a mouth with a dark interior
+
+    face_dy=0.0,
+    face_spread=0.0,
+
+    brow_dy=0.0,
+    brow_inner_dy=0.0,
+    brow_arch=0.0,
+    eye_up_s=1.0,
+    eye_down_s=1.0,
+    lower_dy=0.0,
+    squint=0.0,
+    mouth_curve=0.0,
+    mouth_open=0.0,
     mouth_dy=0.0,
-    mouth_asym=0.0,     # one-sided lift: the smirk
-    mouth_w_s=1.0,      # the mouth's own width -- a grin is wider, a set jaw narrower
+    mouth_asym=0.0,
+    mouth_w_s=1.0,
     blush_mul=1.0,
     lash_mul=1.0,
 )
 
 EXPRESSIONS = {
     "neutral": dict(_NEUTRAL),
-    # A smile rises and opens a little, and the deltas curve the mouth, widen it and
-    # lift the lower lid -- the parts a warp cannot do.
+
     "smile": dict(_NEUTRAL, face_dy=0.005, face_spread=0.07,
                   brow_dy=0.002, brow_inner_dy=0.003, eye_up_s=0.90, eye_down_s=0.94,
                   lower_dy=0.010, mouth_curve=0.022, mouth_w_s=1.06, blush_mul=1.05),
@@ -78,11 +73,7 @@ EXPRESSIONS = {
                  brow_dy=0.004, brow_inner_dy=0.002, eye_up_s=0.78, eye_down_s=0.88,
                  lower_dy=0.018, mouth_curve=0.020, mouth_open=0.018, mouth_w_s=1.14,
                  blush_mul=1.10),
-    # Surprise is the largest warp there is: the whole face opens -- the brows rise,
-    # the eyes widen, the mouth drops away from the nose -- and the feature deltas
-    # only say how each one does its part of that.  The brow's own lift is small on
-    # purpose: the warp is already carrying it, and spending it twice would push the
-    # peak of a chibi's brow up to its hairline.
+
     "surprised": dict(_NEUTRAL, face_dy=0.012, face_spread=0.16,
                       brow_dy=0.004, brow_arch=0.014, eye_up_s=1.20, eye_down_s=1.06,
                       mouth_curve=0.004, mouth_open=0.026, mouth_w_s=0.94),
@@ -101,7 +92,6 @@ EXPRESSIONS = {
                  closed=(1,)),
 }
 
-#: Sides whose eye is closed, per expression.
 _CLOSED = {"wink": (+1,)}
 
 def get(name: str) -> dict:
@@ -142,11 +132,7 @@ def warp(st, expr: dict):
                            -LIMITS["face_spread"], LIMITS["face_spread"]))
     if dy == 0.0 and spread == 0.0:
         return st
-    # The lower face articulates a little more than the midface: a expression that
-    # closes the eyes and the nose also shortens the chin-to-mouth distance.  The
-    # extra 15 % is small, but it also keeps the mouth from cancelling exactly when
-    # ``face_dy`` and ``face_spread`` pull it in opposite directions -- a mouth that
-    # does not move at all is a mask, whichever way the arithmetic got there.
+
     return st.with_(
         eye_y=st.eye_y + dy,
         brow_gap=st.brow_gap * (1.0 + spread),

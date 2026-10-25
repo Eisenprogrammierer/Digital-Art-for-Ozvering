@@ -46,13 +46,10 @@ class Charge:
     def __call__(self, x, y):
         return self.build(x, y)
 
-    def __repr__(self):  # pragma: no cover - debugging aid
+    def __repr__(self):
         return f"Charge({self.key})"
 
 
-# --------------------------------------------------------------------------
-# small composition helpers
-# --------------------------------------------------------------------------
 def _U(*fields):
     return lambda x, y: np.minimum.reduce([f(x, y) for f in fields])
 
@@ -103,8 +100,7 @@ def _fit(f, extent: float | None = None):
                          abs(xs[cols].min()), abs(xs[cols].max()))
         else:
             extent = 1.0
-    # Land just inside the box: the measurement itself is quantised by the grid,
-    # and a hair of margin keeps the charge off the edge under any sampling.
+
     s = float(extent) / 0.99
     return lambda x, y: f(x * s, y * s) / s
 
@@ -122,9 +118,6 @@ def _poly(pts):
     return lambda x, y: sdf.polygon(x, y, arr)
 
 
-# --------------------------------------------------------------------------
-# geometric charges
-# --------------------------------------------------------------------------
 def _star(n):
     return lambda x, y: sdf.star(x, y, n, 1.0, 0.42)
 
@@ -143,7 +136,7 @@ def _roundel():
 
 
 def _annulet():
-    # A ring measured by its centre line overhangs the box by its own thickness.
+
     return _fit(lambda x, y: sdf.ring(x, y, 0.94, 0.17))
 
 
@@ -182,7 +175,7 @@ def _heart():
 
 def _sun(n=12):
     """Sun in splendour: a disc with triangular rays."""
-    disc = lambda x, y: sdf.circle(x, y, 0.42)  # noqa: E731
+    disc = lambda x, y: sdf.circle(x, y, 0.42)
     rays = []
     for i in range(n):
         a = np.pi / 2.0 + 2.0 * np.pi * i / n
@@ -199,15 +192,8 @@ def _sun(n=12):
         )
     return _U(disc, *rays)
 
-
-# --------------------------------------------------------------------------
-# named figures
-# --------------------------------------------------------------------------
 _RIGHT = [
-    # Right half of the fleur-de-lis outline, from the base up to the tip: base,
-    # band, the side petal's outer and inner edges, the notch, then the central
-    # petal.  The deep notch down to the band is what separates the three
-    # petals, and it costs nothing because the polygon is concave.
+
     (0.30, -1.00),
     (0.26, -0.62),
     (0.20, -0.44),
@@ -261,28 +247,28 @@ def _cross_pattee():
 
 
 def _tower():
-    body = lambda x, y: sdf.box(x, y, 0.56, 0.78, 0.04, 0.0, -0.16)  # noqa: E731
+    body = lambda x, y: sdf.box(x, y, 0.56, 0.78, 0.04, 0.0, -0.16)
     merlons = [lambda x, y, cx=cx: sdf.box(x, y, 0.11, 0.17, 0.02, cx, 0.78) for cx in (-0.42, 0.0, 0.42)]
     shell = _U(body, *merlons)
     door = _U(
         lambda x, y: sdf.box(x, y, 0.17, 0.26, 0.0, 0.0, -0.68),
         lambda x, y: sdf.circle(x, y, 0.17, 0.0, -0.42),
     )
-    window = lambda x, y: sdf.box(x, y, 0.07, 0.13, 0.03, 0.0, 0.22)  # noqa: E731
+    window = lambda x, y: sdf.box(x, y, 0.07, 0.13, 0.03, 0.0, 0.22)
     return _D(_D(shell, door), window)
 
 
 def _sword():
     blade = _poly([(-0.13, -0.50), (0.13, -0.50), (0.10, 0.40), (0.0, 0.98), (-0.10, 0.40)])
-    guard = lambda x, y: sdf.box(x, y, 0.46, 0.085, 0.04, 0.0, -0.58)  # noqa: E731
-    grip = lambda x, y: sdf.box(x, y, 0.095, 0.20, 0.03, 0.0, -0.75)  # noqa: E731
-    pommel = lambda x, y: sdf.circle(x, y, 0.13, 0.0, -0.90)  # noqa: E731
+    guard = lambda x, y: sdf.box(x, y, 0.46, 0.085, 0.04, 0.0, -0.58)
+    grip = lambda x, y: sdf.box(x, y, 0.095, 0.20, 0.03, 0.0, -0.75)
+    pommel = lambda x, y: sdf.circle(x, y, 0.13, 0.0, -0.90)
     return _fit(_U(blade, guard, grip, pommel))
 
 
 def _key():
-    bow = lambda x, y: sdf.ring(x, y, 0.30, 0.095, 0.0, 0.62)  # noqa: E731
-    stem = lambda x, y: sdf.box(x, y, 0.08, 0.60, 0.0, 0.0, -0.05)  # noqa: E731
+    bow = lambda x, y: sdf.ring(x, y, 0.30, 0.095, 0.0, 0.62)
+    stem = lambda x, y: sdf.box(x, y, 0.08, 0.60, 0.0, 0.0, -0.05)
     bit = _U(
         lambda x, y: sdf.box(x, y, 0.19, 0.08, 0.0, 0.18, -0.48),
         lambda x, y: sdf.box(x, y, 0.14, 0.06, 0.0, 0.13, -0.66),
@@ -291,7 +277,7 @@ def _key():
 
 
 def _tree():
-    trunk = lambda x, y: sdf.box(x, y, 0.105, 0.34, 0.03, 0.0, -0.62)  # noqa: E731
+    trunk = lambda x, y: sdf.box(x, y, 0.105, 0.34, 0.03, 0.0, -0.62)
     canopy = _S(
         0.26,
         lambda x, y: sdf.circle(x, y, 0.50, 0.0, 0.16),
@@ -311,8 +297,8 @@ def _escallop():
     along the outer edge.
     """
     hinge = (0.0, -0.98)
-    lo, hi = 0.098, 0.402  # turns: a fan spanning about 110 degrees
-    body = lambda x, y: np.maximum(  # noqa: E731
+    lo, hi = 0.098, 0.402
+    body = lambda x, y: np.maximum(
         _field.wedge(lo, hi, hinge[0], hinge[1])(x, y),
         sdf.ellipse(x, y, 0.98, 0.88, 0.0, -0.12),
     )
@@ -356,12 +342,12 @@ def _eagle_displayed():
     made of feathers alone reads as a starburst; a wing made of one blob reads
     as a mushroom.  Both together read as a bird.
     """
-    body = lambda x, y: sdf.ellipse(x, y, 0.20, 0.46, 0.0, -0.18)  # noqa: E731
-    neck = lambda x, y: sdf.segment(x, y, (0.0, 0.02), (0.0, 0.36), 0.115)  # noqa: E731
-    head = lambda x, y: sdf.circle(x, y, 0.185, 0.0, 0.50)  # noqa: E731
+    body = lambda x, y: sdf.ellipse(x, y, 0.20, 0.46, 0.0, -0.18)
+    neck = lambda x, y: sdf.segment(x, y, (0.0, 0.02), (0.0, 0.36), 0.115)
+    head = lambda x, y: sdf.circle(x, y, 0.185, 0.0, 0.50)
     beak = _poly([(-0.12, 0.56), (-0.42, 0.46), (-0.12, 0.38)])
-    shoulder = lambda x, y: sdf.circle(x, y, 0.16, 0.13, 0.02)  # noqa: E731
-    wing_blob = lambda x, y: sdf.rotated(lambda a, b: sdf.ellipse(a, b, 0.44, 0.21), 44.0)(x - 0.46, y - 0.38)  # noqa: E731
+    shoulder = lambda x, y: sdf.circle(x, y, 0.16, 0.13, 0.02)
+    wing_blob = lambda x, y: sdf.rotated(lambda a, b: sdf.ellipse(a, b, 0.44, 0.21), 44.0)(x - 0.46, y - 0.38)
     wing = _U(
         shoulder,
         wing_blob,
@@ -374,7 +360,7 @@ def _eagle_displayed():
         _feather(-68.0, 0.20, 0.62, 0.16, 0.12, 0.0, -0.34),
         _feather(-112.0, 0.20, 0.62, 0.16, 0.12, 0.0, -0.34),
     )
-    leg = lambda x, y: sdf.segment(x, y, (0.14, -0.40), (0.24, -0.74), 0.062)  # noqa: E731
+    leg = lambda x, y: sdf.segment(x, y, (0.14, -0.40), (0.24, -0.74), 0.062)
     foot = _poly([(0.10, -0.72), (0.40, -0.82), (0.30, -0.60)])
     return _fit(_U(body, neck, head, beak, tail, wing, _mirror(wing), leg, _mirror(leg), foot, _mirror(foot)))
 
@@ -386,11 +372,11 @@ def _lion_rampant():
     with a smooth union so the joins read as muscle rather than as a joint.  It
     is the one charge here whose silhouette is not a classical outline.
     """
-    spine = lambda x, y: sdf.segment(x, y, (0.06, -0.34), (-0.06, 0.30), 0.21)  # noqa: E731
-    haunch = lambda x, y: sdf.circle(x, y, 0.24, 0.10, -0.34)  # noqa: E731
-    chest = lambda x, y: sdf.circle(x, y, 0.20, -0.06, 0.28)  # noqa: E731
-    head = lambda x, y: sdf.circle(x, y, 0.19, -0.22, 0.52)  # noqa: E731
-    mane = lambda x, y: sdf.circle(x, y, 0.17, -0.34, 0.68)  # noqa: E731
+    spine = lambda x, y: sdf.segment(x, y, (0.06, -0.34), (-0.06, 0.30), 0.21)
+    haunch = lambda x, y: sdf.circle(x, y, 0.24, 0.10, -0.34)
+    chest = lambda x, y: sdf.circle(x, y, 0.20, -0.06, 0.28)
+    head = lambda x, y: sdf.circle(x, y, 0.19, -0.22, 0.52)
+    mane = lambda x, y: sdf.circle(x, y, 0.17, -0.34, 0.68)
     muzzle = _poly([(-0.28, 0.60), (-0.50, 0.56), (-0.46, 0.44), (-0.26, 0.44)])
     ear = _poly([(-0.20, 0.72), (-0.10, 0.80), (-0.12, 0.62)])
     front = [
@@ -409,10 +395,6 @@ def _lion_rampant():
     parts = [spine, haunch, chest, head, mane, muzzle, ear] + front + hind + tail
     return _S(0.055, *parts)
 
-
-# --------------------------------------------------------------------------
-# registry
-# --------------------------------------------------------------------------
 _BASE = [
     Charge("mullet", _star(5), "mullet", "mullets", "звезда", "звёзды", "звёздами", "f"),
     Charge("mullet_of_six", _star(6), "mullet of six points", "mullets of six points", "шестиконечная звезда", "шестиконечные звёзды", "шестиконечными звёздами", "f"),
@@ -438,7 +420,6 @@ _BASE = [
     Charge("lion", _lion_rampant(), "lion rampant", "lions rampant", "лев", "львы", "львами", "m", tags=("stylised",)),
 ]
 
-#: Roundels of a fixed tincture have their own names in blazon.
 _ROUNDELS = [
     ("bezant", "or", "bezant", "bezants", "безант", "безанты", "безантами"),
     ("plate", "argent", "plate", "plates", "серебряный круг", "серебряные круги", "серебряными кругами"),
@@ -453,7 +434,6 @@ CHARGES = {c.key: c for c in _BASE}
 for _key, _tincture, _en, _enpl, _ru, _rupl, _ruin in _ROUNDELS:
     CHARGES[_key] = Charge(_key, _roundel(), _en, _enpl, _ru, _rupl, _ruin, "m", forced=_tincture)
 
-#: Plain-language aliases, for specs written by hand.
 _ALIASES = {
     "star": "mullet",
     "star_of_six": "mullet_of_six",
@@ -482,10 +462,6 @@ def get(name) -> Charge:
         raise KeyError(f"unknown charge {name!r}; known: {', '.join(sorted(CHARGES))}")
     return CHARGES[key]
 
-
-#: Instrumental singular, for the Russian "between/with one ..." constructions.
-#: Separated from :class:`Charge` because it is only needed by the blazon
-#: writer, and a charge is otherwise language-agnostic.
 _RU_INSTR_SG = {
     "mullet": "звездой",
     "mullet_of_six": "шестиконечной звездой",
@@ -527,10 +503,6 @@ def instr_sg(name) -> str:
     """
     return _RU_INSTR_SG.get(get(name).key, get(name).ru_instr)
 
-
-#: Genitive singular and plural, for numeral government: "два золотых круга"
-#: (genitive singular after 2-4) but "пять золотых кругов" (genitive plural
-#: after 5 and above).
 _RU_GEN = {
     "mullet": ("звезды", "звёзд", None),
     "mullet_of_six": ("звезды", "шестиконечных звёзд", "шестиконечных"),

@@ -28,16 +28,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import palette  # noqa: E402
-from gen.portraits import accessories, cel, demography, dna, expression, face, garments, hair, head, hues, eyes, humanize  # noqa: E402
-from gen.portraits import phenotype  # noqa: E402
-from gen.portraits import regalia  # noqa: E402
-from gen.portraits import portrait as portraitlib  # noqa: E402
-from gen.portraits import style as style_mod  # noqa: E402
-from gen.portraits.shape import Shape  # noqa: E402
+from core import palette
+from gen.portraits import accessories, cel, demography, dna, expression, face, garments, hair, head, hues, eyes, humanize
+from gen.portraits import phenotype
+from gen.portraits import regalia
+from gen.portraits import portrait as portraitlib
+from gen.portraits import style as style_mod
+from gen.portraits.shape import Shape
 
 
-# ------------------------------------------------------------------ helpers
 def _genes(seed: int, **over) -> dict:
     g = dna.random_genes(seed)
     g.update(over)
@@ -112,7 +111,6 @@ def _hair_pixels(canvas, h, x0: float, x1: float, y0: float,
     return int(((dist < tol) & _world_box(canvas, x0, x1, y0, y1)).sum())
 
 
-# ------------------------------------------------------------------ genome
 def test_genome_round_trips_through_its_string():
     for seed in range(200):
         g = dna.random_genes(seed)
@@ -135,10 +133,10 @@ def test_decode_refuses_a_genome_it_does_not_understand():
         dna.encode(dict(g, hair_style="mohawk")),
         dna.encode(dict(g, expression="beaming")),
         good + ";hat=none",
-        ";".join(i for i in items if not i.startswith("eye_w=")),   # a missing gene
+        ";".join(i for i in items if not i.startswith("eye_w=")),
         ";".join(("eye_w=oops" if i.startswith("eye_w=") else i) for i in items),
         dna.encode(dict(g, skin="#nothex")),
-        ";".join(i for i in items if not i.startswith("bang_n=")),  # a missing legacy gene
+        ";".join(i for i in items if not i.startswith("bang_n=")),
     ]
     for broken in variants:
         try:
@@ -157,8 +155,7 @@ def test_breeding_produces_a_valid_genome():
         assert child["hair_style"] in (a["hair_style"], b["hair_style"])
         assert child["expression"] in (a["expression"], b["expression"])
         assert _style(child) is not None
-        # Shape genes are averaged (and clamped), so a child is never wilder than
-        # the child's own wire format allows.
+
         for key in dna.SHAPE_GENES + dna.MORPH + dna.PIGMENT:
             assert -1.0 <= child[key] <= 1.0
         for key in (*dna.PHENOTYPE_CATEGORIES, *dna.REGALIA_CATEGORIES,
@@ -172,7 +169,7 @@ def test_mutation_keeps_the_genome_readable_and_coloured():
         m = dna.mutate(g, seed=seed)
         assert dna.decode(dna.encode(m)) == m
         for key in dna.COLOUR_GENES:
-            palette.hex_to_srgb(m[key])  # must still parse
+            palette.hex_to_srgb(m[key])
 
 
 def test_seed_of_is_a_function_of_the_genome():
@@ -229,7 +226,7 @@ def test_the_humanising_asymmetry_is_stable_and_bilateral():
     assert a.ear == b.ear
     assert a.nose_dx == b.nose_dx
     assert a.mouth_corner_l == b.mouth_corner_l
-    # The pair is not the mirror image the construction pass started with.
+
     assert a.eye[1]["sx"] != a.eye[-1]["sx"]
     assert abs(a.eye[1]["dy"] - a.eye[-1]["dy"]) > 1e-5
     assert abs(a.mouth_corner_l - a.mouth_corner_r) > 1e-5
@@ -278,8 +275,7 @@ def test_adult_sexes_differ_in_more_than_the_jaw():
     assert male.lip_full < female.lip_full - 0.070
     assert male.chin_y < female.chin_y
     assert male.hairline_gap == female.hairline_gap
-    # The simplest image-level check: the two renders are not one face with a
-    # description.  The face seed is shared, so this is the sex change alone.
+
     a = portraitlib.render(dict(base, sex="male"), size=192).to_uint8().astype(np.int16)
     b = portraitlib.render(dict(base, sex="female"), size=192).to_uint8().astype(np.int16)
     diff = np.abs(a - b).max(axis=2)
@@ -337,7 +333,7 @@ def test_accessories_are_optional_and_do_not_reseed_the_face():
         assert not np.array_equal(out, bare), f"{name} did not reach the picture"
         assert portraitlib.render(genes, size=160).to_uint8().tobytes() == out.tobytes(), \
             f"{name} was not deterministic"
-    # An explicit empty genome decodes to the old bare face.
+
     old = ";".join(item for item in dna.encode(base).split(";")
                    if item.partition("=")[0] not in dna.ACCESSORY_CATEGORIES)
     restored = dna.decode(old)
@@ -363,7 +359,6 @@ def test_quantise_is_the_wire_format_precision():
         assert float(f"{q:.4f}") == q, "a quantised gene must print back exactly"
 
 
-# ----------------------------------------------------------------- anatomy
 def test_derived_anatomy_stays_plausible():
     """The invariants that keep independent genes from producing a monster.
 
@@ -388,8 +383,7 @@ def test_derived_anatomy_stays_plausible():
             aspect = (st.eye_up + st.eye_down) / st.eye_w
             assert 0.58 - 1e-9 <= aspect <= 0.96 + 1e-9, \
                 f"{where}: eye opening aspect {aspect:.2f} is a slit or a dinner plate"
-            # Eyes are a relationship: an opening cannot swallow the inter-eye
-            # gap or the temple even when both genes are at their extremes.
+
             assert st.eye_w <= st.head_w * 0.50 + 1e-9, \
                 f"{where}: eye is too wide for the skull"
             assert st.eye_w <= st.cheek_w * 0.50 + 1e-9, \
@@ -414,7 +408,6 @@ def test_a_head_is_a_head_for_every_style():
         assert shape.f(0.0, 0.60) > 0.0, f"{name}: the skull reaches past the crown"
 
 
-# ------------------------------------------------------------------- the turn
 def test_a_turn_of_zero_is_the_identity():
     """A front view is not an approximation of the solid: it *is* the solid."""
     for name in style_mod.names():
@@ -470,7 +463,7 @@ def test_the_two_ends_of_a_face_turn_less_than_the_middle_of_it():
         st = style_mod.get(name)
         sk = head.skull(st)
         turn = 0.5
-        slide = lambda y: float(sk.project(0.0, y, turn)[0])  # noqa: E731
+        slide = lambda y: float(sk.project(0.0, y, turn)[0])
         mid = slide(0.02)
         assert mid > 0.10, f"{name}: the middle of the face barely moved"
         assert slide(-0.465) < mid, f"{name}: the chin swung as far as the eye line"
@@ -569,9 +562,7 @@ def test_the_framing_is_a_headshot():
         g = _genes(seed)
         st, h = _hair(g)
         crown = h.mass.bbox[3]
-        # The skull itself is always in frame; the hair may run off the top, which
-        # is what a headshot does, but a style that keeps it down the middle of the
-        # frame has drifted out of the portrait.
+
         assert 0.02 <= down(st.top_y) <= 0.26, f"seed {seed}: the skull crown is cropped"
         assert -0.20 <= down(crown) <= 0.30, f"seed {seed}: crown at {down(crown):.2f}"
         assert crown > st.top_y, f"seed {seed}: the hair sits below the skull"
@@ -580,7 +571,6 @@ def test_the_framing_is_a_headshot():
         assert h.mass.bbox[1] < st.chin_y, f"seed {seed}: no bust below the chin"
 
 
-# -------------------------------------------------------------------- hair
 def test_no_front_hair_enters_an_eye_opening():
     """A lock over an eye is the difference between a face and a curtain.
 
@@ -619,11 +609,7 @@ def test_the_hairline_has_no_gap():
     """
     for name in dna.HAIR_STYLES:
         for seed in range(8):
-            # The invariant is about the passport photograph: front-facing, and
-            # sampled inside *this* skull.  A fixed +-0.34 x-range and a random
-            # turn tested the silhouette of the frame rather than the hairline,
-            # and an M-shaped crop legitimately leaves the corners of the
-            # forehead bare.
+
             g = _genes(seed * 13 + 1, hair_style=name, turn=0.0)
             st, h = _hair(g)
             hairline = head.hairline_y(st) - 0.02
@@ -667,8 +653,7 @@ def test_the_crown_is_painted_hair_and_not_skin():
             return img[int(np.argmin(((flat - (x, y)) ** 2).sum(axis=1)))]
 
         def nearest(px, colours):
-            # The colour script stores sRGB, not linear light; compare in the
-            # space the pixels are exported in.
+
             ref = np.array(colours) * 255.0
             return float(np.min(np.linalg.norm(ref - px, axis=1)))
 
@@ -699,8 +684,7 @@ def test_every_fringe_clump_carries_its_own_root():
         paired = list(zip(h.bangs, h.bang_roots)) + list(zip(h.sides, h.side_roots))
         assert paired, name
         for clump, root_y in paired:
-            # A root sits above the hem it feeds, and the clump has real length:
-            # a root at or below the tip would smother the whole strand line.
+
             assert clump.bbox[3] >= root_y - 1e-9, name
             assert root_y - clump.bbox[1] > 0.02, name
 
@@ -733,11 +717,9 @@ def test_a_strand_never_escapes_the_clump_it_is_drawn_on():
             X, Y = _probe(strand)
             escape = float(clump.f(X, Y).max())
             assert escape <= 1e-9, f"{name}: the strand leaves its clump by {escape:.2e}"
-            # The fade has to start below the root, or the strand is invisible.
+
             assert top < clump.bbox[3], name
 
-        # A tail carries a strand and a spike does not, so the crest's two lists
-        # differ in length on purpose: the test is containment in the row.
         assert len(h.crest_strands) <= len(h.crest), name
         for strand, _ in h.crest_strands:
             X, Y = _probe(strand)
@@ -782,7 +764,6 @@ def test_the_crown_is_layered_over_the_cap():
                     f"{name} seed {seed}: a crown sheet left the cap by {escape:.2e}")
 
 
-# -------------------------------------------------------------- the picture
 def test_render_is_deterministic():
     g = dna.random_genes(5)
     assert _hash(portraitlib.render(g, size=96)) == _hash(portraitlib.render(g, size=96))
@@ -825,8 +806,7 @@ def test_every_style_and_hairstyle_builds():
                 turn = float(np.clip(g["turn"], -head.TURN_MAX, head.TURN_MAX))
                 st, h = _hair(g)
                 expr = expression.get(expr_name)
-                # The face is drawn from the warped style, the head from the style
-                # itself -- so both halves of the pipeline are exercised here.
+
                 fst = expression.warp(st, expr)
                 shapes = {
                     "skull": head.silhouette(st, turn),
@@ -851,10 +831,7 @@ def test_every_style_and_hairstyle_builds():
                     assert x1 > x0 and y1 > y0, f"{where}: empty bounding box"
                     assert -2.6 < x0 < x1 < 2.6 and -2.6 < y0 < y1 < 1.1, \
                         f"{where}: the shape has left the frame"
-                    # A NaN is a divide by zero wearing a shape's clothes and it
-                    # renders as a hole.  A union is allowed to report +inf outside
-                    # every part's box -- a documented, safe over-estimate -- but
-                    # nothing else non-finite is acceptable.
+
                     values = np.asarray(shape.f(probes[0], probes[1]), dtype=np.float64)
                     assert not np.isnan(values).any(), f"{where}: the field has a NaN"
                     assert (values == -np.inf).sum() == 0, f"{where}: the field has -inf"
@@ -877,7 +854,6 @@ def test_the_expression_presets_only_move_the_face():
             assert abs(row[key]) <= limit, f"{name}: {key} is past its bound"
 
 
-# ------------------------------------------------------- the whole face
 def test_a_neutral_expression_does_not_warp_the_face():
     """The warp is a strict addition: a neutral row returns the style *itself*.
 
@@ -953,15 +929,12 @@ def test_the_warp_keeps_the_face_inside_its_own_head():
                 brow = w.brow_y + expr["brow_dy"]
                 where = f"{name}/{seed}/{expr_name}"
                 assert brow + expr["brow_arch"] < head.hairline_y(w), f"{where}: the brow is in the hair"
-                # The tightest case measured across four styles and every genome is
-                # 0.010 head units above the lid and 0.089 above the chin, so these
-                # bounds are claims with room in them rather than the current numbers.
+
                 assert brow + expr["brow_arch"] > w.eye_y + w.eye_up + 0.004, \
                     f"{where}: the brow fell onto the eye"
                 assert w.eye_y > w.nose_y > w.mouth_y + expr["mouth_dy"] > w.chin_y + 0.05, \
                     f"{where}: the landmarks are out of order"
-                # The eye is the widest feature and the one a widened skull would
-                # let leave the silhouette; anatomy is not warped, so it cannot.
+
                 assert w.eye_dx + w.eye_w * 0.5 < w.head_w, f"{where}: the eye left the skull"
 
 
@@ -981,7 +954,6 @@ def test_an_expression_renders_and_is_not_another_expression():
     assert hashes["smile"] != hashes["grin"]
 
 
-# ------------------------------------------------------------------ colour
 def test_shadow_is_darker_more_chromatic_and_rolled_towards_violet():
     base = palette.hex_to_srgb("#b98a6a")
     for depth, chroma, hue in ((0.09, 1.18, -0.03), (0.135, 1.30, -0.03), (0.235, 1.12, -0.03)):
@@ -1009,9 +981,7 @@ def test_the_colour_script_derives_from_the_four_base_colours():
     derived tone is still a valid colour.
     """
     g = dna.random_genes(4)
-    # Temperate is the neutral climate.  A non-temperate lineage deliberately
-    # shifts even a pinned base colour, so the exact-material invariant belongs
-    # to the neutral environment.
+
     neutral = dict(g, climate="temperate", **{key: 0.0 for key in dna.PIGMENT})
     h0 = hues.from_genes(neutral)
     assert np.allclose(h0.skin, palette.hex_to_srgb(g["skin"]))
@@ -1020,7 +990,7 @@ def test_the_colour_script_derives_from_the_four_base_colours():
 
     h = hues.from_genes(g)
     assert not np.allclose(h.skin, h0.skin) or not np.allclose(h.hair, h0.hair)         or not np.allclose(h.iris, h0.iris), "pigment genes did not reach the script"
-    # A derived tone must be a colour, not a channel-out-of-range accident.
+
     for name in h.__slots__:
         c = getattr(h, name)
         assert c.shape == (3,)
@@ -1037,7 +1007,6 @@ def test_describe_names_the_genome():
     assert g["hair"] in text
 
 
-# ------------------------------------------------------------- demography
 def test_old_genomes_default_the_demographic_and_phenotype_genes():
     """A saved dynasty predates sex, age, climate, culture and every new axis.
 
@@ -1076,15 +1045,10 @@ def test_demography_changes_the_face_and_not_the_dna_contract():
     assert child.jaw_w < elder.jaw_w
     assert arid.nose_w > temperate.nose_w
 
-    # Dress is not a face: the culture must not touch a single geometric parameter.
     north = _style(dict(base, culture="north"))
     desert = _style(dict(base, culture="desert"))
     assert north.p == desert.p, "culture changed the face instead of the clothing"
 
-    # It must still reach the picture.  The collar, the trim and the grooming
-    # differ, while the skull and features do not.  The cloth itself is pinned:
-    # an explicitly chosen colour has to survive culture, so the accent belongs
-    # on the trim rather than in the base fabric.
     assert demography.collar(dict(base, culture="north")) != \
         demography.collar(dict(base, culture="desert"))
     hn = hues.from_genes(dict(base, culture="north"))
@@ -1190,8 +1154,6 @@ def test_demographic_variants_are_distinct_and_deterministic():
     north = _hash(portraitlib.render(dict(base, culture="north"), size=64))
     assert desert != north, "culture did not reach the clothing"
 
-    # The same genes must reproduce the same picture; the demography is not a
-    # hidden random input beside the genome.
     again = _hash(portraitlib.render(dict(base, age="elder"), size=64))
     assert again == new
 
@@ -1206,8 +1168,6 @@ def test_breeding_gives_a_child_a_child_stage():
         assert child["culture"] in demography.CULTURES
 
 
-
-# ------------------------------------------------------- phenotype and pigment
 def _neutral_phenotype(genes: dict) -> dict:
     out = dict(genes)
     out.update({key: 0.0 for key in dna.MORPH})
@@ -1265,7 +1225,7 @@ def test_every_morph_gene_reaches_geometry_or_hair():
     """
     base = _neutral_phenotype(_genes(44))
     base["style"] = "shounen"
-    base["hair_style"] = "wild"    # a parted fringe, so every hair axis is visible
+    base["hair_style"] = "wild"
     neutral_style = _style(base)
     neutral_sig = _style_signature(neutral_style)
     hair_keys = {"hair_volume", "fringe_length", "fringe_part", "side_lock"}
@@ -1282,7 +1242,7 @@ def test_every_morph_gene_reaches_geometry_or_hair():
         else:
             assert _style_signature(_style(dict(base, **{key: 0.8}))) != neutral_sig, \
                 f"{key} never reached the style"
-    # Hair axes must reach pixels, not just a parameter dict.
+
     base_hash = _hash(portraitlib.render(base, size=48))
     for key in hair_keys:
         assert _hash(portraitlib.render(dict(base, **{key: 0.8}), size=48)) != base_hash, \
@@ -1298,7 +1258,7 @@ def test_every_pigment_gene_moves_the_colour_script():
         changed = any(not np.allclose(getattr(h0, slot), getattr(h1, slot))
                       for slot in h0.__slots__)
         assert changed, f"{key} never reached the colour script"
-    # The strong skin axis must also survive to the picture.
+
     a = _hash(portraitlib.render(dict(neutral, skin_melanin=-1.0), size=64))
     b = _hash(portraitlib.render(dict(neutral, skin_melanin=1.0), size=64))
     assert a != b, "skin melanin did not reach the portrait"
@@ -1337,7 +1297,7 @@ def test_facial_hair_is_gated_on_the_sitter():
     pass directly instead: for a woman and for a child the pass must be a no-op,
     and for an adult man the same call must change the canvas.
     """
-    from gen.portraits import detail  # noqa: PLC0415
+    from gen.portraits import detail
 
     base = _neutral_phenotype(_genes(63))
 
@@ -1360,7 +1320,6 @@ def test_facial_hair_is_gated_on_the_sitter():
     assert clean != bearded, "an adult man's beard never reached the canvas"
 
 
-# ------------------------------------------------------------------ regalia
 def test_the_outfit_is_an_optional_tail_of_the_wire_format():
     """An old dynasty string has no outfit and must decode to civilian dress.
 
@@ -1375,8 +1334,7 @@ def test_the_outfit_is_an_optional_tail_of_the_wire_format():
     for key, value in regalia.DEFAULTS.items():
         assert out[key] == value, f"{key} did not default to {value!r}"
     tail = [item.partition("=")[0] for item in dna.encode(out).split(";")]
-    # Accessories are the newest appended layer, so the outfit sits immediately
-    # before them in the wire format rather than at the absolute end.
+
     n_acc = len(dna.ACCESSORY_CATEGORIES)
     assert tail[-n_acc:] == list(dna.ACCESSORY_CATEGORIES)
     assert tail[-n_acc - len(dna.REGALIA_CATEGORIES):-n_acc] == list(dna.REGALIA_CATEGORIES)
@@ -1448,7 +1406,6 @@ def test_regalia_is_gated_on_the_sitter():
             assert g["awards"] == "none" and g["insignia"] == "none", f"seed {seed}"
 
 
-# ------------------------------------------------------------------ garments
 def test_the_garment_is_the_last_outfit_gene_and_defaults_to_auto():
     """The cut is appended after faith; accessories are the newer tail."""
     n_acc = len(dna.ACCESSORY_CATEGORIES)
@@ -1541,7 +1498,7 @@ def test_a_jacket_builds_a_body_and_a_coat_is_heavier():
     base.update(sex="female", age="adult", attire="civil", insignia="none",
                 awards="none", ornament="none", faith="none")
     st = _style(base)
-    # Sample on the body, not on the background outside the narrowed shoulder.
+
     x, y = -float(st.shoulder_w) * 0.55, float(st.neck_y) - 0.16
     shirt = portraitlib.render(dict(base, garment="shirt"), size=128)
     jacket = portraitlib.render(dict(base, garment="jacket"), size=128)
@@ -1567,8 +1524,7 @@ def test_the_habit_covers_the_hair():
 
 
 def test_the_shoulder_girdle_and_jaw_are_sexed():
-    # The raw deltas, before the style's harmony clamp, are what the skeleton
-    # pass reads; keep them explicit and directional.
+
     base = dict(_style(_genes(0)).p)
     male, female = dict(base), dict(base)
     demography.modify(male, {"sex": "male", "age": "adult", "climate": "temperate"})
@@ -1579,15 +1535,14 @@ def test_the_shoulder_girdle_and_jaw_are_sexed():
     assert male["chin_w"] - female["chin_w"] >= 0.023
     assert male["neck_w"] - female["neck_w"] >= 0.024
     assert male["brow_thick"] - female["brow_thick"] >= 0.010
-    # The clamp may eat a little of the jaw at the narrow end, but the shoulder
-    # girdle still has to separate for every style the generator can draw.
+
     for seed in range(12):
         male = _style(_genes(seed, sex="male", age="adult"))
         female = _style(_genes(seed, sex="female", age="adult"))
         assert male.shoulder_w > female.shoulder_w + 0.06, f"seed {seed}: shoulders"
         assert male.shoulder_slope < female.shoulder_slope - 0.20, f"seed {seed}: slope"
 
-# ------------------------------------------------------ exact cloth and body
+
 def test_an_explicit_cloth_is_exact_in_every_dress_code():
     """The colour control is a promise: black is black, not service brown.
 
@@ -1660,20 +1615,18 @@ def test_a_long_garment_changes_the_figure_silhouette():
     robe = character.render({**g, "garment": "robe"}, size=80, facing="down")
     assert character.scene({**g, "garment": "robe"})["garment"] == "robe"
     assert _hash(shirt) != _hash(robe)
-    # A long hem puts cloth lower on the sprite than a tunic does.
+
     u8s = shirt.to_uint8().astype(np.float64)
     u8r = robe.to_uint8().astype(np.float64)
     row_s = (u8s[..., 3] > 0).sum(axis=1)
     row_r = (u8r[..., 3] > 0).sum(axis=1)
     assert row_r[-12:].sum() > row_s[-12:].sum()
-    # A habit is a long robe *and* a shoulder cape, not a second name for the
-    # robe.  Without the cape the two cuts would render the same body.
+
     habit = character.render(
         {**g, "attire": "clerical", "garment": "habit"}, size=80, facing="down")
     assert character.scene({**g, "attire": "clerical",
                             "garment": "habit"})["garment"] == "habit"
     assert _hash(habit) != _hash(robe), "the habit lost its shoulder cape"
-
 
 if __name__ == "__main__":
     import traceback
@@ -1684,7 +1637,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

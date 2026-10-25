@@ -50,36 +50,31 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.textures import atlas, boards, ground, reaction, tile, truchet, wang  # noqa: E402
-from core import palette  # noqa: E402
-from core.canvas import Canvas  # noqa: E402
+from gen.textures import atlas, boards, ground, reaction, tile, truchet, wang
+from core import palette
+from core.canvas import Canvas
 
 
 def _canvas_bytes(canvas) -> bytes:
     return canvas.to_uint8().tobytes()
 
 
-# ---------------------------------------------------------------------- tiles
 def test_a_wrapping_field_does_not_step_at_its_edge_and_a_cliff_does():
     wrapped = tile.periodic_noise((64, 64), seed=3, scale=5.0)
     assert 0.0 <= float(wrapped.min()) and float(wrapped.max()) <= 1.0
     assert tile.seam_error(wrapped) <= 1.5
 
-    # A gradient is the simplest field that does not wrap: two tiles apart the value
-    # jumps back to the start, and the step is the whole height of the tile.
     ramp = np.tile(np.linspace(0.0, 1.0, 64)[None, :], (64, 1))
     assert tile.seam_error(ramp) > 8.0
-    # The claim in one line, without a threshold to argue about: a seam is a cliff
-    # standing well clear of anything the same field does inside itself.
+
     assert tile.seam_error(ramp) > 10.0 * tile.seam_error(wrapped)
 
 
 def test_periodic_noise_wraps_exactly():
-    # Not "smoothly" -- exactly, because the basis of a DFT is periodic on the
-    # canvas, so a field built out of it is periodic to the last bit.
+
     f = tile.periodic_noise((48, 48), seed=11, scale=4.0)
     shifted = tile.periodic_noise((48, 48), seed=11, scale=4.0)
-    assert np.array_equal(f, shifted)          # the same seed is the same field
+    assert np.array_equal(f, shifted)
     assert not np.array_equal(f, tile.periodic_noise((48, 48), seed=12, scale=4.0))
 
 
@@ -93,16 +88,13 @@ def test_smoothing_wraps_and_never_mixes_the_channels():
     looks like a slightly grey texture rather than like a bug.
     """
     f = np.zeros((24, 24, 3))
-    f[..., 0] = 1.0                       # red only, and it must stay red only
+    f[..., 0] = 1.0
     out = tile.smooth(f, 1.5)
     assert out.shape == f.shape
     assert float(out[..., 1].max()) < 1e-9 and float(out[..., 2].max()) < 1e-9
     assert np.allclose(out[..., 0], 1.0)
-    assert np.allclose(tile.smooth(np.full((8, 8), 0.4), 2.0), 0.4)   # a flat field
+    assert np.allclose(tile.smooth(np.full((8, 8), 0.4), 2.0), 0.4)
 
-    # The wrap, as algebra rather than as a picture: on a torus a blur commutes with
-    # a shift, and a blur with a clamped edge does not.  One bright pixel is the
-    # field to ask, because it puts energy in every frequency at once.
     spot = np.zeros((32, 32))
     spot[3, 5] = 1.0
     moved = np.roll(np.roll(spot, 7, axis=0), 4, axis=1)
@@ -116,9 +108,7 @@ def test_tile_coords_finds_the_tile_and_the_offset_inside_it():
     assert i.shape == (8, 12) and u.shape == (8, 12)
     assert set(np.unique(i)) == {0.0, 1.0}
     assert set(np.unique(j)) == {0.0, 1.0, 2.0}
-    # Offsets are measured from the tile's own corner and are what a painter draws
-    # with: the same arithmetic on both sides of an edge is what makes a blend of
-    # corner colours continuous there.
+
     assert np.allclose(u[0, :4], np.array([0.0, 0.25, 0.5, 0.75]))
     assert np.allclose(v[:4, 0], np.array([0.0, 0.25, 0.5, 0.75]))
     assert np.allclose(j[0, :], np.array([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]))
@@ -164,7 +154,6 @@ def test_the_light_is_the_same_light_in_every_generator():
         assert module.LIGHT is render.LIGHT, module.__name__
 
 
-# -------------------------------------------------------------------- truchet
 def test_a_truchet_arc_meets_every_neighbour_at_the_middle_of_the_edge():
     """The one fact the module rests on, measured on the distance field.
 
@@ -207,7 +196,7 @@ def test_a_truchet_texture_wraps_and_wraps_the_same_way_twice():
 def test_both_kinds_draw_paths_and_a_tile_refuses_a_size_it_cannot_divide():
     arcs = truchet.pattern(seed=1, size=64, grains=4, kinds=("arcs",))["distance"]
     lines = truchet.pattern(seed=1, size=64, grains=4, kinds=("lines",))["distance"]
-    assert float(arcs.min()) < 0.0 and float(lines.min()) < 0.0   # both carve something
+    assert float(arcs.min()) < 0.0 and float(lines.min()) < 0.0
     assert not np.array_equal(arcs, lines)
     try:
         truchet.pattern(seed=1, size=65, grains=4)
@@ -223,7 +212,6 @@ def test_both_kinds_draw_paths_and_a_tile_refuses_a_size_it_cannot_divide():
         raise AssertionError("a kind that is not arcs or lines should be refused")
 
 
-# ----------------------------------------------------------------------- wang
 def test_shared_corners_agree_across_every_seam_including_the_wrap():
     tiles = wang.tile_set(3, "complete")
     grid = wang.fill(7, 5, tiles, seed=3)
@@ -246,9 +234,7 @@ def test_the_blend_of_the_corners_is_continuous_which_is_why_it_tiles():
 
 
 def test_a_set_that_cannot_tile_says_so_instead_of_hanging():
-    # One tile whose top corners are 0,0 and whose right corners are 0,1: it agrees
-    # with the tile to its left and then cannot agree with the tile to its right,
-    # because a tile's own left corners are 0,0 and its right corners are 0,1.
+
     try:
         wang.fill(4, 4, [(0, 0, 0, 1)], seed=1, budget=5000)
     except ValueError as message:
@@ -263,8 +249,7 @@ def test_both_tile_sets_are_what_they_say_they_are():
     diagonal = wang.tile_set(2, "diagonal")
     assert len(diagonal) == 4
     assert all(tl == br and tr == bl for tl, tr, bl, br in diagonal)
-    # The diagonal set is the one that *does* dead-end, so it is the one that makes
-    # the search worth having: it tiles, but a greedy walk has to back out of it.
+
     assert wang.fill(8, 8, diagonal, seed=5).shape == (8, 8)
     try:
         wang.tile_set(3, "hexagonal")
@@ -355,10 +340,7 @@ def test_a_tiling_read_off_a_field_agrees_because_it_was_never_chosen():
 
 
 def test_the_corner_colours_of_a_tiling_are_the_levels_of_the_field():
-    # Round trip: the tiling is the field and nothing else.  A tile's four numbers are
-    # its four corner samples, quantised -- so reading a field at half rate is the
-    # same field sampled less finely, and the last corner of a row is the first,
-    # because the field is the thing that wraps.
+
     f = wang.height_field(seed=11, cells=16)
     corner = wang.corner_samples(f, None)
     assert corner.shape == (17, 17)
@@ -392,10 +374,7 @@ def test_a_tiling_read_off_a_field_is_a_subset_of_the_set_and_uses_few_of_it():
 
 
 def test_every_band_of_a_field_is_used_and_a_ramp_palette_is_ordered():
-    # Equal *height* bands, not equal-population ones, so a band can go unused if the
-    # field does not reach it -- which is exactly what the stretch is for, and this is
-    # where it is measured.  And the palette a field is painted with has to be a ramp:
-    # there the colour index is a level of the landscape and not a name.
+
     for seed in range(12):
         levels = wang.levels(wang.height_field(seed, 32), 4)
         assert set(np.unique(levels).tolist()) == {0, 1, 2, 3}, seed
@@ -406,9 +385,7 @@ def test_every_band_of_a_field_is_used_and_a_ramp_palette_is_ordered():
 def test_a_field_texture_wraps_is_byte_identical_twice_and_is_not_a_searched_one():
     canvas = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
                           source="field", relief=20.0)
-    # One copy, not the tiling of it: tiled, the seams are among the interior
-    # boundaries the number is measured against, and it can then read no worse than 1
-    # whatever the texture does.
+
     assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 1.5
     again = wang.texture(seed=3, size=128, cells=16, colours=4, palette_name="highland",
                          source="field", relief=20.0)
@@ -442,7 +419,6 @@ def test_a_field_that_is_not_two_dimensional_or_cannot_be_read_is_refused():
         raise AssertionError("an unknown source should be refused")
 
 
-# ------------------------------------------------------------------- reaction
 def test_the_laplacian_is_linear_and_wraps_exactly():
     """A boundary condition is exactly the kind of thing a picture hides.
 
@@ -457,8 +433,7 @@ def test_the_laplacian_is_linear_and_wraps_exactly():
     moved = np.roll(np.roll(f, 5, axis=0), 3, axis=1)
     assert np.allclose(reaction._laplacian(moved), np.roll(np.roll(lap, 5, axis=0), 3, axis=1),
                        atol=1e-12)
-    # A constant field is a fixed point of any Laplacian, and the stencil has to sum
-    # to zero for a diffusion term not to invent or destroy chemical.
+
     assert np.allclose(reaction._laplacian(np.full((8, 8), 0.7)), 0.0, atol=1e-12)
     assert abs(float(reaction.LAPLACIAN.sum())) < 1e-12
 
@@ -501,10 +476,7 @@ def test_each_preset_is_a_different_pattern():
 
 
 def test_settling_stops_the_run_early():
-    # A tolerance wider than any change the field ever makes means the first check
-    # ends the run, so the field has barely moved from its seed; a tiny tolerance
-    # with the same budget lets it develop.  Different results, same seed: the
-    # early-out is real and it is a function of the field alone.
+
     eager = reaction.simulate(seed=4, size=32, preset_name="worms", steps=800, tol=1e3)
     patient = reaction.simulate(seed=4, size=32, preset_name="worms", steps=800, tol=0.0,
                                 settle=False)
@@ -532,7 +504,6 @@ def test_a_reaction_texture_wraps_and_is_byte_identical_twice():
     assert not np.array_equal(canvas.to_uint8(), other.to_uint8())
 
 
-# --------------------------------------------------------------------- boards
 def test_a_board_that_crosses_the_seam_has_one_name():
     """The one thing a floor needs that nothing else in the package does.
 
@@ -566,8 +537,6 @@ def test_a_board_that_crosses_the_seam_has_one_name():
                                   board[:, 0] == board[:, -1])
                     assert ok.all(), (across, down, stagger, size)
 
-                    # The same two claims across the horizontal seam, where the thing
-                    # that has to line up is the band and not a board.
                     v = lay["v"]
                     vstep = down / size
                     vdrift = np.mod(v[0, :] - v[-1, :] - vstep, 1.0)
@@ -575,9 +544,7 @@ def test_a_board_that_crosses_the_seam_has_one_name():
 
 
 def test_a_floor_is_a_whole_number_of_boards_across_and_down():
-    # A board is a rectangle on a grid, so the grid has to divide the tile: every band
-    # present, every board position present, and one identity per board and no more.
-    # It is the whole of why a floor tiles, and it costs one modulo to be sure of.
+
     for across, down in ((1, 1), (1, 6), (2, 5), (3, 3), (4, 2)):
         lay = boards.layout(size=128, across=across, down=down, stagger=2)
         assert set(np.unique(lay["band"]).tolist()) == set(range(down))
@@ -603,19 +570,15 @@ def test_stretching_the_noise_stretches_its_features():
     def corr(a, lag, axis):
         return float(np.corrcoef(np.roll(a, lag, axis=axis).ravel(), a.ravel())[0, 1])
 
-    assert abs(corr(plain, 4, 1) - corr(plain, 4, 0)) < 0.05      # round, as noise is
+    assert abs(corr(plain, 4, 1) - corr(plain, 4, 0)) < 0.05
     long = tile.periodic_noise((96, 96), seed=4, scale=5.0, stretch=8.0)
-    assert corr(long, 4, 1) > 0.9          # four pixels along and still itself
-    assert corr(plain, 4, 1) < 0.9         # ... where the plain noise has moved on
+    assert corr(long, 4, 1) > 0.9
+    assert corr(plain, 4, 1) < 0.9
     assert corr(long, 8, 1) > corr(long, 8, 0) + 0.4
 
 
 def test_a_floor_wraps_and_is_byte_identical_twice():
-    # A floor's seam *is* a joint -- the groove where two boards meet is the sharpest
-    # thing in a floor, and the tile edge is one of them.  So "about 1" is the honest
-    # reading here and not "far below 1", and what makes it seamless is structural
-    # rather than a small number: the boards carry across, and the test above is the
-    # one that says so.
+
     canvas = boards.texture(seed=7, size=192, across=1, down=6, stagger=2)
     assert tile.seam_error(tile.luminance(canvas.to_uint8())) <= 2.5
     again = boards.texture(seed=7, size=192, across=1, down=6, stagger=2)
@@ -626,9 +589,7 @@ def test_a_floor_wraps_and_is_byte_identical_twice():
 
 
 def test_a_floor_has_knots_and_they_are_marks_rather_than_planks():
-    # The knot parameter has to reach the picture, and reaching it *a little* is the
-    # point: a knot is a defect in a board, so it should deepen the variation within
-    # the boards and not repaint them.
+
     size = 192
     lay = boards.layout(size=size, across=1, down=6, stagger=2)
     inside = lay["edge"] > 5.0
@@ -656,7 +617,6 @@ def test_a_floor_that_is_not_a_floor_is_refused():
         raise AssertionError("a floor of no pixels should be refused")
 
 
-# ------------------------------------------------------------------- grounds
 def _ground_row(name):
     return {g.key: g for g in ground.GROUNDS}[name]
 
@@ -688,7 +648,7 @@ def test_every_ground_tiles_at_every_size():
             c = ground.texture(name, seed=7, size=size)
             assert (c.w, c.h) == (size, size)
             rgba = c.to_uint8()
-            assert rgba[..., 3].min() == 255, name      # opaque: a ground is not a decal
+            assert rgba[..., 3].min() == 255, name
             seam = tile.seam_error(tile.luminance(rgba))
             assert seam <= 2.0, (name, size, seam)
 
@@ -707,7 +667,7 @@ def test_a_ground_is_a_height_field_with_a_colour_on_it():
         g, t, h = f["ground"], f["tone"], f["height"]
         assert np.isfinite(t).all() and np.isfinite(h).all(), name
         assert 0.0 <= float(t.min()) and float(t.max()) <= 1.0, name
-        # the relief is bounded by the row's own number, plus the grit's own half-texel
+
         assert float(np.abs(h).max()) <= g.relief + g.grit + 1e-9, name
         assert float(h.std()) > 0.30, (name, float(h.std()))
         lum = tile.luminance(ground.texture(name, seed=7, size=64).to_uint8())
@@ -763,7 +723,7 @@ def test_no_number_in_the_table_is_decoration():
     name and not a material.  Everything else has to be wired to the painter.
     """
     changes = [
-        ("grass", {"base": (0.55, 0.140, 0.410)}),      # a different hue
+        ("grass", {"base": (0.55, 0.140, 0.410)}),
         ("grass", {"drop": 0.30}),
         ("grass", {"turn": 0.15}),
         ("grass", {"lump": 0.40}),
@@ -813,8 +773,7 @@ def test_the_row_in_the_sidecar_is_the_whole_recipe():
     """
     for name in ground.names():
         row = {**json.loads(json.dumps(_ground_row(name)._asdict()))}
-        # JSON has no tuple, and a loader puts the base back together; the point of
-        # the test is that no *number* is missing, not that JSON has tuples.
+
         rebuilt = ground.Ground(**{**row, "base": tuple(row["base"])})
         assert rebuilt == _ground_row(name), name
         a = _canvas_bytes(ground.texture(name, seed=3, size=64))
@@ -978,7 +937,6 @@ def test_zoom_is_a_feature_scale_and_not_a_tile_scale():
             == _canvas_bytes(ground.texture(doubled, seed=3, size=64)))
 
 
-# ---------------------------------------------------------------------- atlas
 def _atlas_members():
     return [
         ("boards", boards.texture(seed=7, size=64, across=1, down=4, stagger=2)),
@@ -1003,14 +961,13 @@ def test_a_margin_is_not_a_gap_it_is_the_tile_continuing():
     assert np.array_equal(atlas.bleed(stone, 0), raw)
     block = atlas.bleed(stone, 2)
     assert block.shape == (68, 68, 4)
-    assert np.array_equal(block[2:-2, 2:-2], raw)          # the tile, moved and whole
+    assert np.array_equal(block[2:-2, 2:-2], raw)
     n = raw.shape[0]
     for d in (1, 2):
         assert np.array_equal(block[2 - d, 2:-2], raw[n - d])
         assert np.array_equal(block[2:-2, 2 - d], raw[:, n - d])
-    assert np.array_equal(block[1, 1], raw[n - 1, n - 1])  # and the corner meets itself
+    assert np.array_equal(block[1, 1], raw[n - 1, n - 1])
 
-    # Not only for squares: a wide tile wraps in y and in x by its own two sizes.
     noise = tile.periodic_noise((96, 48), seed=3, scale=6.0)
     wide = Canvas(48, 96, scale=1.0, y_up=False)
     wide.rgb = np.repeat(noise[..., None], 3, axis=2)
@@ -1028,18 +985,14 @@ def test_a_texture_atlas_moves_tiles_and_does_not_trim_them():
     assert set(by_name) == {name for name, _canvas in members}
     for name, canvas in members:
         x, y, w, h = by_name[name]["rect"]
-        assert (w, h) == (canvas.w, canvas.h)       # nothing was trimmed: it is a tile
+        assert (w, h) == (canvas.w, canvas.h)
         assert np.array_equal(rgba[y:y + h, x:x + w], canvas.to_uint8())
-        # and the pixel diagonal from the tile's first is its last: the margin of the
-        # sheet around every member is that member
+
         assert np.array_equal(rgba[y - 1, x - 1], canvas.to_uint8()[-1, -1])
 
 
 def test_the_margins_of_two_tiles_are_flush_and_do_not_overlap():
-    # No padding *between* blocks either, which is the other reversal: a padding pixel
-    # would be a hole in an opaque sheet, and the only thing a sample beside a tile
-    # should be able to reach is more of that tile.  The blocks touch; they do not
-    # interpenetrate.
+
     _sheet, info = atlas.build(_atlas_members())
     m = info["margin"]
     blocks = [(x - m, y - m, w + 2 * m, h + 2 * m)
@@ -1064,9 +1017,7 @@ def test_a_texture_atlas_is_byte_identical_twice_and_does_not_depend_on_order():
 
 
 def test_the_density_of_a_sheet_counts_tiles_and_not_their_margins():
-    # The margin is not sprite and not sprite's absence: it is more of the tile.  What
-    # the number is *for* is the cost of the conventions, and on this set the cost of
-    # power-of-two and of a margin are both visible.
+
     members = _atlas_members()
     content = sum(canvas.w * canvas.h for _name, canvas in members)
     tight, tight_info = atlas.build(members, margin=0, power_of_two=False)
@@ -1076,7 +1027,7 @@ def test_the_density_of_a_sheet_counts_tiles_and_not_their_margins():
         assert 0.0 < got["density"] < 1.0
     assert info["margin"] == 2 and tight_info["margin"] == 0
     assert info["power_of_two"] and not tight_info["power_of_two"]
-    assert info["density"] < tight_info["density"]     # the margin and the rounding
+    assert info["density"] < tight_info["density"]
 
 
 def test_a_sheet_that_is_not_a_sheet_is_refused():
@@ -1089,7 +1040,6 @@ def test_a_sheet_that_is_not_a_sheet_is_refused():
             raise AssertionError(f"{kwargs} should not build a sheet")
 
 
-# --------------------------------------------------------------------- mips
 def _tiled(canvas, n: int = 2) -> Canvas:
     """The tile laid out ``n`` by ``n``: the picture a seamless tile makes."""
     out = Canvas(canvas.w * int(n), canvas.h * int(n), scale=canvas.scale,
@@ -1126,7 +1076,6 @@ def test_a_mip_level_is_the_average_of_the_light_and_not_of_the_code():
     assert np.allclose(half.rgb[0, 0], 0.5, atol=1e-12)
     assert list(half.to_uint8()[0, 0][:3]) == [188, 188, 188]
 
-    # Every output texel is the mean of its own 2x2, and nothing else.
     rng = np.random.default_rng(4)
     c = Canvas(6, 4, scale=2.0, y_up=False)
     c.rgb = rng.random((4, 6, 3))
@@ -1173,7 +1122,7 @@ def test_an_odd_tile_halves_to_the_ceiling_and_invents_nothing():
     c.rgb[:, :, 1:] = 0.0
     c.a[:] = 1.0
     r = atlas.reduce(c)
-    assert (r.w, r.h) == (2, 1)                       # ceil(3/2)
+    assert (r.w, r.h) == (2, 1)
     assert np.allclose(r.rgb[0, :, 0], [0.25, 0.5], atol=1e-12)
     steps = np.abs(np.diff(c.rgb[0, :, 0]))
     assert abs(r.rgb[0, -1, 0] - r.rgb[0, 0, 0]) <= steps.max() + 1e-12
@@ -1195,7 +1144,7 @@ def test_a_mip_level_resamples_alpha_premultiplied():
     r = atlas.reduce(c)
     assert np.allclose(r.a[0, 0], 0.25, atol=1e-12)
     assert np.allclose(r.rgb[0, 0], (1.0, 0.0, 0.0), atol=1e-12)
-    # A tile with nothing in it stays empty rather than dividing by zero.
+
     empty = atlas.reduce(Canvas(4, 4, scale=1.0, y_up=False))
     assert np.all(empty.a == 0.0) and np.all(np.isfinite(empty.rgb))
 
@@ -1221,7 +1170,7 @@ def test_a_mip_chain_starts_where_the_single_sheet_is():
     assert all(b[0] <= a[0] and b[1] <= a[1] for a, b in zip(sizes, sizes[1:])), sizes
     for k, (_canvas, level) in enumerate(chain):
         assert level["level"] == k
-        assert level["margin"] == atlas.MARGIN          # two texels at every level
+        assert level["margin"] == atlas.MARGIN
         by_name = {entry["name"]: entry for entry in level["members"]}
         for name, member in members:
             want = (member.w, member.h)
@@ -1262,7 +1211,7 @@ def test_a_mip_level_that_cannot_exist_is_refused():
     """
     members = _atlas_members()
     most = atlas.level_count(members)
-    assert most == 7                      # 64 pixels: 64,32,16,8,4,2,1
+    assert most == 7
     assert len(atlas.mips(members)) == most
     for levels in (0, -1):
         try:
@@ -1299,8 +1248,7 @@ def test_the_seam_of_a_tile_survives_the_whole_chain():
             assert seam <= 4.0, (name, seam)
             current = atlas.reduce(current)
         assert (current.w, current.h) == (1, 1)
-    assert worst > 0.0        # the bound is not vacuous: something is actually measured
-
+    assert worst > 0.0
 
 if __name__ == "__main__":
     import traceback
@@ -1311,7 +1259,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

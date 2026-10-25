@@ -51,7 +51,7 @@ def boundary_loops(grid, mask) -> list:
         for d in range(6):
             nr, nc = (int(v) for v in grid.nbr[row, col, d])
             if nr >= 0 and mask[nr, nc]:
-                continue  # interior edge: both sides are in the mask
+                continue
             src = corner_key(q, r, d)
             dst = corner_key(q, r, (d + 1) % 6)
             if src in nxt:
@@ -64,7 +64,7 @@ def boundary_loops(grid, mask) -> list:
 
     loops = []
     seen = set()
-    for start in nxt:  # insertion order, which is deterministic
+    for start in nxt:
         if start in seen:
             continue
         path = []

@@ -53,12 +53,8 @@ __all__ = [
     "describe", "colors",
 ]
 
-#: Half-extents of the world box a portrait is composed in.
 FRAME = head.FRAME
 
-#: The passport-photo pose.  A character portrait is a straight-on photograph:
-#: the sitter looks into the lens and the face is at rest.  Pose and mood remain
-#: available through :func:`compose_posed`, never through the default path.
 PHOTO_TURN = 0.0
 PHOTO_EXPRESSION = "neutral"
 
@@ -72,8 +68,6 @@ def canvas(size, background=None) -> Canvas:
     hw, hh = head.FRAME
     scale = min(w / (2.0 * hw), h / (2.0 * hh))
     return Canvas(w, h, scale=scale, center=(0.0, -head.HEAD_Y), background=background)
-
-
 
 
 def _contour_taper(y_min: float, heavy: float = 1.0, light: float = 0.3):
@@ -123,9 +117,7 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     raw_turn = genes["turn"] if turn is None else turn
     turn = float(np.clip(raw_turn, -head.TURN_MAX, head.TURN_MAX))
     rng = np.random.default_rng(dna.seed_of(genes))
-    # Small, stable, outfit-independent bilateral deviations.  They are built
-    # from a separate face seed, never from the hair or the coat, so a person
-    # does not become a different person when the sitter changes clothes or mood.
+
     asym = humanize.asymmetry(genes)
 
     c = canvas(size)
@@ -138,12 +130,8 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     hs = hair.build(st, genes, rng, turn, skull=skull, eye_st=fst, eye_expr=expr,
                     asym=asym)
 
-    # --- 2. hair behind everything ---------------------------------------  (behind the body)
     hair.paint_back(c, st, h, hs, turn)
 
-    # --- 3. body ----------------------------------------------------------
-    # The neck goes down first and the bust over it, so the collar cuts the neck
-    # exactly where the trapezius starts.
     neck = brush.Surface(c, head.neck(st))
     neck.paint(c, h.skin)
     neck.bands(c, [h.skin_shadow], (0.34,),
@@ -159,19 +147,14 @@ def compose_posed(genes: dict, size=384, background: bool = True,
 
     bust = brush.Surface(c, head.shoulders(st))
     bust.paint(c, dh.cloth)
-    # Tailoring is a plane change, not a gradient.  Two closer cel bands and a
-    # much tighter blur give the shoulders a front, a turn and a shadow instead
-    # of the broad airbrushed dome that made every garment look like a pillow.
+
     bust.bands(c, [dh.cloth_shadow, palette.darken(dh.cloth_shadow, 0.055)],
                (0.46, 0.21), volume=cel.dome(0.90, 0.62, 0.50, cy=-0.98),
                bevel=0.035, soft=0.62)
     bust.stroke(c, st.ink_w * st.line * 0.85, dh.cloth_line, inset=st.ink_w * st.line * 0.42)
     neck_kind = demography.collar(genes)
     bust_cov = bust.full_coverage(c)
-    # A hard, lit shoulder plane along the real trapezius edge.  It is clipped
-    # to the torso, so it cannot draw a plate over the background, and it is
-    # painted before the seams and collar: the construction marks sit on top of
-    # the form rather than in place of it.
+
     w = float(st.shoulder_w)
     nx = max(float(st.neck_w) * 1.35, 0.135)
     for side in (+1, -1):
@@ -186,39 +169,22 @@ def compose_posed(genes: dict, size=384, background: bool = True,
                     clip=bust_cov, alpha=0.16, soft=1.0)
     detail.paint_bust(c, st, dh, genes, neck_kind, bust_cov)
     regalia.paint_bust(c, st, dh, genes, kit, neck_kind, bust_cov)
-    # Hair in front of the body casts onto the neck and the collar.  This goes
-    # before the near locks so their own fill owns the edge; the shadow is
-    # clipped to the neck and the bust separately, because they are different
-    # materials.
+
     humanize.paint_hair_cast(c, st, h, hs, neck_cov, bust_cov,
                               cloth_shadow=dh.cloth_shadow)
 
-    # The locks rooted at the temples hang in front of the shoulder and behind
-    # the jaw, so they belong between the body and the head.
     hair.paint_near(c, st, h, hs, turn)
 
-    # --- 4. head ----------------------------------------------------------
     skull_surf.paint(c, h.skin)
-    # A passport photograph is lit from the front, not from the side of a film
-    # poster.  The side-key used everywhere else in the package turned one whole
-    # cheek into a hard shadow and made the eye socket read as a bruise; the
-    # portrait keeps a small modelling offset but puts the key near the lens.
+
     skull_surf.bands(c, [h.skin_shadow, h.skin_deep], (0.50, 0.21),
                      volume=head.volume(st, turn), light=(-0.18, 0.52),
                      bevel=0.055, soft=1.6)
-    # No ear repaint.  The ear's exposed half sits exactly at the face's edge,
-    # where the skin patch and the helix arc read as a pair of tan bumps or wire
-    # loops beside the eye.  A turned head still shows the loop rather than an
-    # ear, so the pass stays off there as well; the cap and the hairline frame the
-    # temple.  ``face.paint_ears`` remains available to a future ear that is drawn
-    # as a volume instead of a line.
+
     detail.paint_skin(c, st, h, genes, turn, skull_cov, rng)
     humanize.paint_face_life(c, st, h, genes, turn, asym, skull_cov)
     lw = st.ink_w * st.line
-    # The outer contour is the one line the eye traces first, so a hard, opaque,
-    # full-weight stroke turns the whole head into a cut-out sticker.  It is drawn
-    # a little lighter than the features, in a softened ink, and feathered, so the
-    # silhouette reads as a surface meeting the light rather than as a border.
+
     skull_surf.stroke(c, lw * 0.86,
                       palette.mix(palette.mix(h.line, h.line_soft, 0.38),
                                   h.skin_shadow, 0.18),
@@ -229,13 +195,9 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     detail.paint_facial_hair(c, st, h, genes, turn, skull_cov, rng)
     face.paint_blush(c, fst, h, turn, expr, clip=skull, marks=(genes["blush"] > 0.25))
 
-    # --- 5. features ------------------------------------------------------
     front_cov = brush.mask(c, hs.front_mass)
     Xg, Yg = c.grid()
-    # The cast shade is the fringe's, not the whole front hair's.  Including the
-    # sidelocks in this mask threw a second brown curtain down the cheeks and
-    # read as a bowl cut; including the cap did the same at the temples.  Cast
-    # only from the fringe, only onto the forehead, and only just under the hem.
+
     fringe_shapes = list(hs.bangs)
     if hs.fringe_base is not None:
         fringe_shapes.append(hs.fringe_base)
@@ -256,17 +218,11 @@ def compose_posed(genes: dict, size=384, background: bool = True,
     face.paint_brows(c, fst, h, turn, expr, clip=skull, asym=asym)
     accessories.paint_scars(c, fst, h, genes, turn, clip=skull, asym=asym)
 
-    # --- 6. hair in front -------------------------------------------------
     hair.paint_front(c, st, h, hs, turn, clip=front_cov)
     detail.paint_hair_detail(c, st, h, hs, turn, rng, skull_cov, asym=asym)
-    # The exposed-ear repaint is deliberately gone.  A front-view ear at this
-    # scale is a skin patch on the silhouette, and the old disc read as a pair of
-    # tan bumps beside the eyes.  In a turned study the same pass reduces to a
-    # wire helix, so it is not restored there either.  The cap and the hairline
-    # frame the temple.
+
     garments.paint_veil(c, st, h, kit, turn)
-    # Glasses sit on the face and their temples lie over the hair.  Painting them
-    # last is what keeps a strand from growing through a lens.
+
     accessories.paint_eyewear(c, fst, h, genes, turn, asym=asym)
     return c
 

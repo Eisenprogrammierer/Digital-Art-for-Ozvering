@@ -30,16 +30,8 @@ from gen.portraits import brush, cel, ink, shape
 
 __all__ = ["HEIGHT", "WIDTH", "style", "parts", "paint", "to_world"]
 
-#: The figure's height in world units, where the sprite box is one unit across.  The
-#: margin that leaves -- nine percent of the box above the crown and below the soles
-#: -- is what a gait swings into, and it is the number that makes the promise in
-#: :func:`gen.figures.figure.render` true: an attack *dips*, and a dip that was not
-#: budgeted for is a boot in the next cell of the sheet.
 HEIGHT = 0.82
 
-#: Widths, as fractions of the figure's height.  A limb is thin: the whole appeal of
-#: a 96 px figure is that the silhouette is legible at four pixels per limb, which a
-#: realistic thigh at eight pixels is not.
 WIDTH = {
     "thigh": 0.082,
     "shin": 0.064,
@@ -58,11 +50,6 @@ WIDTH = {
     "skirt": 0.172,
 }
 
-#: The ink line and the shading bevel, in **pixels** and not in fractions of the
-#: figure.  A line belongs to the raster: a sprite is drawn at 32 px and at 256 px,
-#: and an outline that scaled with the body would be a hairline at one and a slab at
-#: the other.  Keeping these two numbers in pixels is what makes the 32 px figure a
-#: small soldier rather than a smudge with a border.
 LINE_PX = 1.7
 BEVEL_PX = 2.2
 
@@ -100,16 +87,12 @@ def style(seed=0, tincture=None, rng=None, colours=None, garment=None,
         cloth = palette.oklch_to_srgb((0.42 + 0.12 * rng.random(), 0.07 + 0.06 * rng.random(),
                                        float(rng.random())))
     if colours:
-        # These are sRGB, like every colour the rest of the package hands to the
-        # canvas.  A key that is absent keeps the generated material, so a caller
-        # may pin only the cloth if that is all it has.
+
         skin = tuple(float(v) for v in colours.get("skin", skin))
         hair = tuple(float(v) for v in colours.get("hair", hair))
         cloth = tuple(float(v) for v in colours.get("cloth", cloth))
         leather = tuple(float(v) for v in colours.get("leather", leather))
-    # Hose and belt are the same cloth at two depths, which is what keeps a figure
-    # to five colours and no more: a sprite that needs eight is a sprite whose
-    # silhouette is carrying the drawing.
+
     return {
         "skin": skin,
         "hair": hair,
@@ -131,12 +114,6 @@ def style(seed=0, tincture=None, rng=None, colours=None, garment=None,
 def _mid(a, b, t: float = 0.5) -> tuple:
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
-
-#: How far a hip and a shoulder stand off the centre line in a front or back view,
-#: as fractions of the figure's height.  The side view has no such distance: its
-#: near and far limbs are the same limb at two depths.  A front view has a left and
-#: a right, and these are the smallest numbers that read as shoulders and hips at
-#: 32 px without turning the figure into a starfish.
 FACE_HIP = 0.070
 FACE_SHOULDER = 0.095
 
@@ -159,8 +136,7 @@ def _facing(pts: dict, view: str) -> dict:
         _x, y = pts[name]
         out[name] = (cx, y)
     for side, sign in (("near", 1.0), ("far", -1.0)):
-        # Facing away swaps the viewer's left and right: the figure's near side is
-        # on the viewer's left when the figure has turned its back.
+
         if view == "back":
             sign = -sign
         hx = cx + sign * FACE_HIP * HEIGHT
@@ -232,16 +208,13 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
         hand = pts["hand_" + side]
         out["sleeve_" + side] = shape.lock([shoulder, elbow], w0=w["upper_arm"],
                                            w1=w["forearm"])
-        # The sleeve stops at the elbow: a bare forearm is what makes an arm read
-        # against a tunic of its own colour, and it is one of the five colours.
+
         out["forearm_" + side] = shape.lock([elbow, hand], w0=w["forearm"],
                                             w1=w["forearm"] * 0.66)
         out["hand_" + side] = shape.circle(0.5 * w["hand"], *hand)
 
     pelvis, chest, neck, head = pts["pelvis"], pts["chest"], pts["neck"], pts["head"]
-    # The tunic stops a little short of the chest joint, so the neck is a visible
-    # column between the collar and the jaw: a head that sits straight on the
-    # shoulders is the one proportion that reads as a doll at every size.
+
     collar = _mid(pelvis, chest, 0.90)
     out["tunic"] = shape.lock([pelvis, collar], w0=w["waist"], w1=w["chest"],
                               bulge=0.55 * (w["chest"] - w["waist"])) \
@@ -249,18 +222,14 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
     garment = str(st.get("garment", "shirt"))
     long_garment = garment in ("robe", "dress", "habit")
     if long_garment:
-        # A robe, a dress and a habit reach the ankle.  The legs are still drawn
-        # underneath, so the boots show below the hem and the figure does not
-        # become a cone; the length is the one silhouette fact a portrait's
-        # garment can carry into a body this small.
+
         hem = (pelvis[0], float(pts["foot_near"][1]) + HEIGHT * 0.025)
     else:
         hem = (pelvis[0], pelvis[1] - HEIGHT * 0.085)
     out["skirt"] = shape.lock([_mid(pelvis, chest, -0.04), hem],
                               w0=w["waist"] * (1.12 if long_garment else 1.04),
                               w1=w["skirt"] * (1.14 if long_garment else 1.0))
-    # The belt is laid across the torso's own axis, so it follows a lean instead of
-    # staying level while the body it is tied to tips forward.
+
     ax, ay = chest[0] - pelvis[0], chest[1] - pelvis[1]
     n = float(np.hypot(ax, ay)) or 1.0
     nx, ny = -ay / n, ax / n
@@ -269,10 +238,7 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
                               (pelvis[0] - nx * half, pelvis[1] - ny * half)],
                              w0=w["belt"] * 1.15, w1=w["belt"] * 1.15)
     if garment in ("mantle", "habit"):
-        # A mantle -- and the shoulder cape of a habit -- is a second cloth layer
-        # over the shoulders and upper torso, not a second pair of sleeves.  It
-        # is a trapezoid from the shoulder line to the waist, so the figure keeps
-        # the same arms and the layer reads as an overgarment even at 48 px.
+
         left, right = pts["shoulder_far"], pts["shoulder_near"]
         top_y = 0.5 * (left[1] + right[1]) + 0.035 * HEIGHT
         bottom_y = pelvis[1] + 0.020 * HEIGHT
@@ -291,10 +257,7 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
                          w0=ry * 0.88, w1=ry * 0.52) \
             | shape.circle(0.13 * ry, head[0] + rx * 0.92, head[1] - ry * 0.02)
         out["head"] = skull
-        # The hair is one closed loop over the crown and the nape whose lower edge
-        # crosses the forehead: the line it draws there *is* the hairline, so the
-        # fringe costs no second shape and the face is whatever the loop does not
-        # cover.
+
         out["hair"] = shape.poly(shape.smooth_loop([
             (head[0] + rx * 0.58, head[1] + ry * 0.50),
             (head[0] - rx * 0.02, head[1] + ry * 1.15),
@@ -312,15 +275,10 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
                 w0=rx * 0.78, w1=rx * 0.48)
         return out
 
-    # A head seen head-on has no nose: the profile's nose is the one feature that
-    # would turn a front view back into a side view.  The jaw is a second, lower
-    # ellipse, because a single oval reads as an egg at this size.
     out["head"] = shape.ellipse(rx, ry, head[0], head[1]) \
         | shape.ellipse(rx * 0.78, ry * 0.46, head[0], head[1] - ry * 0.48)
     if view == "front":
-        # A cap with a fringe: the face is the skin the loop leaves uncovered.  The
-        # loop is the same idea as the side view's hairline, asked of a head that
-        # has two temples instead of a profile.
+
         out["hair"] = shape.poly(shape.smooth_loop([
             (head[0] - rx * 1.06, head[1] + ry * 0.08),
             (head[0] - rx * 0.92, head[1] + ry * 0.78),
@@ -340,10 +298,7 @@ def parts(pts: dict, st: dict, view: str = "side") -> dict:
                  (head[0] + rx * 0.98, head[1] - ry * 1.55)],
                 w0=rx * 0.42, w1=rx * 0.24)
     else:
-        # The back of a head is the whole head of hair, with a small bun at the
-        # crown to say which side of the skull the hair is tied on.  No face: there
-        # is nothing to see from here, and a pair of eyes on the back would be a
-        # worse lie than a silhouette.
+
         out["hair"] = shape.ellipse(rx * 1.07, ry * 1.05, head[0], head[1]) \
             | shape.ellipse(rx * 0.30, ry * 0.30, head[0], head[1] + ry * 0.92)
         if st.get("hair_long"):
@@ -395,9 +350,7 @@ def paint(canvas, pts: dict, st: dict, ground: float | None = None,
 
     if ground is None:
         ground = min(pts["toe_near"][1], pts["toe_far"][1]) - 0.02 * HEIGHT
-    # The shadow is placed inside the cell and not under it: a contact shadow that
-    # leaves the cell is a band in the next frame of the sheet, and the figure is
-    # promised to fit its cell at every phase.
+
     ry = 0.042 * HEIGHT
     cy = max(ground, -0.5 + ry + 0.010)
     brush.paint(canvas, shape.ellipse(0.24 * HEIGHT, ry, pts["pelvis"][0], cy),
@@ -418,7 +371,5 @@ def paint(canvas, pts: dict, st: dict, ground: float | None = None,
     fill(p["neck"], st["skin"])
     fill(p["head"], st["skin"])
     fill(p["hair"], st["hair"])
-    # The near side catches the light and the far side wears a shadow: that is the
-    # whole of depth in a flat drawing, and it is why the near sleeve is a lighter
-    # cloth than the tunic it lies on and not the same cloth.
+
     fill(p["sleeve_near"] | p["forearm_near"] | p["hand_near"], st["skin"])

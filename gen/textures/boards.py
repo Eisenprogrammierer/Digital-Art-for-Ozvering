@@ -40,17 +40,13 @@ from . import tile as tiling
 
 __all__ = ["layout", "texture"]
 
-#: Oak, in OKLCH.  A floor is one tree cut up, so the boards vary mostly in lightness:
-#: a board that differs from its neighbour in *hue* reads as a different material
-#: rather than as a different board.
 WOOD = (0.55, 0.058, 0.155)
-#: How far a board's lightness may sit from that, and how far its hue may turn.
+
 BOARD_L = 0.075
 BOARD_H = 0.018
-#: How much the grain lightens and darkens a board, as a fraction of its colour.
+
 GRAIN = 0.11
-#: The fraction of boards that carry a knot, how big one is against a band, how far
-#: along the board it is smeared, how much it darkens the wood and how proud it stands.
+
 KNOTS = 0.32
 KNOT_R = 0.34
 KNOT_W = 0.65
@@ -83,15 +79,10 @@ def layout(size: int = 256, across: int = 1, down: int = 6, stagger: int = 2) ->
     band = np.broadcast_to(np.floor(ys * down).astype(np.int64), (size, size))
     v = np.broadcast_to(ys * down - np.floor(ys * down), (size, size))
 
-    # The joints of a band are the board grid shifted along by that band's own offset.
-    # ``stagger`` board-lengths over the stack means an offset of ``stagger/(across *
-    # down)`` of the tile per band, so the shift after ``down`` bands is a whole number
-    # of boards -- which is not a shift at all, as far as the grid is concerned.
     offset = band * float(stagger) / (across * down)
     grid = np.broadcast_to((xs - offset) * across, (size, size))
     floor = np.floor(grid)
-    # Modulo the number of boards, so the board that runs off one edge and back on the
-    # other has the same name on both sides of it.  This is the line the module is for.
+
     board = ((floor.astype(np.int64) % across) + across) % across
     u = grid - floor
 
@@ -120,9 +111,6 @@ def texture(seed: int = 0, size: int = 256, across: int = 1, down: int = 6,
     fields = layout(size=size, across=across, down=down, stagger=stagger)
     board_id, u, v, edge = fields["id"], fields["u"], fields["v"], fields["edge"]
 
-    # One draw per board for everything a board keeps to itself: its board in the tree,
-    # the slice of grain it was cut from, and its knot.  A table rather than a stream,
-    # because every pixel of a board has to agree about all four.
     count = across * down
     rng = np.random.default_rng(int(seed) ^ 0x424F4152)
     tone = rng.uniform(-1.0, 1.0, count)
@@ -132,18 +120,12 @@ def texture(seed: int = 0, size: int = 256, across: int = 1, down: int = 6,
     knot_r = rng.uniform(0.4, 0.85, count) * KNOT_R * (size / max(down, 1))
     knot_on = rng.random(count) < float(knots)
 
-    # The grain: long along the board, and rolled along for each board so that no two
-    # of them are the same piece of wood.  A roll of a *periodic* field is continuous,
-    # which is the same fact that makes the noise worth having in the first place.
     grain = tiling.periodic_noise((size, size), seed=int(seed) + 3067,
                                  scale=float(grain_scale), stretch=float(stretch))
     ys = np.arange(size)[:, None]
     xs = np.arange(size)[None, :]
     grain = grain[(ys - shift[board_id, 0]) % size, (xs - shift[board_id, 1]) % size]
 
-    # The knots, in the board's own coordinates, so they travel with the board across
-    # the seam and sit on the wood rather than on the groove.  Elongated along the
-    # board, the way the grain smears one, and soft-edged: a hard disc is a nail hole.
     du = (u - knot_at[board_id, 0]) * (size / across) * KNOT_W
     dv = (v - knot_at[board_id, 1]) * (size / max(down, 1))
     radius = knot_r[board_id] * knot_on[board_id]
@@ -154,8 +136,6 @@ def texture(seed: int = 0, size: int = 256, across: int = 1, down: int = 6,
     srgb = colour[board_id]
     srgb = srgb * (1.0 - GRAIN + 2.0 * GRAIN * grain - knot * KNOT_DARK)[..., None]
 
-    # The surface: flat, coming up from the edge over ``bevel`` pixels, with a knot
-    # standing a little proud of it because a knot is harder than the wood around it.
     height = dome * np.clip(edge / max(float(bevel), 1e-6), 0.0, 1.0) + knot * KNOT_H
     lit = tiling.lit(srgb, height, y_up=False)
 

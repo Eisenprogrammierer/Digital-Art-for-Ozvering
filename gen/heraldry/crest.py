@@ -58,18 +58,8 @@ from . import pole as _pole
 __all__ = ["NAMESPACE", "arms", "faction", "field_tincture", "flag", "normalise",
            "render", "seed_from", "shade", "shade_table"]
 
-#: Mixed into every name before it is hashed.  It is a *namespace*, not a secret:
-#: its only job is to keep "Alder" here from hashing to the same number as "Alder"
-#: somewhere else.  Changing it renames every faction in the game, which is worth
-#: knowing before changing it.
 NAMESPACE = "ozart/faction/v1"
 
-#: Which ordinary a banner can fly, and as what.  A shield's ordinary is a band
-#: across its field; a flag's is a layout, so the ones that are a shape rather than
-#: a band share one -- a bend, a chevron and a pile are all read as "a wedge from
-#: the hoist", and there is no flag layout that improves on that.  Anything not in
-#: this table falls through to the tinctures, which is honest: a pall has no
-#: vexillological equivalent and pretending otherwise would be worse.
 _FLYING = {
     "cross": ("cross", ""),
     "saltire": ("saltire", ""),
@@ -168,8 +158,7 @@ def _banner(name: str, coat: dict | None, ratio, shape, style) -> dict:
     field = coat["field"]
     tinctures_of_field = list(field["tinctures"])
     field_tincture = tinctures_of_field[0]
-    # A divided field gives the banner its fimbriation: the second colour is already
-    # in the design, and on a flag it has somewhere to be that is not another band.
+
     fimbriation = tinctures_of_field[1] if len(tinctures_of_field) > 1 else None
 
     ordinary = coat.get("ordinary")
@@ -200,9 +189,7 @@ def _banner(name: str, coat: dict | None, ratio, shape, style) -> dict:
                               ratio=ratio, shape=shape, style=style)
 
     if charges:
-        # A coat with no ordinary to fly gets its bands: the shield carries the
-        # detail, so the banner carries the colours.  Three bands when the design
-        # has a third colour to spare, which is what makes a tricolour read as one.
+
         thirds = [t for t in candidates + tinctures_of_field if t not in (field_tincture, second)]
         if thirds and seed_from(name, "bands") % 3 == 0:
             return flags.tricolour(field_tincture, second, str(thirds[0]),

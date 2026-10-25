@@ -32,7 +32,6 @@ import numpy as np
 
 __all__ = ["CYCLES", "PERIOD", "spec", "angles", "rise", "period", "bump"]
 
-#: Every cycle closes exactly here, by construction and not by measurement.
 PERIOD = 2.0 * math.pi
 
 CYCLES = ("idle", "walk", "run", "attack")
@@ -85,20 +84,16 @@ def _walk(phase: float, s: dict) -> dict:
     stride, arm = s["stride"], s["armswing"]
     knee, ankle, lean = s["knee"], s["ankle"], s["lean"]
     return {
-        # The body is carried by the legs, so the spine bobs twice per cycle and
-        # leans a little into the walk; the head stays level because a head that
-        # nods with every step is a head that is not looking where it is going.
+
         "spine": -lean + 0.018 * math.sin(2.0 * p),
         "neck": 0.4 * lean,
         "head": 0.5 * lean - 0.012 * math.sin(2.0 * p),
-        # The contralateral gait: each thigh swings the opposite way from its pair,
-        # and each arm swings with the leg on the far side of the body.
+
         "thigh_near": stride * math.sin(p),
         "thigh_far": -stride * math.sin(p),
         "shin_near": -knee * bump(p, 0.15, 1.00),
         "shin_far": -knee * bump(p, math.pi + 0.15, 1.00),
-        # The foot rolls onto its toe just after the leg passes underneath and
-        # lifts its toe before it lands again: the two halves of one roll.
+
         "foot_near": -ankle * bump(p, -math.pi / 2.0, 0.95)
                      + 0.55 * ankle * bump(p, math.pi / 2.0, 0.80),
         "foot_far": -ankle * bump(p, math.pi / 2.0, 0.95)
@@ -115,9 +110,7 @@ def _run(phase: float, s: dict) -> dict:
     stride, arm = s["stride"] * 1.7, s["armswing"] * 1.9
     knee, ankle, lean = s["knee"] * 1.6, s["ankle"] * 1.4, s["lean"] * 2.2
     return {
-        # A runner's lean is the whole silhouette, and the elbows are carried high
-        # rather than swinging through the full arc: bent arms pump, straight ones
-        # windmill.
+
         "spine": -lean + 0.03 * math.sin(2.0 * p),
         "neck": 0.45 * lean,
         "head": 0.55 * lean - 0.02 * math.sin(2.0 * p),
@@ -139,9 +132,7 @@ def _run(phase: float, s: dict) -> dict:
 def _idle(phase: float, s: dict) -> dict:
     p = phase
     return {
-        # A breath raises the chest and tips the head back a little, and a sway
-        # moves the weight from one foot to the other.  Both are small: an idle
-        # that is visible from across the map is a fidget.
+
         "spine": -0.015 + 0.008 * math.cos(p),
         "neck": 0.010 * math.cos(p),
         "head": 0.012 * math.cos(p) + 0.006 * math.sin(2.0 * p),
@@ -160,10 +151,7 @@ def _idle(phase: float, s: dict) -> dict:
 
 def _attack(phase: float, s: dict) -> dict:
     p = phase
-    # One turn holds the whole blow: a wind-up behind the shoulder, a strike
-    # through the front, and the rest of the turn recovering.  The windows are
-    # wide enough to overlap so the arm never snaps -- a swing that teleports is a
-    # swing nobody believes.
+
     wind = bump(p, 4.1, 1.5)
     strike = bump(p, 0.5, 1.3)
     follow = bump(p, 1.5, 1.6)
@@ -176,8 +164,7 @@ def _attack(phase: float, s: dict) -> dict:
         "thigh_far": -0.22 * strike + 0.08 * wind,
         "shin_near": -0.35 * strike - 0.15 * wind,
         "shin_far": -0.20 - 0.30 * strike,
-        # The foot pivots on the toe of the lead leg through the strike: the
-        # weight is going forward and the heel has to come up.
+
         "foot_near": -0.10 - 0.16 * wind,
         "foot_far": -0.10 + 0.22 * strike,
         "upper_arm_near": -1.30 * wind + 0.95 * strike - 0.35 * follow,
@@ -186,12 +173,8 @@ def _attack(phase: float, s: dict) -> dict:
         "forearm_far": 0.35 - 0.30 * wind,
     }
 
-
 _CYCLES = {"idle": _idle, "walk": _walk, "run": _run, "attack": _attack}
 
-#: The vertical offset of the pelvis, in figure heights, per cycle.  Kept apart
-#: from the angles because it is not a rotation: the legs carry the body, so where
-#: the body *is* is a consequence of the gait and not a bone of it.
 _RISE = {
     "walk": lambda p, s: -0.5 * s["bob"] * (1.0 - math.cos(2.0 * p)),
     "run": lambda p, s: -0.5 * s["bob"] * 2.4 * (1.0 - math.cos(2.0 * p)) + 0.5 * s["bob"] * math.cos(2.0 * p),

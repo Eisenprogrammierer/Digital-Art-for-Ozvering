@@ -37,18 +37,10 @@ from core import credits as creditslib
 
 __all__ = ["PAGE_NAME", "CSS", "read", "build", "write", "stats"]
 
-#: The file a build carries its gallery in.  Not a picture and not a sidecar: it is
-#: the index of the others, and the licensing gate does not ask it for provenance.
 PAGE_NAME = "index.html"
 
-#: What a picture is, to a browser.  ``.svg`` is ``image/svg+xml`` and not
-#: ``image/svg``: the short form looks like the pattern and is not a media type, so an
-#: embedded vector would decode to nothing in a browser that is strict about it.
 MIME = {".png": "image/png", ".svg": "image/svg+xml"}
 
-#: One stylesheet, inline, no external anything.  Dark, because the assets are lit
-#: for a screen and a white page washes a cel shadow out; monospaced for the numbers
-#: because they are read as a column and not as prose.
 CSS = """
 :root { --ink: #e7e3db; --dim: #9a958c; --bg: #16181c; --card: #1e2126;
         --rule: #2c3036; --bad: #e2725b; --good: #7fae7a; }
@@ -286,9 +278,7 @@ def build(directory, *, title: str = "ozart build", embed: bool = False) -> str:
 
     toc = ""
     if records:
-        # A catalogue of thirty-three sheets needs a way in.  A list of anchors is the
-        # whole of the navigation a page of static files can have, and it is the one
-        # thing a person scrolling for "the map" actually wants.
+
         toc = '<p class="toc">' + " \u00b7 ".join(
             f'<a href="#asset-{_e(r["stem"])}">{_e(_title(r["stem"]))}</a>' for r in records
         ) + "</p>"

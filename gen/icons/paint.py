@@ -40,21 +40,14 @@ from . import wear as _wear
 __all__ = ["LIGHT", "SHADOW", "MARGIN", "draw", "icon", "tints", "clamp", "validate",
            "silhouette", "contrast"]
 
-#: What an icon throws on the ground.
 SHADOW = (0.03, 0.03, 0.05)
 
-#: The canvas is a little larger than the plate, so an icon never touches the edge
-#: of its own tile and the drop shadow has somewhere to fall.  In world units, like
-#: everything else, so a re-render at another size is the same design.
 MARGIN = 0.80
 
-#: The recess: how far inside the plate the ground is knocked back, how much
-#: clearance the charge gets from it, and how wide the bright edge stroke is.
 INSET = 0.055
 GAP = 0.050
 RIM = 0.018
 
-#: The keys a spec is made of, in the order the sidecar prints them.
 NUMBERS = ("hue", "chroma", "light", "plate_light", "plate_chroma", "detail",
            "weight", "aspect", "rotation", "margin", "bevel", "radius", "wear")
 
@@ -75,9 +68,7 @@ def clamp(spec: dict) -> dict:
     for k in NUMBERS:
         s[k] = float(s[k])
     s["hue"] = float(s["hue"] % 1.0)
-    # The plate's hue is a *second* source, not a number of its own: ``None`` means
-    # the plate keeps the charge's hue (the set's original one-hue script), and a
-    # number is a faction's own field, which is what ``livery`` hands in.
+
     s["plate_hue"] = None if s.get("plate_hue") is None else float(s["plate_hue"]) % 1.0
     s["badge"] = _badge.clamp(s.get("badge"))
     s["chroma"] = float(np.clip(s["chroma"], 0.0, 0.30))
@@ -176,45 +167,27 @@ def draw(spec: dict, size: int = 192, wear: int | None = None) -> Canvas:
     d_charge = motifs.field(s, X, Y)
     t = tints(s)
 
-    # 1. shadow -- from the plate, in world units, so it is the same shadow at
-    #    every size rather than a fixed number of pixels.
     sh = render.drop_shadow(a_plate, c.scale, offset=(0.0, -0.035), sigma=0.030,
                             opacity=0.42)
     c.over_srgb(SHADOW, sh)
 
-    # 2. plate
     c.over(render.shade(t["plate"], d_plate, dx, bevel=s["bevel"], light=LIGHT), a_plate)
 
-    # 3. rim -- a stroke on the plate's edge, clipped to the silhouette, so the
-    #    icon has a bright line to read against whatever is behind it.
     rim = np.abs(d_plate) - RIM
     c.over_srgb(t["rim"], render.coverage(rim, dx) * a_plate * 0.85)
 
-    # 4. recess -- the ground, knocked back.  Inside the plate and outside the
-    #    charge grown by GAP, which is what puts a dark halo around the symbol and
-    #    is most of why a bright charge reads at 32 px.
     inner = d_plate + INSET
     wide = d_charge - GAP
     recess = sdf.smooth_intersection(inner, -wide, 0.04)
     c.over(render.shade(t["recess"], recess, dx, bevel=0.035, light=LIGHT, inset=True),
            render.coverage(recess, dx) * a_plate)
 
-    # 5. charge -- embossed, with a bevel shallower than the plate's, because the
-    #    symbol is small and a deep bevel eats it.
     c.over(render.shade(t["charge"], d_charge, dx, bevel=s["bevel"] * 0.65, light=LIGHT),
            render.coverage(d_charge, dx) * a_plate)
 
-    # 6. wear -- the scratches, gouges, chips, cracks and stains of this stage.
-    #    Clipped to the plate and painted before the badge, so the count stays
-    #    legible however badly the unit is worn.
     if level:
         _wear.paint(c, s, level, X, Y, dx, t)
 
-    # 7. badge -- a count or a tier, when the spec carries one.  Drawn last, and
-    #    over the plate rather than clipped to it, because a badge is the one part
-    #    of an icon that is meant to break its silhouette.  Absent, this is one
-    #    branch and no pixels: an icon with no badge renders exactly as it did
-    #    before there were badges at all.
     _badge.paint(c, s["badge"], s["margin"], X, Y, dx, t)
     return c
 
@@ -224,7 +197,6 @@ def icon(seed: int, size: int = 192, kind: str | None = None) -> Canvas:
     return draw(motifs.random_spec(seed, kind), size)
 
 
-# ------------------------------------------------------------------ measuring
 def silhouette(canvas: Canvas) -> float:
     """The fraction of the tile the icon actually covers.
 

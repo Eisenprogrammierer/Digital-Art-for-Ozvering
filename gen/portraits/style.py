@@ -33,88 +33,71 @@ from __future__ import annotations
 
 __all__ = ["Style", "STYLES", "get", "names"]
 
-#: Shared starting point: a mid-shounen head.  Every preset is a delta on this.
+EYE_LIFT = 0.0045
+
 DEFAULTS = dict(
-    # -- silhouette (right half, crown -> chin) --------------------------
-    # ``head_w``/``wide_y`` are the temple, ``cheek_w``/``cheek_y`` the cheekbone
-    # below the eye line, which is where a face is widest; ``jaw_w`` is the jaw
-    # angle and ``chin_w`` the width of the chin's rounded end.
+
     head_w=0.390,
     top_w=0.305,
     top_y=0.455,
     wide_y=0.095,
     cheek_w=0.360,
     cheek_y=-0.190,
-    jaw_w=0.286,       # half-width at the jaw angle
+    jaw_w=0.286,
     jaw_y=-0.305,
     chin_w=0.118,
     chin_y=-0.500,
-    # The head as a *solid*: ``head_d`` is its half-depth at the deepest, as a
-    # multiple of its own half-width, and that one number is the whole of what a
-    # style adds to the turn model.  One is a head as deep as it is wide -- round,
-    # and their turned outlines do not change width; more is a deeper skull, which
-    # widens its outline towards profile and slides its features further.
+
     head_d=1.07,
-    # -- eyes (both, in head units) --------------------------------------
-    eye_dx=0.190,      # half the centre-to-centre distance
+
+    eye_dx=0.190,
     eye_y=-0.060,
-    eye_w=0.172,       # width of the eye opening
-    eye_up=0.060,      # upper lid apex above the corner chord
+    eye_w=0.172,
+    eye_up=0.060,
     eye_down=0.041,
-    eye_tilt=5.0,      # degrees, outer corner raised
-    iris_r=0.052,      # iris half-width
-    iris_squash=1.14,  # iris height / width
+    eye_tilt=5.0,
+    iris_r=0.052,
+    iris_squash=1.14,
     pupil_r=0.021,
-    hl_r=0.014,        # big highlight radius
-    lash=0.018,        # upper lash thickness at its heaviest
-    lid_w=0.008,       # lower lid line
+    hl_r=0.014,
+    lash=0.018,
+    lid_w=0.008,
     crease_w=0.009,
-    lid_shadow=0.40,   # how far the lid shadow reaches down the eye
-    # -- the rest of the face, measured down from the eyes ---------------
-    brow_gap=0.055,    # upper lid -> brow
+    lid_shadow=0.40,
+
+    brow_gap=0.055,
     brow_dx=0.194,
     brow_w=0.184,
     brow_thick=0.033,
     brow_arch=0.025,
-    brow_tilt=4.0,     # degrees, outer end raised
-    nose_gap=0.042,    # lower lid -> nose
+    brow_tilt=4.0,
+    nose_gap=0.042,
     nose_w=0.085,
     nose_h=0.064,
-    nose_style="wedge",   # "dot" | "wedge" | "line"
-    mouth_gap=0.132,   # nose -> mouth
+    nose_style="wedge",
+    mouth_gap=0.132,
     mouth_w=0.212,
     mouth_curve=0.016,
-    mouth_style="line",   # "line" | "full"
-    lip_full=0.10,     # extra lower-lip volume, in mouth widths
+    mouth_style="line",
+    lip_full=0.10,
     ear_size=1.0,
-    blush_gap=0.062,   # lower lid -> blush
-    hairline_gap=0.300,  # eye -> hairline
-    # -- finish -----------------------------------------------------------
-    line=1.0,          # global line-weight multiplier
-    ink_w=0.020,       # outer contour weight
+    blush_gap=0.062,
+    hairline_gap=0.300,
+
+    line=1.0,
+    ink_w=0.020,
     blush=0.28,
     lid_shadow_alpha=0.42,
     chin_shadow=0.055,
-    # -- bust -------------------------------------------------------------
-    # The frame is 1.02 half-heights tall and the head is 1.0, so the space under
-    # the chin is 0.55: the shoulder line has to sit in it, and the neck has to
-    # emerge from the notch with its own visible length, or the head sits on a
-    # stalk.  ``shoulder_w`` deliberately stops *inside* the frame: a bust cut off
-    # by both edges is a coloured band, not a body.  The outer end is the
-    # acromion, the shoulder then rolls over into the upper arm and the frame
-    # crops the arm below it.  Sex and age move this number in
-    # :mod:`gen.portraits.demography`.
+
     neck_w=0.190,
-    neck_y=-0.720,     # where the neck meets the shoulders
+    neck_y=-0.720,
     shoulder_w=0.540,
-    shoulder_y=-1.760,  # the shoulder polygon's lower edge, well below the frame
+    shoulder_y=-1.760,
     shoulder_slope=0.0,
-    under_eye=0.26,    # infraorbital fullness: a soft puff, not a painted bag
+    under_eye=0.26,
 )
 
-#: Presets.  Read them as a table of proportions, not as arbitrary numbers:
-#: the full face is about 4.0 eye widths across in chibi, 4.5 in shoujo,
-#: 4.2 in shounen and 5.0 in seinen (a real adult face is about 5).
 STYLES = {
     "chibi": dict(
         head_w=0.450, top_w=0.390, top_y=0.450, wide_y=0.095,
@@ -133,9 +116,7 @@ STYLES = {
     ),
     "shoujo": dict(
         head_w=0.368, top_w=0.294, top_y=0.452, wide_y=0.100,
-        # A shoujo face may taper, but a chin half-width under a tenth of the
-        # head reads as a pinched cone once the jaw's cel plane is painted.  The
-        # balanced taper keeps the jaw angle and gives the chin a plane to sit on.
+
         cheek_w=0.348, cheek_y=-0.192, jaw_w=0.282, jaw_y=-0.305, chin_w=0.118,
         head_d=1.04,
         eye_dx=0.182, eye_y=-0.070, eye_w=0.164, eye_up=0.062, eye_down=0.044,
@@ -149,7 +130,7 @@ STYLES = {
         line=0.92, ink_w=0.016, blush=0.42, lid_shadow_alpha=0.34, chin_shadow=0.050,
         neck_w=0.172, neck_y=-0.722, shoulder_w=0.515, shoulder_y=-1.800,
     ),
-    "shounen": dict(),  # the defaults, stated for symmetry
+    "shounen": dict(),
     "seinen": dict(
         head_w=0.388, top_w=0.300, top_y=0.452, wide_y=0.100,
         cheek_w=0.372, cheek_y=-0.190, jaw_w=0.318, jaw_y=-0.305, chin_w=0.142,
@@ -186,6 +167,13 @@ class Style:
             p.update(params)
         self.name = name
         self.p = p
+        if "_eye_lift" not in p:
+            p["eye_y"] = float(p["eye_y"]) + EYE_LIFT
+            p["brow_gap"] = float(p["brow_gap"]) - EYE_LIFT
+            p["nose_gap"] = float(p["nose_gap"]) + EYE_LIFT
+            p["blush_gap"] = float(p["blush_gap"]) + EYE_LIFT
+            p["hairline_gap"] = float(p["hairline_gap"]) - EYE_LIFT
+            p["_eye_lift"] = EYE_LIFT
         self._resolve()
 
     def _resolve(self):
@@ -199,7 +187,7 @@ class Style:
     def __getattr__(self, key):
         try:
             return self.p[key]
-        except KeyError as exc:  # pragma: no cover - typo guard
+        except KeyError as exc:
             raise AttributeError(f"style {self.name!r} has no parameter {key!r}") from exc
 
     def with_(self, **overrides) -> "Style":
@@ -229,7 +217,7 @@ class Style:
     def as_dict(self) -> dict:
         return dict(self.p)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
         return f"Style({self.name!r})"
 
 

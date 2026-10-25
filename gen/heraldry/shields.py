@@ -39,8 +39,8 @@ def _heater(hw: float = 0.80, hh: float = 1.0):
 
 def _iberian(hw: float = 0.80, hh: float = 1.0):
     """Rounded base: a box plus a circle, tangent so the join needs no fillet."""
-    shoulder = 0.38  # where the straight flanks end
-    body = lambda x, y: np.minimum(  # noqa: E731
+    shoulder = 0.38
+    body = lambda x, y: np.minimum(
         sdf.box(x, y, hw, hh - shoulder, 0.06, 0.0, shoulder),
         sdf.circle(x, y, hw, 0.0, hw - hh),
     )
@@ -71,8 +71,6 @@ def _banner(hw: float = 0.90, hh: float = 1.0):
     """A banner of arms: close to square, sharp corners."""
     return lambda x, y: sdf.box(x, y, hw, hh, 0.0), hw, hh
 
-
-#: Escutcheon silhouettes for coats of arms.
 SHAPES = {
     "heater": _heater,
     "iberian": _iberian,
@@ -112,8 +110,6 @@ def _guidon(ratio=(3, 2)):
     hw = float(ratio[0]) / float(ratio[1])
     return _polygon_shape([(-hw, 1.0), (hw * 0.45, 1.0), (hw, 0.0), (hw * 0.45, -1.0), (-hw, -1.0)], hw, 1.0)
 
-
-#: Flag silhouettes, keyed by name; ``flag(ratio)`` gives the plain rectangle.
 FLAG_SHAPES = {
     "rectangle": _flag_field,
     "swallowtail": _swallowtail,

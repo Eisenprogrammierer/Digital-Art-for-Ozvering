@@ -54,74 +54,44 @@ from core import palette, render, sdf
 
 from . import paint as _paint
 
-#: The single light shared by every generated asset.
 LIGHT = _paint.LIGHT
 
 __all__ = ["LIGHT", "DEFAULTS", "FINIALS", "MATERIALS", "spec", "room", "anchor",
            "field", "paint", "BAR", "bar", "bar_room", "bar_field", "bar_paint"]
 
-#: What a pole gets when it is asked for and nothing more is said.  Everything is
-#: quoted against the cloth's own half-height, which for a flag is 1.0.
 DEFAULTS = {
-    "width": 0.075,     # the shaft's thickness
-    "height": 0.26,     # how far the shaft runs below the cloth
-    "over": 0.10,       # how far it rises above it
+    "width": 0.075,
+    "height": 0.26,
+    "over": 0.10,
     "finial": "sphere",
     "material": "wood",
 }
 
-#: What a bar gets, in the same units.  The default ``over`` is just under half the
-#: rod's thickness, which is the **sleeve**: a banner has a hand's width of cloth
-#: above its field, the rod passes through that, and the cloth it hides is therefore
-#: the hem of the sleeve rather than a row of the design.  A rod that only *touches*
-#: the top edge leaves a hairline of background at the contact at some sizes, and one
-#: whose axis sits on the edge -- ``over`` of zero -- crops a rod's width off the top
-#: of the artwork instead, so the default bites a hair into the cloth and no more.  An
-#: ``over`` of a few hundredths is the same bar hung on rings above it, which is a
-#: different object rather than a wrong one.
 BAR = {
-    "width": 0.075,     # the rod's thickness -- the pole's, because it is the pole's rod
-    "reach": 0.040,     # how far it runs past the cloth's own width, each side
-    "over": 0.030,      # how high its axis sits above the cloth's top edge
+    "width": 0.075,
+    "reach": 0.040,
+    "over": 0.030,
     "material": "wood",
 }
 
-#: A pole is not heraldic and it does not obey the rule of tincture: it has no
-#: tincture at all, so its vocabulary is a material rather than a colour.
 FINIALS = ("sphere", "spear", "none")
 
-#: The three materials, as OKLCH: a dark warm wood, a cold iron, a gilt.  The hues
-#: are OKLCH turns -- wood near 27 degrees, gold near 97 -- because a hue that
-#: "looks about right" in degrees is the one way to get a tan and call it gold.
 MATERIALS = {
     "wood": (0.37, 0.055, 0.075),
     "iron": (0.50, 0.012, 0.650),
     "gilt": (0.78, 0.125, 0.270),
 }
 
-#: How hard the shaft's curvature catches the light.  The same convention the cloth
-#: uses: the Lambert term is scaled about the value a *flat* surface would have, so
-#: a cylinder redistributes light instead of merely being dark at its edges.
 CONTRAST = 0.55
 
-#: The dark line just inside the silhouette, how hard it is, and how much of it
-#: there is: a fraction of the shaft's own radius, so a pole several pixels wide
-#: does not disappear into its own outline.
 RIM = 0.28
 RIM_STRENGTH = 0.42
 
-#: How far the free end of a pole-borne flag slips down, of the folds' extent.
 DROOP = 0.045
 
-#: The ball's radius and how deeply it is seated, both as multiples of the shaft's
-#: radius -- one number each, so the finial and the room it needs cannot disagree.
-#: A finial fatter than about one and a half shafts stops reading as a finial and
-#: starts reading as a knot, so the ball is one and a half.
 _SPHERE_RADIUS = 1.60
 _SPHERE_SEAT = 0.30
 
-#: The spearhead: a kite this many shaft radii wide at its shoulders, seated this
-#: far up the shaft and tipped this far above the head.
 _SPEAR_RADIUS = 1.10
 _SPEAR_HALF = 1.60
 _SPEAR_SEAT = 1.30
@@ -202,7 +172,7 @@ def _parts(spec: dict, hw: float, hh: float = 1.0):
     foot = -float(hh) - abs(float(spec.get("height", DEFAULTS["height"])))
     head = float(hh) + abs(float(spec.get("over", DEFAULTS["over"])))
     kind = str(spec.get("finial", DEFAULTS["finial"]))
-    shaft = lambda x, y: sdf.segment(x, y, (x0, foot), (x0, head), r)  # noqa: E731
+    shaft = lambda x, y: sdf.segment(x, y, (x0, foot), (x0, head), r)
     geom = {"x0": x0, "r": r, "foot": foot, "head": head, "kind": kind,
             "up": head - float(hh), "down": -float(hh) - foot}
     fin = None
@@ -210,14 +180,14 @@ def _parts(spec: dict, hw: float, hh: float = 1.0):
         rr = _SPHERE_RADIUS * r
         cy = head + _SPHERE_SEAT * rr
         geom.update(rr=rr, cy=cy, up=cy + rr - float(hh))
-        fin = lambda x, y: sdf.circle(x, y, rr, x0, cy)  # noqa: E731
+        fin = lambda x, y: sdf.circle(x, y, rr, x0, cy)
     elif kind == "spear":
         rr = _SPEAR_RADIUS * r
         tip = head + _SPEAR_TIP * rr
         pts = np.array([[x0, tip], [x0 + _SPEAR_HALF * rr, head + _SPEAR_SEAT * rr],
                         [x0, head], [x0 - _SPEAR_HALF * rr, head + _SPEAR_SEAT * rr]])
         geom.update(rr=rr, tip=tip, up=tip - float(hh))
-        fin = lambda x, y: sdf.polygon(x, y, pts)  # noqa: E731
+        fin = lambda x, y: sdf.polygon(x, y, pts)
     return shaft, fin, geom
 
 
@@ -271,13 +241,13 @@ def field(spec: dict, hw: float, hh: float = 1.0):
     shaft, fin, _g = _parts(spec, hw, hh)
     if fin is None:
         return shaft
-    return lambda x, y: sdf.union(shaft(x, y), fin(x, y))  # noqa: E731
+    return lambda x, y: sdf.union(shaft(x, y), fin(x, y))
 
 
 def bar_field(spec: dict, hw: float, hh: float = 1.0):
     """A bar's distance field, in the cloth's coordinates."""
     x0, x1, y0, r = _bar_parts(spec, hw, hh)
-    return lambda x, y: sdf.segment(x, y, (x0, y0), (x1, y0), r)  # noqa: E731
+    return lambda x, y: sdf.segment(x, y, (x0, y0), (x1, y0), r)
 
 
 def paint(canvas, spec: dict, hw: float, hh: float = 1.0, light=LIGHT):
@@ -298,9 +268,6 @@ def paint(canvas, spec: dict, hw: float, hh: float = 1.0, light=LIGHT):
         d_fin = fin(X, Y)
         d = sdf.union(d, d_fin)
 
-    # The shaft is a cylinder, so its normal turns across the width and never
-    # points sideways at the silhouette -- which is why the edges of a pole are dark
-    # and its middle is not.  The finial replaces that normal where it covers it.
     r = max(float(g["r"]), 1e-9)
     lat = np.clip((X - g["x0"]) / r, -1.0, 1.0)
     n = np.stack([lat, np.zeros_like(lat),
@@ -314,8 +281,7 @@ def paint(canvas, spec: dict, hw: float, hh: float = 1.0, light=LIGHT):
             rho = np.clip(u * u + v * v, 0.0, 1.0)
             n = np.where(inside, np.stack([u, v, np.sqrt(1.0 - rho)], axis=-1), n)
         else:
-            # A spearhead is a plate, so its normal comes from its own edge bevel --
-            # the one place in this module where the house bevel is the right answer.
+
             h = np.clip(-d_fin, 0.0, 0.9 * float(g["rr"]))
             n = np.where(inside, render.height_normals(h, canvas.dx, canvas.y_up), n)
     return _rod(canvas, d, n, r, spec.get("material", DEFAULTS["material"]), light)
@@ -332,9 +298,7 @@ def bar_paint(canvas, spec: dict, hw: float, hh: float = 1.0, light=LIGHT):
     X, Y = canvas.grid()
     x0, x1, y0, r = _bar_parts(spec, hw, hh)
     d = sdf.segment(X, Y, (x0, y0), (x1, y0), r)
-    # The rod runs along x, so its normal turns in the y of the screen and never
-    # across it: the highlight lies along the top of the bar, at every column alike,
-    # which is the whole of what a horizontal rod looks like.
+
     rr = max(float(r), 1e-9)
     lat = np.clip((Y - y0) / rr, -1.0, 1.0)
     n = np.stack([np.zeros_like(lat), lat,

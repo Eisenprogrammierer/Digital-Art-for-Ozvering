@@ -24,25 +24,14 @@ __all__ = [
     "age_t", "stage", "collar", "modify", "proportion_floors",
 ]
 
-#: Sex presentation.  ``androgynous`` is a complete option rather than a random
-#: blend, because a face that is deliberately between the two is a design and not
-#: a failure to choose.
 SEXES = ("female", "male", "androgynous")
 
-#: Life stages, coarse enough to read at avatar size and fine enough to matter.
 AGES = ("child", "youth", "adult", "middle", "elder")
 
-#: Environments a lineage is adapted to.  These drive skin and feature detail,
-#: not a costume.
 CLIMATES = ("arctic", "temperate", "arid", "tropical", "highland")
 
-#: Dress traditions.  These drive the collar, trim and ornament; the face stays
-#: the genome's face.
 CULTURES = ("north", "river", "steppe", "coast", "desert", "highland")
 
-#: The visible neckline a dress tradition closes with.  This is clothing, not a
-#: face: it is the one silhouette in the bust that can say "culture" at avatar
-#: size without turning a person into a costume diagram.
 COLLARS = {
     "north": "crew",
     "river": "scoop",
@@ -59,7 +48,6 @@ DEFAULTS = {
     "culture": "river",
 }
 
-#: A continuous coordinate for the five stages, used by skin and hair detail.
 _AGE_T = {"child": 0.10, "youth": 0.30, "adult": 0.50, "middle": 0.72, "elder": 0.92}
 
 
@@ -91,10 +79,7 @@ def modify(p: dict, genes: dict) -> dict:
     climate = str(genes.get("climate", DEFAULTS["climate"]))
 
     if sex == "male":
-        # The skeleton is a *relationship*, not a mood.  A headshot has to read
-        # at a glance, so the mandible, brow shelf, nose, neck and shoulder girdle
-        # move together.  This is still a drawing in the same tradition: the
-        # values are hundredths of a head, not a photographic skull.
+
         p["head_w"] = float(p["head_w"]) + 0.012
         p["top_w"] = float(p["top_w"]) + 0.007
         p["wide_y"] = float(p.get("wide_y", 0.100)) + 0.004
@@ -119,11 +104,7 @@ def modify(p: dict, genes: dict) -> dict:
         p["lip_full"] = float(p["lip_full"]) - 0.040
         p["line"] = float(p["line"]) + 0.07
     elif sex == "female":
-        # The other reading of the same skeleton: a narrower mandible and chin, a
-        # shorter lower face, higher cheek apples, a slimmer neck, more shoulder
-        # slope, larger eyes and fuller lips.  The differences are deliberately
-        # redundant -- shape, detail and colour all repeat the same cue -- so the
-        # pair still reads as two people when the style is a chibi.
+
         p["head_w"] = float(p["head_w"]) - 0.008
         p["top_w"] = float(p["top_w"]) - 0.006
         p["cheek_w"] = float(p["cheek_w"]) + 0.010
@@ -146,7 +127,6 @@ def modify(p: dict, genes: dict) -> dict:
         p["lash"] = float(p["lash"]) + 0.009
         p["lip_full"] = float(p["lip_full"]) + 0.085
         p["blush"] = float(p["blush"]) + 0.070
-    # ``androgynous`` is the baseline, not half of the binary.
 
     if age == "child":
         p["eye_w"] = float(p["eye_w"]) + 0.013
@@ -176,8 +156,7 @@ def modify(p: dict, genes: dict) -> dict:
         p["lash"] = float(p["lash"]) + 0.002
         p["line"] = float(p["line"]) - 0.05
     elif age == "youth":
-        # A young adult has the adult's lower face with a little more eye and a
-        # little less jaw; the step from child to adult is not a single jump.
+
         p["eye_w"] = float(p["eye_w"]) - 0.002
         p["eye_up"] = float(p["eye_up"]) - 0.0005
         p["eye_down"] = float(p["eye_down"]) - 0.0005
@@ -192,16 +171,9 @@ def modify(p: dict, genes: dict) -> dict:
         p["under_eye"] = 0.17
         p["blush"] = float(p["blush"]) + 0.040
     elif age == "adult":
-        # The adult pass is the single biggest anti-doll lever.  The eyes are
-        # smaller and sit a little higher, the lower face is longer, the nose and
-        # mouth are a touch broader, and the jaw and neck have a grown-up mass.
-        # These are still anime proportions -- this is an adult in the same
-        # drawing tradition, not a photograph pasted into it.
+
         p["eye_y"] = float(p["eye_y"]) + 0.010
-        # A slightly narrower eye with a little more space at the bridge is the
-        # difference between an adult and an enlarged child's eye.  The nose and
-        # mouth move up by the same hair's breadth, so the lower face gains a
-        # plane rather than simply getting longer.
+
         p["eye_w"] = float(p["eye_w"]) - 0.020
         p["eye_up"] = float(p["eye_up"]) - 0.012
         p["eye_down"] = float(p["eye_down"]) - 0.008
@@ -262,8 +234,7 @@ def modify(p: dict, genes: dict) -> dict:
         p["jaw_y"] = float(p["jaw_y"]) + 0.014
         p["chin_w"] = float(p["chin_w"]) - 0.004
         p["chin_y"] = float(p["chin_y"]) + 0.008
-        # Eyes read a little smaller with age even after the width is capped by
-        # the cheek, so the child-to-elder relationship survives the harmony clamp.
+
         p["eye_w"] = float(p["eye_w"]) - 0.020
         p["eye_up"] = float(p["eye_up"]) - 0.007
         p["eye_down"] = float(p["eye_down"]) - 0.004
@@ -286,10 +257,6 @@ def modify(p: dict, genes: dict) -> dict:
         p["under_eye"] = 0.70
         p["line"] = float(p["line"]) + 0.05
 
-    # Climate is an adaptation, not a costume: the nose, brow, cheek and mouth
-    # carry a visible shift in this model, and the colour/detail passes add
-    # weather to the skin.  The numbers are still measured in hundredths of a
-    # head -- enough to read as a lineage, not enough to make a mask.
     if climate == "arctic":
         p["cheek_w"] = float(p["cheek_w"]) + 0.003
         p["nose_w"] = float(p["nose_w"]) - 0.004
@@ -324,12 +291,6 @@ def modify(p: dict, genes: dict) -> dict:
         p["head_d"] = float(p["head_d"]) + 0.040
         p["blush"] = float(p["blush"]) + 0.030
 
-    # The neck and the shoulder girdle cannot be *only* additive sex offsets:
-    # on a large-headed style those offsets shrink an adult female neck to a
-    # stalk and leave the bust narrower than the skull.  These floors are
-    # relative to the head the style actually has, so the same genome reads as
-    # the same body on a chibi, a shoujo or a seinen head.  They are deliberately
-    # below the male values, so the dimorphism survives the clamp.
     proportion_floors(p, genes)
     return p
 

@@ -41,7 +41,6 @@ from .grid import HexGrid
 
 __all__ = ["FORMAT", "campaign"]
 
-#: Bumped when the meaning of a field changes, never when one is added.
 FORMAT = "ozart/campaign/1"
 
 

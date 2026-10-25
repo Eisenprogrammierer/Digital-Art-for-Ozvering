@@ -25,7 +25,6 @@ from . import style as stylelib
 
 __all__ = ["Panel", "boss_field", "boss_radius", "radius_fit"]
 
-#: The four corner directions, counter-clockwise from the top left.
 CORNERS = ((-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0))
 
 
@@ -60,10 +59,7 @@ def boss_radius(theta, r0: float, harmonics: int = 7, amp: float = 0.12):
     harmonics = int(max(harmonics, 2))
     k = np.arange(2, harmonics + 1, dtype=np.float64)
     theta = np.asarray(theta, dtype=np.float64)
-    # One broadcast sum rather than a Python loop over harmonics: a contact sheet
-    # evaluates this thousands of times, and that loop was the most expensive
-    # arithmetic in the package.  The harmonic axis goes first so the same code
-    # works for a scalar, a 1-D arc of angles and a 2-D field.
+
     kk = k.reshape((-1,) + (1,) * theta.ndim)
     total = np.sum(np.cos(kk * theta + 0.7 * kk) / (kk - 1.0), axis=0)
     weight = float(np.sum(1.0 / (k - 1.0)))
@@ -91,11 +87,10 @@ class Panel:
         self.w, self.h = _size(size)
         self.scale = float(scale)
         self.spec = stylelib.clamp(spec, (self.w / self.scale, self.h / self.scale))
-        # Design pixels == world units; the canvas scale maps them to output px.
+
         self.hw = self.w / (2.0 * self.scale)
         self.hh = self.h / (2.0 * self.scale)
 
-    # ---------------------------------------------------------------- basics
     @property
     def design_size(self) -> tuple:
         """The panel's size in design pixels."""
@@ -163,7 +158,6 @@ class Panel:
         """
         return min(stylelib._corner_pair(i, self.spec["border"]))
 
-    # ---------------------------------------------------------------- fields
     def outer_radius(self) -> float:
         """The silhouette's corner radius.
 
@@ -234,9 +228,7 @@ class Panel:
     def boss_centre(self, i: int) -> tuple:
         """Where corner ``i``'s ornament sits: on the diagonal, on the band."""
         sx, sy = CORNERS[i]
-        # A fraction of the frame width out along the diagonal, so a disc of
-        # about that width straddles the moulding instead of hanging over the
-        # hole -- which is what lets a hollow frame wear one too.
+
         o = stylelib.BOSS_O * self.corner_border(i) / np.sqrt(2.0)
         return (sx * (self.hw - o), sy * (self.hh - o))
 
@@ -253,7 +245,6 @@ class Panel:
         return boss_field(X, Y, cx, cy, self.boss_radius_at(i),
                           self.spec["boss_harmonics"], self.spec["boss_amp"])
 
-    # ----------------------------------------------------------- convenience
     def has_rule(self) -> bool:
         """Whether the inner moulding exists and there is room for it."""
         g = min(self.spec["border"]) + self.spec["rule_gap"] + 0.5 * self.spec["rule"]
@@ -262,7 +253,7 @@ class Panel:
     def has_boss(self) -> bool:
         return self.boss_radius_at(0) > 0.25
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
         d = self.design_size
         return f"Panel({d[0]:g}x{d[1]:g}@x{self.scale:g}, inset={self.insets})"
 

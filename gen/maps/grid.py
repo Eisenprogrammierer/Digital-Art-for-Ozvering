@@ -41,20 +41,16 @@ __all__ = [
     "HexGrid",
 ]
 
-#: The six neighbour offsets, counter-clockwise from east.  Neighbour ``d`` is
-#: across edge ``d``, and edge ``d`` is between corners ``d`` and ``d+1``.
 NEIGHBOURS = ((1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1))
 
 _SQRT3 = float(np.sqrt(3.0))
-#: Unit vectors towards corner ``k`` (``60k - 30`` degrees, y up) and towards the
-#: midpoint of edge ``k`` (``60k``).  Tabled because both are read per pixel.
+
 _COS = tuple(float(np.cos(np.radians(60.0 * k - 30.0))) for k in range(6))
 _SIN = tuple(float(np.sin(np.radians(60.0 * k - 30.0))) for k in range(6))
 _ECOS = tuple(float(np.cos(np.radians(60.0 * k))) for k in range(6))
 _ESIN = tuple(float(np.sin(np.radians(60.0 * k))) for k in range(6))
 
 
-# ------------------------------------------------------------------ lattice
 def neighbour(q: int, r: int, d: int) -> tuple:
     """The hex across edge ``d``."""
     dq, dr = NEIGHBOURS[d % 6]
@@ -95,8 +91,7 @@ def round_axial(fq, fr):
     dz = np.abs(rz - fz)
     bad_x = (dx > dy) & (dx > dz)
     bad_y = ~bad_x & (dy > dz)
-    # Each repair uses the other two, which are still the originals wherever its
-    # own condition holds: the three conditions are disjoint by construction.
+
     out_x = np.where(bad_x, -ry - rz, rx)
     out_y = np.where(bad_y, -out_x - rz, ry)
     out_z = np.where(~bad_x & ~bad_y, -out_x - out_y, rz)
@@ -197,16 +192,14 @@ class HexGrid:
 
         rr = np.arange(self.rows)[:, None]
         cc = np.arange(self.cols)[None, :]
-        # Offset ("odd-r") to axial: odd rows are shoved half a hex right, so
-        # their q is half a unit lower for the same column.
+
         q = cc - (rr - (rr & 1)) // 2
         self.axes = np.stack([np.broadcast_to(q, (self.rows, self.cols)),
                               np.broadcast_to(rr, (self.rows, self.cols))], axis=-1).astype(np.int64)
 
         x = _SQRT3 * self.size * (self.axes[..., 0] + 0.5 * self.axes[..., 1])
         y = 1.5 * self.size * self.axes[..., 1]
-        # Centre on the drawn extent, so the origin is the middle of the picture;
-        # axial (0, 0) sits at the unshifted pixel origin, so this *is* `origin`.
+
         x0, x1 = float(x.min()) - 0.5 * _SQRT3 * self.size, float(x.max()) + 0.5 * _SQRT3 * self.size
         y0, y1 = float(y.min()) - self.size, float(y.max()) + self.size
         self.shift = (-0.5 * (x0 + x1), -0.5 * (y0 + y1))
@@ -223,7 +216,6 @@ class HexGrid:
             self.nbr[..., d, 0] = np.where(ok, nr, -1)
             self.nbr[..., d, 1] = np.where(ok, nc, -1)
 
-    # ---------------------------------------------------------------- lookup
     @property
     def count(self) -> int:
         return self.rows * self.cols
@@ -250,7 +242,6 @@ class HexGrid:
         """Where axial ``(0, 0)`` landed, in world coordinates."""
         return self.shift
 
-    # ---------------------------------------------------------------- raster
     def cell(self, X, Y) -> Cell:
         """Resolve world points to hexes.
 
@@ -280,6 +271,6 @@ class HexGrid:
         rc = np.asarray(rc)
         return float(self.centers[rc[..., 0], rc[..., 1], 0]), float(self.centers[rc[..., 0], rc[..., 1], 1])
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
         w, h = self.extent
         return f"HexGrid({self.cols}x{self.rows}, size={self.size:g}, {w:g}x{h:g})"

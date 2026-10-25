@@ -32,12 +32,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import credits as creditslib  # noqa: E402
-from core.canvas import Canvas  # noqa: E402
-from export import gallery, png  # noqa: E402
+from core import credits as creditslib
+from core.canvas import Canvas
+from export import gallery, png
 
 
-# ------------------------------------------------------------------ fixtures
 def _png(path: Path, r=0.4, g=0.6, b=0.3) -> Path:
     canvas = Canvas(8, 6)
     canvas.rgb[:] = (r, g, b)
@@ -71,7 +70,6 @@ def _page(root: Path, **kw) -> str:
     return gallery.build(root, **kw)
 
 
-# ---------------------------------------------------------------- the cards
 def test_every_asset_with_a_sidecar_gets_a_card():
     with tempfile.TemporaryDirectory() as tmp:
         root = _build(Path(tmp), n=3)
@@ -111,7 +109,6 @@ def test_a_clean_build_says_the_gate_would_ship_it():
         assert "would ship this build" in page
 
 
-# --------------------------------------------------------------- the pictures
 def test_linked_pictures_point_at_the_files_beside_the_page():
     with tempfile.TemporaryDirectory() as tmp:
         root = _build(Path(tmp), n=2)
@@ -133,16 +130,15 @@ def test_an_embedded_picture_is_the_picture():
         assert "data:image/png;base64" in page
 
 
-# ---------------------------------------------------------------- the numbers
 def test_the_numbers_on_a_card_are_the_sidecar_s():
     with tempfile.TemporaryDirectory() as tmp:
         root = _build(Path(tmp), n=1)
         page = _page(root)
         assert "seed 7" in page
         assert "MIT" in page
-        assert "<td class=\"v\">12</td>" in page      # fps
-        assert "<td class=\"v\">true</td>" in page    # loop
-        assert "<td class=\"v\">4</td>" in page       # cols
+        assert "<td class=\"v\">12</td>" in page
+        assert "<td class=\"v\">true</td>" in page
+        assert "<td class=\"v\">4</td>" in page
 
 
 def test_a_list_is_its_length_and_not_its_contents():
@@ -172,7 +168,7 @@ def test_the_command_names_the_build_and_the_seed_most_of_it_shares():
         page = _page(root)
         assert "python cli.py demo --out" in page
         assert "--seed 7" in page
-        # one asset with another seed: the page says so instead of pretending
+
         meta = json.loads((root / "sheet2.json").read_text(encoding="utf-8"))
         meta["seed"] = 3
         (root / "sheet2.json").write_text(json.dumps(meta), encoding="utf-8")
@@ -180,7 +176,6 @@ def test_the_command_names_the_build_and_the_seed_most_of_it_shares():
         assert "several seeds" in page and "3, 7" in page
 
 
-# ---------------------------------------------------------------- the safety
 def test_markup_from_a_file_is_escaped():
     """A caption is not markup: a sidecar string is text even when it looks like HTML."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -204,11 +199,10 @@ def test_a_missing_directory_is_refused_by_name():
             gallery.build(missing)
         except FileNotFoundError as exc:
             assert "nope" in str(exc)
-        else:  # pragma: no cover
+        else:
             raise AssertionError("a missing build directory was accepted")
 
 
-# --------------------------------------------------------------- the credits
 def test_the_credits_travel_with_the_page():
     """The attribution the licences demand is on the page, verbatim."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -220,7 +214,6 @@ def test_the_credits_travel_with_the_page():
         assert "CC BY 4.0" in page
 
 
-# ---------------------------------------------------------------- the build
 def test_an_embedded_vector_gets_the_svg_media_type():
     """``image/svg`` looks like the pattern and is not a media type.
 
@@ -321,7 +314,6 @@ def test_write_reports_where_the_page_went():
         assert other.is_file() and other.parent.name == "deeper"
         assert "data:image/png;base64" in other.read_text(encoding="utf-8")
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -331,7 +323,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

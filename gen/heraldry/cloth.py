@@ -66,37 +66,23 @@ from core import render
 
 from . import paint as _paint
 
-#: The single light shared by every generated asset.  A flag lit from the other
-#: side is the fastest way to make it look borrowed.
 LIGHT = _paint.LIGHT
 
 __all__ = ["LIGHT", "DEFAULTS", "wave", "reach", "freedom", "surface", "drift",
            "period", "hang", "drape"]
 
-#: What a flag gets when it is asked to hang and nothing more is said.
-#:
-#: The wavelength is the parameter that matters most, and it is shorter than a
-#: cloth-hanger's instinct suggests: what the light reads is the *slope* of the
-#: fold, ``amplitude * 2*pi / wavelength``, and a long shallow wave is a gradient
-#: rather than a fold.  Three or four folds across a flag, each a few percent
-#: deep, is what a flag on a pole actually looks like.
 DEFAULTS = {
-    "amplitude": 0.035,     # of the flag's extent along the folds' axis
-    "wavelength": 0.30,     # ditto -- a third of the extent is one fold
-    "taper": 0.45,          # the cloth's freedom where it is held, of the free end's
-    "harmonic": 0.3,        # strength of the second, higher frequency
-    "shear": 0.5,           # in-plane displacement per unit of height
-    "droop": 0.0,           # how far the free end slips down, of the folds' extent
+    "amplitude": 0.035,
+    "wavelength": 0.30,
+    "taper": 0.45,
+    "harmonic": 0.3,
+    "shear": 0.5,
+    "droop": 0.0,
     "direction": "vertical",
 }
 
-#: The second harmonic's frequency, as a multiple of the first.  Not a rational
-#: multiple, so the pattern does not repeat exactly along the flag.
 _HARMONIC_RATIO = 1.7
 
-#: How hard the folds catch the light: the Lambert term is scaled about the value
-#: a *flat* flag would have, so the mean brightness is preserved and a fold is a
-#: redistribution of light rather than a darkening.
 CONTRAST = 0.55
 
 
@@ -303,9 +289,7 @@ def _shed(canvas, z, move_x, move_y, light=LIGHT, contrast: float = CONTRAST):
     ys = np.arange(canvas.h, dtype=np.float64)[:, None] + np.zeros((1, canvas.w))
     xs = np.arange(canvas.w, dtype=np.float64)[None, :] + np.zeros((canvas.h, 1))
     i_src = xs - move_x * canvas.scale
-    # Raster rows run downwards while world y runs up, so the same physical offset
-    # is the opposite sign in pixel space.  (This is the mistake the whole project
-    # keeps one eye on: see core.render.height_normals.)
+
     j_src = ys + (move_y * canvas.scale if canvas.y_up else -move_y * canvas.scale)
 
     premultiplied = canvas.rgb * canvas.a[..., None]
@@ -314,11 +298,6 @@ def _shed(canvas, z, move_x, move_y, light=LIGHT, contrast: float = CONTRAST):
     canvas.a = a
     canvas.rgb = np.divide(rgb, a[..., None], out=np.zeros_like(rgb), where=a[..., None] > 1e-12)
 
-    # The folds are the lighting: the normals of the height field against the one
-    # light.  The modulation is centred on the flag's own mean illumination, so a
-    # fold *redistributes* light rather than taking it away -- a hanging flag is
-    # exactly as bright as a flat one, which is both true of cloth and the only
-    # way a sheet of them can be looked at side by side.
     n = render.height_normals(z, canvas.dx, canvas.y_up)
     L = np.asarray([light[0], light[1], 0.65], dtype=np.float64)
     L = L / max(float(np.linalg.norm(L)), 1e-12)
@@ -357,10 +336,6 @@ def hang(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST, box=None):
     t = (u - lo) / max(extent, 1e-9)
     z = surface(spec, t, extent)
 
-    # The cloth that lands in each output pixel.  Along the folds' axis the offset
-    # is the shear and across it there is nothing; the droop is the other way round
-    # -- it moves every column of cloth down the screen whichever way the folds run,
-    # so for folds that already run down the screen the two simply add.
     along, down = drift(spec, t, extent)
     move_x = along if along_x else np.zeros_like(along)
     move_y = down + (0.0 if along_x else along)
@@ -404,21 +379,16 @@ def drape(canvas, spec: dict, light=LIGHT, contrast: float = CONTRAST, box=None,
 
     if drop is None:
         lo_y, hi_y = _span(canvas, False)
-        top, bottom = hi_y, lo_y        # the bar is over the top of the cloth
+        top, bottom = hi_y, lo_y
     else:
         top, bottom = float(drop[0]), float(drop[1])
     depth = abs(top - bottom)
-    # Distance down from the bar, 0 at the bar and 1 at the hem.
+
     v = (top - Y) / max(depth, 1e-9)
 
     z = surface(spec, t, extent, envelope=v)
     along, down = drift(spec, t, extent, envelope=v, drop=depth)
-    # Gravity, taken downwards in the world whichever way the folds run -- that is
-    # what makes a cloth a hanging one, and it is the same statement :func:`hang`
-    # makes.  What differs is where the shear goes: the envelope is always down the
-    # screen, while the folds' axis is x for vertical folds and y for horizontal
-    # ones, so the shear and the droop come out perpendicular in the first case and
-    # along the same axis in the second.
+
     move_x = along if along_x else np.zeros_like(along)
     move_y = down + (0.0 if along_x else along)
     return _shed(canvas, z, move_x, move_y, light, contrast)

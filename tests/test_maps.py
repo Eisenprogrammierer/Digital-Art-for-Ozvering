@@ -44,17 +44,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import palette, sdf  # noqa: E402
-from core.canvas import Canvas  # noqa: E402
-from gen.maps import (autotile, campaign, coast, grid as gridlib,  # noqa: E402
+from core import palette, sdf
+from core.canvas import Canvas
+from gen.maps import (autotile, campaign, coast, grid as gridlib,
                       iso as iso_render, labels as label_lib, paint, politics,
                       region, rivers, roads, site as site_render, terrain)
 
 
-# ------------------------------------------------------------------- lattice
 def test_the_rectangle_of_hexes_is_a_rectangle():
-    # The storage is offset coordinates, the maths is axial: the two have to agree
-    # about which hex is in row 3, column 0, or every neighbour is wrong.
+
     g = gridlib.HexGrid(7, 5, size=10.0)
     for row in range(g.rows):
         for col in range(g.cols):
@@ -71,8 +69,7 @@ def test_a_hex_has_six_distinct_neighbours_one_step_away():
         nb = gridlib.neighbours(q, r)
         assert len(set(nb)) == 6
         assert all(gridlib.distance((q, r), n) == 1 for n in nb)
-        # Every neighbour of an interior hex is on the map, and it is the same
-        # hex the neighbour table names.
+
         assert all(n is not None for n in nb)
         for d in range(6):
             nq, nr = gridlib.neighbour(q, r, d)
@@ -82,8 +79,7 @@ def test_a_hex_has_six_distinct_neighbours_one_step_away():
 
 
 def test_the_neighbour_table_is_symmetric():
-    # If B is A's third neighbour, then A is one of B's six: a table that breaks
-    # this would make rivers flow one way and provinces adjacent the other.
+
     g = gridlib.HexGrid(8, 6, size=10.0)
     for row, col in g.flat():
         for d in range(6):
@@ -116,10 +112,7 @@ def test_between_two_centres_the_pixel_belongs_to_one_of_them():
 
 
 def test_the_hexagon_the_rasteriser_believes_in_is_the_hexagon():
-    # The strongest statement in the package: the per-pixel signed distance to
-    # the pixel's hexagon, computed from the sector alone, must *equal* the
-    # distance to the true polygon.  Measured on the fields, not on a bounding
-    # box, because a bounding box passes while the shape is wrong.
+
     g = gridlib.HexGrid(5, 4, size=10.0)
     c = Canvas(140, 100, scale=1.0)
     X, Y = c.grid()
@@ -131,7 +124,7 @@ def test_the_hexagon_the_rasteriser_believes_in_is_the_hexagon():
             m = cell.ok & (cell.rc[..., 0] == row) & (cell.rc[..., 1] == col)
             if not m.any():
                 continue
-            # sdf.polygon is negative inside; edge_distance is positive inside.
+
             worst = max(worst, float(np.abs(d[m] + sdf.polygon(X, Y, g.corners_of(row, col))[m]).max()))
     assert worst < 1e-9, worst
 
@@ -143,9 +136,8 @@ def test_a_corner_has_one_name_whichever_hex_asks():
         pts = g.corners_of(int(row), int(col))
         for k in range(6):
             key = gridlib.corner_key(q, r, k)
-            assert gridlib.corner_key(*key) == key  # idempotent
-            # The two other hexes at this corner, named through the edges that
-            # end here, must resolve to the same key and the same point.
+            assert gridlib.corner_key(*key) == key
+
             for d in ((k - 1) % 6, k):
                 nq, nr = gridlib.neighbour(q, r, d)
                 kk = (4 + 2 * d - k) % 6
@@ -169,10 +161,8 @@ def test_a_degenerate_grid_is_refused():
         raise AssertionError(f"HexGrid accepted {cols}x{rows}")
 
 
-# ------------------------------------------------------------------- terrain
 def test_the_sea_is_the_fraction_that_was_asked_for():
-    # The sea level is a quantile, so "35% water" is a property of the map rather
-    # than a number that happens to look right for one seed.
+
     g = gridlib.HexGrid(24, 16, size=8.0)
     for frac in (0.25, 0.35, 0.50, 0.65):
         f = terrain.fields(g, seed=5, sea_fraction=frac)
@@ -181,17 +171,13 @@ def test_the_sea_is_the_fraction_that_was_asked_for():
 
 
 def test_the_geography_does_not_depend_on_the_pixel_size():
-    # A map is (seed, cols, rows); `size` only decides how many pixels it is
-    # drawn in.  The elevation is evaluated in normalised coordinates, so the two
-    # fields agree to rounding -- and because the biomes are thresholds on that
-    # field, a perturbation in the fifteenth digit cannot move one either.
+
     a = terrain.fields(gridlib.HexGrid(20, 13, size=6.0), seed=3)
     b = terrain.fields(gridlib.HexGrid(20, 13, size=37.0), seed=3)
     assert np.allclose(a["elev"], b["elev"], atol=1e-12)
     assert np.allclose(a["moist"], b["moist"], atol=1e-12)
     assert np.array_equal(a["biome"], b["biome"])
-    # The sea level is a quantile of the same field, so it agrees to rounding
-    # rather than exactly: a quantile interpolates between two cells.
+
     assert abs(a["sea"] - b["sea"]) < 1e-12
 
 
@@ -203,7 +189,7 @@ def test_a_map_is_the_same_map_every_time_and_a_different_one_next_seed():
     assert np.array_equal(a["elev"], b["elev"])
     assert np.array_equal(a["biome"], b["biome"])
     assert not np.allclose(a["elev"], c["elev"])
-    # Not merely perturbed: a different seed should move the coastline.
+
     assert float((a["water"] != c["water"]).mean()) > 0.10
 
 
@@ -213,7 +199,7 @@ def test_the_elevation_is_normalised_and_smoothed_over_the_hexes():
     assert 0.0 <= float(f["elev"].min()) and float(f["elev"].max()) <= 1.0
     assert abs(float(f["elev"].max()) - 1.0) < 1e-9
     assert abs(float(f["elev"].min())) < 1e-9
-    # Smoothing is a contraction: it cannot increase the spread of the field.
+
     s = terrain.smooth(f["elev"], g, passes=2)
     assert float(s.std()) <= float(f["elev"].std()) + 1e-12
     assert np.array_equal(terrain.smooth(f["elev"], g, passes=0), f["elev"])
@@ -225,14 +211,13 @@ def test_every_biome_cell_agrees_with_the_water_mask():
     codes = f["biome"]
     water = np.array([b.water for b in terrain.BIOMES])[codes]
     assert np.array_equal(water, f["water"])
-    # A shallow hex is water that touches land; a shore hex is land that touches
-    # water.  Both are adjacency, and both must be true of the cell.
+
     shallow = codes == terrain.INDEX["shallow"]
     assert (shallow & ~f["near_land"]).sum() == 0
     shore = codes == terrain.INDEX["shore"]
     assert (shore & ~f["near_sea"]).sum() == 0
     assert (shore & f["water"]).sum() == 0
-    # A deep cell is deep by depth, whatever it is next to.
+
     deep = codes == terrain.INDEX["deep"]
     assert bool((f["elev"][deep] < f["sea"] - 0.13).all()) if deep.any() else True
 
@@ -248,8 +233,7 @@ def test_the_stats_add_up_to_the_map():
 
 
 def test_every_biome_in_the_table_is_actually_reachable():
-    # A biome nobody can roll is a colour nobody sees, and a movement cost nobody
-    # pays.  Across a handful of seeds every one of them should appear.
+
     seen = set()
     for seed in range(12):
         g = gridlib.HexGrid(30, 20, size=6.0)
@@ -258,14 +242,13 @@ def test_every_biome_in_the_table_is_actually_reachable():
     assert not missing, missing
 
 
-# ------------------------------------------------------------------ coastline
 def test_a_single_hex_has_a_six_corner_coast():
     g = gridlib.HexGrid(5, 5, size=10.0)
     mask = np.zeros((g.rows, g.cols), dtype=bool)
     mask[2, 2] = True
     loops = coast.boundary_loops(g, mask)
     assert len(loops) == 1 and len(loops[0]) == 6
-    assert coast.signed_area(loops[0]) > 0.0  # the land is on the left
+    assert coast.signed_area(loops[0]) > 0.0
 
 
 def test_a_block_of_hexes_has_one_loop_and_a_hole_makes_two():
@@ -275,9 +258,7 @@ def test_a_block_of_hexes_has_one_loop_and_a_hole_makes_two():
     outer = coast.boundary_loops(g, mask)
     assert len(outer) == 1
     assert coast.signed_area(outer[0]) > 0.0
-    # Punch a hole in it: the boundary is now the rim and the rim of the hole,
-    # and the hole is wound the other way -- which is the whole reason the walk
-    # carries a direction.
+
     mask[3, 3] = False
     loops = coast.boundary_loops(g, mask)
     assert len(loops) == 2
@@ -299,7 +280,7 @@ def test_the_whole_block_is_the_map_frame():
     g = gridlib.HexGrid(6, 4, size=10.0)
     loops = coast.boundary_loops(g, np.ones((g.rows, g.cols), dtype=bool))
     assert len(loops) == 1
-    # The frame's length is the number of edges with nothing on the other side.
+
     edges = 0
     for row, col in g.flat():
         for d in range(6):
@@ -314,8 +295,7 @@ def test_an_empty_mask_has_no_coast():
 
 
 def test_every_boundary_edge_is_walked_exactly_once():
-    # A real coastline: every corner on the boundary is visited once and every
-    # loop closes, so the loop lengths must account for every half-edge.
+
     g = gridlib.HexGrid(24, 16, size=6.0)
     f = terrain.fields(g, seed=8)
     land = ~f["water"]
@@ -330,7 +310,7 @@ def test_every_boundary_edge_is_walked_exactly_once():
                 half_edges += 1
     assert sum(len(p) for p in loops) == half_edges
     assert len(loops) >= 1
-    # An island in an ocean: the rims go one way and the lakes the other.
+
     assert sum(1 for p in loops if coast.signed_area(p) < 0) < len(loops)
 
 
@@ -343,7 +323,6 @@ def test_a_mask_of_the_wrong_shape_is_refused():
     raise AssertionError("boundary_loops accepted a mis-shaped mask")
 
 
-# --------------------------------------------------------------- edge tiles
 def _alpha_at(canvas, wx, wy) -> float:
     """The canvas's alpha at a world point -- the inverse of :meth:`Canvas.grid`."""
     x = int(round((wx - canvas.center[0]) * canvas.scale + canvas.w / 2.0 - 0.5))
@@ -361,11 +340,7 @@ def _inked(key, g, width: float = 0.24, alpha: float = 0.80):
 
 
 def test_a_border_is_a_difference_and_the_two_sides_of_it_agree():
-    # The one fact the module rests on.  "Different from my neighbour" is local, so
-    # there is no walk and no set of components anywhere -- and it is symmetric, so
-    # the two hexes across an edge always agree that the border is there.  Off the
-    # map there is no neighbour, so every rim edge is a border unless the caller
-    # says what lies beyond it.
+
     g = gridlib.HexGrid(9, 7, size=10.0)
     labels = (np.arange(g.rows)[:, None] + np.arange(g.cols)[None, :]) % 3
     key = autotile.borders(labels, g)
@@ -382,9 +357,7 @@ def test_a_border_is_a_difference_and_the_two_sides_of_it_agree():
 
 
 def test_the_rim_is_a_class_you_name_and_not_a_class_by_accident():
-    # A one-hex map with nothing in it: whether the edge of the map is a border is
-    # a question about what is beyond the edge, and the answer has to be the
-    # caller's.  "Sea" gives no border at all; saying nothing gives all six.
+
     g = gridlib.HexGrid(1, 1, size=10.0)
     sea = np.zeros((1, 1), dtype=np.int64)
     assert int(autotile.borders(sea, g, outside=0)[0, 0]) == 0
@@ -401,9 +374,7 @@ def test_a_labels_grid_of_the_wrong_shape_is_refused():
 
 
 def test_the_ink_is_on_the_edges_the_key_marks_and_nowhere_else():
-    # The claim the whole module is: a hex wears six bits and they *are* the
-    # picture.  Sampled just inside each of the six edge midpoints of every hex of
-    # an island in the sea, which is both classes of answer on one map.
+
     g = gridlib.HexGrid(10, 8, size=12.0)
     labels = np.zeros((g.rows, g.cols), dtype=np.int64)
     labels[3:6, 3:7] = 1
@@ -427,18 +398,17 @@ def test_the_tiles_of_a_map_are_the_keys_it_wears_in_the_order_it_meets_them():
     key = autotile.borders((~f["water"]).astype(np.int64), g, outside=0)
     index, keys = autotile.tiles(key)
     assert sorted(keys) == sorted({int(v) for v in key.ravel()})
-    assert keys[0] == int(key[0, 0])          # first seen, row by row
+    assert keys[0] == int(key[0, 0])
     for row, col in g.flat():
         assert keys[int(index[row, col])] == int(key[row, col])
-    # A coastline is a small idea: the sixty-four are the set, not the usage.
+
     assert 2 <= len(keys) <= 40
     assert len(autotile.tiles(autotile.borders(np.zeros((g.rows, g.cols), np.int64),
                                                g, outside=0))[1]) == 1
 
 
 def test_the_ink_of_a_tile_stays_inside_its_own_hexagon():
-    # A tile that painted on its neighbour's ground could not be tiled at all --
-    # this is the decision the module is built on, so it is checked tile by tile.
+
     one = gridlib.HexGrid(1, 1, 11.0)
     for m in range(autotile.MASKS):
         tile = autotile.tile_image(m, 11.0, paint.INK)
@@ -450,8 +420,8 @@ def test_the_ink_of_a_tile_stays_inside_its_own_hexagon():
 def test_a_tile_with_more_edges_marked_never_has_less_ink():
     sums = [float(autotile.tile_image(m, 11.0, paint.INK).a.sum())
             for m in range(autotile.MASKS)]
-    assert sums[0] == 0.0                      # nothing marked, nothing drawn
-    assert sums[autotile.MASKS - 1] > 0.0      # all six marked, a whole rim
+    assert sums[0] == 0.0
+    assert sums[autotile.MASKS - 1] > 0.0
     for m in range(autotile.MASKS):
         for d in range(autotile.EDGES):
             if not m >> d & 1:
@@ -481,14 +451,11 @@ def test_the_sheet_is_a_container_and_a_cell_is_the_tile_that_goes_in_it():
 
 
 def test_the_tiled_coast_is_the_stroked_coast_inside_the_map():
-    # The refactor, held to: the picture the boundary walk drew is the picture the
-    # tiles draw, pixel for pixel, wherever the map has pixels -- and the one place
-    # it is not is the place the tiles earn their keep, off the edge of the map,
-    # where a centred stroke leaves ink on the paper and a tile does not.
+
     g = gridlib.HexGrid(12, 9, size=11.0)
     labels = np.zeros((g.rows, g.cols), dtype=np.int64)
-    labels[0:5, 0:7] = 1                        # an island running off the rim
-    labels[6, 8:10] = 2                         # and a speck, for a second key
+    labels[0:5, 0:7] = 1
+    labels[6, 8:10] = 2
     w, h = g.extent
     a = Canvas(int(np.ceil(w + 12)), int(np.ceil(h + 12)), scale=1.0)
     b = a.clone()
@@ -498,18 +465,14 @@ def test_the_tiled_coast_is_the_stroked_coast_inside_the_map():
                               closed=True)
     key = autotile.borders(labels, g, outside=0)
     autotile.border_layer(b, g, key, cell, paint.INK, width=0.24, alpha=0.80)
-    # Compared at the export: the two band sums differ in the last bit or two of a
-    # float, which is not a picture, and the picture is what a map is.
+
     assert np.array_equal(a.to_uint8()[cell.ok], b.to_uint8()[cell.ok])
-    assert np.any(a.a[~cell.ok] > 0.0)          # the stroke did spill
-    assert not np.any(b.a[~cell.ok] > 0.0)      # the tiles cannot
+    assert np.any(a.a[~cell.ok] > 0.0)
+    assert not np.any(b.a[~cell.ok] > 0.0)
 
 
 def test_within_asks_the_difference_question_of_a_subset():
-    # A coast is the whole story of where land ends; a biome border is the part of
-    # it that is inside the land.  So ``within``: an edge is a border only where
-    # both of the hexes that meet on it are in the set asked about -- and a hex off
-    # the map is never in it, which is what takes the rim out of the question.
+
     g = gridlib.HexGrid(9, 7, size=10.0)
     labels = (np.arange(g.rows)[:, None] * 2 + np.arange(g.cols)[None, :]) % 5
     inside = (np.arange(g.rows)[:, None] + np.arange(g.cols)[None, :]) % 3 != 0
@@ -528,10 +491,9 @@ def test_the_rim_drops_out_of_the_question_when_the_edge_is_not_within():
     g = gridlib.HexGrid(1, 1, size=10.0)
     labels = np.zeros((1, 1), dtype=np.int64)
     assert int(autotile.borders(labels, g, within=np.zeros((1, 1), dtype=bool))[0, 0]) == 0
-    # even a hex that is itself within: there is nobody on the other side to differ
-    # from, and "off the map" is not a class the caller asked about
+
     assert int(autotile.borders(labels, g, within=np.ones((1, 1), dtype=bool))[0, 0]) == 0
-    # ...while without ``within`` the rim is still what ``outside`` says it is
+
     assert int(autotile.borders(labels, g)[0, 0]) == autotile.MASKS - 1
 
 
@@ -546,29 +508,23 @@ def test_a_within_grid_of_the_wrong_shape_is_refused():
 
 
 def test_a_biome_border_is_an_edge_inside_the_land_and_nowhere_else():
-    # The second labelling, asked of a real field: every edge the biome key marks
-    # has land on both sides and different ground across it, and no edge that
-    # reaches the water is marked at all -- which is the whole of why the coast
-    # stays one line instead of becoming a thicker one.
+
     g = gridlib.HexGrid(20, 14, size=8.0)
     f = terrain.fields(g, seed=5, sea_fraction=0.45)
     key = autotile.borders(f["biome"], g, within=~f["water"])
-    assert np.any(key)                          # a map's ground does mix
+    assert np.any(key)
     for row, col in g.flat():
         for d in range(autotile.EDGES):
             if not int(key[row, col]) >> d & 1:
                 continue
             nr, nc = (int(v) for v in g.nbr[row, col, d])
-            assert nr >= 0                       # no rim edge survives ``within``
+            assert nr >= 0
             assert not f["water"][row, col] and not f["water"][nr, nc]
             assert f["biome"][nr, nc] != f["biome"][row, col]
 
 
 def test_a_biome_border_wears_more_of_the_sheet_than_a_coast_does():
-    # Measured, not promised -- the number beside the sheet on the demo.  A coast is
-    # one line and wears a couple of dozen of the sixty-four keys; ground mixes hex
-    # by hex, so a biome border needs nearly all of them.  Neither is a reason to
-    # ship fewer tiles, and this is the reason the count is worth printing.
+
     g = gridlib.HexGrid(24, 16, size=6.0)
     f = terrain.fields(g, seed=8)
     coast_keys = autotile.tiles(autotile.borders((~f["water"]).astype(np.int64),
@@ -580,9 +536,7 @@ def test_a_biome_border_wears_more_of_the_sheet_than_a_coast_does():
 
 
 def test_the_biome_borders_reach_only_land_and_are_off_until_asked_for():
-    # The second use at the export, where the claim belongs: the same map twice,
-    # once with the biome borders, and the ink is inside the land -- the sea, the
-    # coast and the paper beyond the map are the same bytes in both.
+
     kw = dict(seed=4, cols=16, rows=11, size=11.0, provinces=0)
     off = paint.map_image(**kw)
     assert np.array_equal(off.to_uint8(), paint.map_image(**kw, inland=0.0).to_uint8())
@@ -594,11 +548,10 @@ def test_the_biome_borders_reach_only_land_and_are_off_until_asked_for():
     f = terrain.fields(g, seed=4)
     r = np.clip(cell.rc[..., 0], 0, g.rows - 1)
     c = np.clip(cell.rc[..., 1], 0, g.cols - 1)
-    assert not np.any(changed & ~cell.ok)       # nothing on the paper
-    assert not np.any(changed & f["water"][r, c])   # and nothing in the sea
+    assert not np.any(changed & ~cell.ok)
+    assert not np.any(changed & f["water"][r, c])
 
 
-# ------------------------------------------------------------------- picture
 def test_a_rendered_map_is_a_pure_function_of_its_seed():
     a = paint.map_image(seed=6, cols=16, rows=11, size=9.0)
     b = paint.map_image(seed=6, cols=16, rows=11, size=9.0)
@@ -611,7 +564,7 @@ def test_the_block_is_opaque_and_the_corner_is_empty():
     img = paint.map_image(seed=2, cols=12, rows=8, size=10.0)
     c = Canvas(img.w, img.h, scale=1.0)
     cell = None
-    from gen.maps import HexGrid  # local: the picture, not the lattice, is under test
+    from gen.maps import HexGrid
     g = HexGrid(12, 8, 10.0)
     cell = g.cell(*c.grid())
     assert float(img.a[cell.ok].min()) > 0.99
@@ -620,14 +573,11 @@ def test_the_block_is_opaque_and_the_corner_is_empty():
 
 
 def test_land_and_sea_are_painted_in_their_own_colours():
-    # Sampling means would be meaningless here -- the shelf is pale and the forest
-    # is dark, so the two families overlap.  What has to hold is the thing a
-    # player reads off the screen: water is blue-dominant and grass is green.
+
     from gen.maps import HexGrid
     g = HexGrid(20, 14, size=9.0)
     f = terrain.fields(g, seed=3)
-    # Terrain only on purpose: the claim is about the ground and the water, and a
-    # river is a blue line drawn on top of perfectly good grass.
+
     img = paint.map_image(seed=3, cols=20, rows=14, size=9.0, river=0.0, provinces=0)
 
     def pixel_at(x, y):
@@ -643,10 +593,10 @@ def test_land_and_sea_are_painted_in_their_own_colours():
     assert wet and dry
     for r, c in wet:
         px = pixel_at(float(g.centers[r, c, 0]), float(g.centers[r, c, 1]))
-        assert px[2] > px[0], (r, c, px)  # more blue than red
+        assert px[2] > px[0], (r, c, px)
     for r, c in dry:
         px = pixel_at(float(g.centers[r, c, 0]), float(g.centers[r, c, 1]))
-        assert px[1] > px[2], (r, c, px)  # more green than blue
+        assert px[1] > px[2], (r, c, px)
 
 
 def test_every_seed_paints_a_map_with_a_coast_on_it():
@@ -658,7 +608,6 @@ def test_every_seed_paints_a_map_with_a_coast_on_it():
         assert 0.05 < float((px[..., 3] > 0).mean()) < 0.98
 
 
-# -------------------------------------------------------------------- rivers
 def _flow(cols=30, rows=20, size=13.0, seed=7):
     """A grid and its fields, plus everything the water does on them."""
     g = gridlib.HexGrid(cols, rows, size)
@@ -699,7 +648,7 @@ def test_the_flood_raises_a_cell_to_its_lowest_way_out():
                     changed = True
         if not changed:
             break
-    # Up to the hair the flood adds at each step, which is deliberately not zero.
+
     assert np.allclose(filled, np.maximum(elev, best), atol=1e-5)
 
 
@@ -708,15 +657,12 @@ def test_filling_never_lowers_the_ground_and_never_leaves_a_sump():
         g, f, filled, down, flux = _flow(seed=seed)
         land = ~f["water"]
         assert float((filled - f["elev"]).min()) >= 0.0
-        # After the flood every land cell has somewhere lower to go.  Without that
-        # guarantee a river would simply stop in the middle of a continent.
+
         assert all(int(down[r, c]) >= 0 for r, c in g.flat() if land[r, c])
 
 
 def test_the_flood_leaves_almost_all_of_the_map_where_it_was():
-    # A flood that raised the whole continent would be correct and useless: the
-    # land would sit flat at the height of a mountain pass and the rivers would run
-    # along the floor of a lake.  On real terrain only the genuine basins move.
+
     for seed in (7, 3, 23):
         g, f, filled, down, flux = _flow(seed=seed)
         land = ~f["water"]
@@ -725,11 +671,7 @@ def test_the_flood_leaves_almost_all_of_the_map_where_it_was():
 
 
 def test_the_sea_carries_the_whole_map():
-    # Every cell contributes one unit of drainage and nothing is created or lost on
-    # the way down; the sea does not drain anywhere itself, so its units stay where
-    # they fell.  The total standing in the sea is therefore every cell on the map
-    # -- and it would be less than that if any land cell were a sump, which is what
-    # makes this a test of the whole flow network rather than of the arithmetic.
+
     g, f, filled, down, flux = _flow()
     assert int(flux[f["water"]].sum()) == g.count
     assert int(flux[f["water"]].sum()) - int(f["water"].sum()) == int((~f["water"]).sum())
@@ -761,9 +703,7 @@ def test_the_river_density_is_what_was_asked_for_and_not_a_lucky_constant():
 
 
 def test_asking_for_more_rivers_only_adds_cells_to_the_network():
-    # The threshold is a quantile of the same field, so the smaller network has to
-    # be a subset of the larger one -- if it were not, "a fraction of the land"
-    # would not be a fraction of anything.
+
     g, f, filled, down, flux = _flow()
     small = rivers.river_mask(flux, f["water"], 0.03)
     big = rivers.river_mask(flux, f["water"], 0.10)
@@ -784,7 +724,6 @@ def test_the_same_seed_drains_the_same_way():
         assert x["flux"] == y["flux"]
 
 
-# ----------------------------------------------------------------- provinces
 def _political(cols=30, rows=20, size=13.0, seed=7, count=8, province_seed=None):
     g = gridlib.HexGrid(cols, rows, size)
     f = terrain.fields(g, seed=seed)
@@ -793,10 +732,7 @@ def _political(cols=30, rows=20, size=13.0, seed=7, count=8, province_seed=None)
 
 
 def test_every_province_is_connected():
-    # The claim the whole module exists for.  A province in two pieces cannot be
-    # governed, because an army cannot get from one half to the other without
-    # leaving it -- and nearest-capital by straight-line distance produces exactly
-    # that, which is why the assignment is a breadth-first search instead.
+
     for seed in (7, 3, 23, 19):
         g, f, res = _political(seed=seed)
         assert res["count"] >= 1
@@ -814,13 +750,11 @@ def test_the_land_is_covered_once_and_the_sea_is_not_covered_at_all():
     assert np.array_equal(labels >= 0, ~f["water"])
     assert int(labels.max()) + 1 == res["count"]
     used = sorted({int(v) for v in labels.reshape(-1)})
-    assert used == [-1] + list(range(res["count"]))  # and no province came out empty
+    assert used == [-1] + list(range(res["count"]))
 
 
 def test_a_province_holds_the_cells_whose_capital_is_nearest_by_path():
-    # Multi-source breadth-first search grows every capital at once, so a cell can
-    # only be claimed by a capital at least as close as any other -- and that is a
-    # property of the finished division, not of the way it was built.
+
     g, f, res = _political()
     flat = (~f["water"]).reshape(-1)
     labels = res["labels"].reshape(-1)
@@ -836,10 +770,7 @@ def test_a_province_holds_the_cells_whose_capital_is_nearest_by_path():
 
 
 def test_a_capital_is_within_a_hex_of_the_middle_of_its_province():
-    # Lloyd's step moves a capital to the one-median of its province.  Two passes
-    # do not always converge to it -- the division is re-cut between passes -- but
-    # they always land within one hex, and the capital's total distance is within
-    # ten per cent of the best a cell of that province could do.
+
     g, f, res = _political()
     flat = (~f["water"]).reshape(-1)
     for p in res["provinces"]:
@@ -866,9 +797,7 @@ def test_no_two_provinces_on_a_map_share_a_name():
 
 
 def test_a_lone_island_becomes_a_province_of_its_own():
-    # A landmass no capital can reach is a province, with its capital on it.  The
-    # alternative -- reaching it by distance across the sea -- would produce a
-    # province in two pieces, which is the thing this module exists to prevent.
+
     g = gridlib.HexGrid(9, 7, size=10.0)
     water = np.ones((7, 9), dtype=bool)
     water[:, :4] = False
@@ -900,7 +829,7 @@ def test_no_province_ever_spans_a_channel_of_water():
         cols = {int(j) % g.cols for j in p["cells"]}
         assert not ({3} <= cols and {5} <= cols), p["name"]
         sides.add(0 if max(cols) < 4 else 1)
-    assert sides == {0, 1}  # and both sides did get provinces
+    assert sides == {0, 1}
 
 
 def test_a_second_seed_divides_the_same_land_differently():
@@ -908,8 +837,8 @@ def test_a_second_seed_divides_the_same_land_differently():
     f = terrain.fields(g, seed=7)
     a = region.provinces(g, f, count=6, seed=1)
     b = region.provinces(g, f, count=6, seed=2)
-    assert np.array_equal(a["labels"] >= 0, b["labels"] >= 0)   # the same land
-    assert not np.array_equal(a["labels"], b["labels"])          # cut differently
+    assert np.array_equal(a["labels"] >= 0, b["labels"] >= 0)
+    assert not np.array_equal(a["labels"], b["labels"])
     assert {p["name"] for p in a["provinces"]} != {p["name"] for p in b["provinces"]}
 
 
@@ -933,8 +862,7 @@ def test_a_frontier_is_a_line_between_two_provinces_and_not_a_wash():
     cell = g.cell(*canvas.grid())
     a = region.frontier_alpha(g, labels, cell, dx=canvas.dx)
     assert 0.0 < float(a.max()) <= 1.0
-    # Thin: nothing survives more than a couple of pixels inside a hex, so the
-    # frontier is a line on the shared edge and not a shaded band.
+
     assert float(a[cell.edge_distance() > 2.0].max()) == 0.0
 
 
@@ -947,7 +875,6 @@ def test_a_map_with_provinces_and_rivers_paints_the_same_bytes_twice():
     assert not np.array_equal(a.to_uint8(), c.to_uint8())
 
 
-# --------------------------------------------------------------------- names
 def _named(seed=11, cols=20, rows=14, size=13.0, provinces=6):
     """A map and the names it sets on itself."""
     g = gridlib.HexGrid(cols, rows, size)
@@ -1090,7 +1017,6 @@ def test_the_names_are_the_same_names_twice():
     assert [e.get("box") for e in a] == [e.get("box") for e in b]
 
 
-# ----------------------------------------------------------------- politics
 def _map(seed=11, cols=20, rows=14, size=13.0, provinces=6):
     g = gridlib.HexGrid(cols, rows, size)
     f = terrain.fields(g, seed=seed)
@@ -1280,7 +1206,6 @@ def test_a_border_inside_a_realm_is_not_a_frontier():
     assert int(whole.sum()) > int(split.sum())
 
 
-# -------------------------------------------------------------------- roads
 def _roadmap(seed=7, cols=22, rows=15, size=11.0, provinces=8, sea=0.42):
     """A map with capitals on it, and the roads between them."""
     g = gridlib.HexGrid(cols, rows, size)
@@ -1446,7 +1371,6 @@ def test_the_same_map_lays_the_same_roads():
         assert np.array_equal(one["points"], two["points"])
 
 
-# ------------------------------------------------------------------- the sea
 def _waters(seed=7, cols=22, rows=15, size=11.0, count=7, sea=0.42):
     """A map, its land provinces and its sea provinces."""
     g = gridlib.HexGrid(cols, rows, size)
@@ -1473,7 +1397,7 @@ def test_the_sea_is_divided_the_way_the_land_is():
         mine[p["cells"]] = True
         assert not (mine & seen).any()
         seen |= mine
-        # connected: a flood over the province's own cells reaches all of them
+
         start = int(p["cells"][0])
         got = {start}
         q = deque([start])
@@ -1602,7 +1526,6 @@ def test_a_realm_wears_its_water_without_redrawing_the_land():
     assert (changed & ~water).sum() == 0, "owning the water redrew the land"
 
 
-# ---------------------------------------------------------------- campaign
 def _campaign(seed=7, cols=26, rows=17, size=13.0, provinces=8, factions=4, sea=0.42,
               sea_provinces=8):
     """A map, its realms, its roads, its rivers -- and the file that carries them."""
@@ -1752,7 +1675,6 @@ def test_a_campaign_file_is_small_enough_to_ship_per_map():
     assert doc["water"] == round(doc["water"], 3)
 
 
-# ---------------------------------------------------------------------- site
 def _site(seed=7, size=56.0, grounds=True, **kw):
     return site_render.site_image(seed=seed, cols=5, rows=4, size=size,
                                   grounds=grounds, **kw)
@@ -1781,7 +1703,7 @@ def test_a_site_wears_its_ground_and_the_sea_does_not_move():
     cell, land = _site_land(g, flat)
 
     a, b = flat.to_uint8(), worn.to_uint8()
-    assert np.array_equal(again.to_uint8(), b)          # one seed, one site
+    assert np.array_equal(again.to_uint8(), b)
     water = cell.ok & ~land
     assert water.any() and land.any()
     assert np.array_equal(a[water], b[water]), "the sea must not be painted"
@@ -1874,7 +1796,6 @@ def test_a_site_cliff_and_wet_shore_stay_on_the_land():
         assert not changed[water].any(), f"the {name} overlay changed the sea"
 
 
-# ------------------------------------------------------------------- the board
 def _iso(seed=7, cols=6, rows=5, size=32.0, **kw):
     return iso_render.iso_image(seed=seed, cols=cols, rows=rows, size=size,
                                 sea_fraction=kw.pop("sea_fraction", 0.20),
@@ -1976,7 +1897,6 @@ def test_the_terraces_are_a_number_of_steps():
     assert np.array_equal(_iso(levels=5, rise=3.0).to_uint8(),
                           _iso(levels=5, rise=3.0).to_uint8())
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -1986,7 +1906,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

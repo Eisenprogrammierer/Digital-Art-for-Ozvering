@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from core import palette, render
+from core import palette
 from core.canvas import Canvas
 
 from gen.portraits import brush
@@ -49,8 +49,6 @@ DEFAULTS = {
     "seed": 0,
 }
 
-#: Cuts whose body is wider at the hem than at the shoulder.  The mantle is the
-#: exception in the other direction: it is a cape that widens all the way out.
 _FITTED = {"shirt", "blouse", "tunic", "jacket"}
 _LONG = {"coat", "robe", "habit"}
 _NO_SLEEVE = {"mantle"}
@@ -146,7 +144,7 @@ def _body_points(cut: str):
         return [(-.30, .60), (-.16, .65), (.16, .65), (.30, .60),
                 (.35, .18), (.34, -.60), (.20, -.64), (.0, -.62),
                 (-.20, -.64), (-.34, -.60), (-.35, .18)]
-    # shirt, blouse and jacket share a fitted torso; the details separate them.
+
     return [(-.29, .60), (-.15, .65), (.15, .65), (.29, .60),
             (.34, .22), (.32, -.52), (.18, -.57), (.0, -.55),
             (-.18, -.57), (-.32, -.52), (-.34, .22)]
@@ -154,8 +152,7 @@ def _body_points(cut: str):
 
 def body_shape(cut: str) -> S.Shape:
     body = S.poly(_body_points(cut), resample=28)
-    # A neck opening is part of the silhouette: a body painted as one piece and
-    # then covered with a collar has a neckcloth where a neck should be.
+
     neck = S.ellipse(.135, .105, 0.0, .665)
     return body - neck
 
@@ -238,10 +235,7 @@ def _pattern(canvas, spec: dict, clip: S.Shape) -> None:
     pattern = spec["pattern"]
     if pattern == "none":
         return
-    # Patterns multiply the existing cloth rather than painting over it.  Painting
-    # a translucent stripe on an anti-aliased garment edge also adds alpha there,
-    # which changes the silhouette; a multiply changes only colour and leaves the
-    # alpha budget exactly where the tailor put it.
+
     if pattern == "stripe":
         for i in range(-11, 12):
             line = S.box(.90, .0075, 0.0, 0.0, 0.0).place(0.0, i * .085, rot=-10.0)
@@ -288,23 +282,16 @@ def _folds(canvas, spec: dict, clip: S.Shape, seed: int) -> None:
 
 
 def _detail(canvas, spec: dict, body: S.Shape, sleeves, cut: str) -> None:
-    cloth = palette.hex_to_srgb(spec["cloth"])
     trim = palette.hex_to_srgb(spec["trim"])
     metal = palette.hex_to_srgb(spec["metal"])
-    shadow = palette.darken(cloth, .20)
     trim_dark = palette.darken(trim, .16)
-    seam = palette.mix(trim, cloth, .35)
     collar = spec["collar"]
 
-    # Neckline: one trim band around the hole.  It is painted on the body, so the
-    # hole remains a hole and the trim reads as a bound edge.
     neck = S.ellipse(.148, .118, 0.0, .665).outline(.008)
     brush.paint(canvas, neck, trim, alpha=.94, soft=.22)
     brush.paint(canvas, S.ellipse(.138, .108, 0.0, .665).outline(.003),
                 trim_dark, alpha=.45, soft=.20)
 
-    # Placket.  A shirt and a tunic have a centre opening; a jacket and coat have
-    # a wrap; a dress has a seam rather than a row of buttons.
     if cut in ("shirt", "blouse", "tunic"):
         placket = S.box(.016, .50, 0.0, 0.0, .12)
         brush.paint(canvas, placket, trim, clip=body, alpha=.28, soft=.15)
@@ -313,8 +300,7 @@ def _detail(canvas, spec: dict, body: S.Shape, sleeves, cut: str) -> None:
                           w0=.0022, w1=.0020, per_segment=3)
             brush.paint(canvas, edge, trim_dark, clip=body, alpha=.52, soft=.20)
     elif cut in ("jacket", "coat"):
-        # The wrap edge runs from the collar to the hem, and the button line sits
-        # just beside it.  It is a seam, not a painted zip.
+
         edge = S.lock([(.02, .55), (.02, .10), (.12, -.55)],
                       w0=.0030, w1=.0022, per_segment=4)
         brush.paint(canvas, edge, trim_dark, clip=body, alpha=.55, soft=.30)
@@ -335,23 +321,19 @@ def _detail(canvas, spec: dict, body: S.Shape, sleeves, cut: str) -> None:
                        w0=.004, w1=.003, per_segment=4)
         brush.paint(canvas, waist, trim, clip=body, alpha=.55, soft=.25)
 
-    # Collar.  A hood is behind the body, so it is handled in ``render``; every
-    # other collar is a piece of cloth with its own edge.
     if collar in ("shirt", "stand", "notch", "shawl", "bow"):
         piece = _collar(cut, collar)
         if piece is not None:
             brush.paint(canvas, piece, trim, alpha=.90, soft=.20)
             brush.paint(canvas, piece.outline(.0020), trim_dark, alpha=.55, soft=.18)
             if collar in ("notch", "shawl"):
-                # The lapel's inner edge catches the light; one line is enough.
+
                 for side in (+1, -1):
                     inner = S.lock([(side * .10, .43), (side * .17, .22)],
                                    w0=.0012, w1=.0008, per_segment=3)
                     brush.paint(canvas, inner, palette.lighten(trim, .10),
                                 alpha=.34, soft=.18)
 
-    # Buttons and buttonholes.  They are placed on the centre line or on the
-    # double-breasted pair, never scattered.
     n = int(spec["buttons"])
     if n:
         xs = (0.13,) if cut in ("shirt", "blouse", "tunic", "dress") else (0.13, 0.24)
@@ -370,7 +352,6 @@ def _detail(canvas, spec: dict, body: S.Shape, sleeves, cut: str) -> None:
                     brush.paint(canvas, S.box(.007, .0015, 0, x + .035, float(y)),
                                 trim_dark, clip=body, alpha=.48, soft=.15)
 
-    # Pockets and seams.
     if cut in ("jacket", "coat", "tunic"):
         breast = S.lock([(-.26, .31), (-.13, .32)], w0=.0020, w1=.0018, per_segment=3)
         brush.paint(canvas, breast, trim, clip=body, alpha=.55, soft=.25)
@@ -391,7 +372,6 @@ def _detail(canvas, spec: dict, body: S.Shape, sleeves, cut: str) -> None:
                                        w1=.0010, per_segment=3),
                         trim_dark, clip=body, alpha=.30, soft=.15)
 
-    # Hem and cuff stitching.  These are the marks that survive at icon size.
     for side in (+1, -1):
         if sleeves is not None and spec["sleeve"] != "none":
             yy = _cuff_y(cut, spec["sleeve"])
@@ -418,7 +398,6 @@ def render(spec: dict, size: int = 256) -> Canvas:
     body = body_shape(cut)
     sleeves = _sleeves(cut, s["sleeve"])
     cloth = palette.hex_to_srgb(s["cloth"])
-    trim = palette.hex_to_srgb(s["trim"])
 
     hood = _hood() if s["collar"] == "hood" else None
     if hood is not None:
@@ -427,8 +406,6 @@ def render(spec: dict, size: int = 256) -> Canvas:
         brush.paint(c, hood.place(0.0, -0.02).outline(.003),
                     palette.darken(cloth, .34), alpha=.55, soft=.20)
 
-    # A flat-lay still sits on the page.  The shadow is offset down and right so
-    # the light stays the one light the rest of the package uses.
     shadow = body.place(.018, -.026)
     brush.paint(c, shadow, (0.02, 0.02, 0.03), alpha=.18, soft=size * .012)
 
@@ -439,18 +416,16 @@ def render(spec: dict, size: int = 256) -> Canvas:
                (.48, .18), bevel=.045, soft=.8)
     surf.stroke(c, .0028, palette.darken(cloth, .42), inset=.0014, alpha=.75, soft=.20)
 
-    # A shoulder highlight, then the tailor's marks, then the grain.
     if sleeves is not None:
         for side in (+1, -1):
             shine = S.lock([(side * .07, .61), (side * .31, .57), (side * .45, .46)],
                            w0=.020, w1=.008, per_segment=4)
             brush.paint(c, shine, palette.lighten(cloth, .13), clip=full, alpha=.16, soft=1.1)
     _folds(c, s, full, s["seed"])
-    # Grain is inside the garment; the tailor's marks sit on top of it.
+
     _pattern(c, s, full)
     _detail(c, s, body, sleeves, cut)
 
-    # Cloth contours last, so the collar/placket edges keep their own line.
     surf.stroke(c, .0020, palette.darken(cloth, .46), inset=.0010, alpha=.55, soft=.18)
     return c
 

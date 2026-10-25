@@ -24,17 +24,16 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import palette  # noqa: E402
-from export import sheet as sheetlib  # noqa: E402
-from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, paint, pole, shields, tinctures  # noqa: E402
+from core import palette
+from export import sheet as sheetlib
+from gen.heraldry import blazon, charges, cloth, crest, field, flags, ordinaries, paint, pole, shields, tinctures
 
 
-# --------------------------------------------------------------- tinctures
 def test_tincture_rule_by_class():
-    assert tinctures.check("gules", "or")[0]          # metal on colour
-    assert tinctures.check("or", "azure")[0]          # colour on metal
-    assert not tinctures.check("or", "argent")[0]     # metal on metal
-    assert not tinctures.check("gules", "azure")[0]   # colour on colour
+    assert tinctures.check("gules", "or")[0]
+    assert tinctures.check("or", "azure")[0]
+    assert not tinctures.check("or", "argent")[0]
+    assert not tinctures.check("gules", "azure")[0]
     assert tinctures.is_metal("argent") and tinctures.is_colour("vert")
 
 
@@ -51,8 +50,7 @@ def test_tincture_names_aliases_and_variants():
     assert tinctures.get("white").key == "argent"
     assert len(tinctures.names()) >= 12
     v = tinctures.variant("azure", d_lightness=0.05)
-    # A variant is a *new* tincture of the same class, not a renamed one: it is
-    # how a game gives a faction its own shade without leaving the system.
+
     assert v.kind == tinctures.COLOUR and v.key != "azure"
     assert tinctures.variant("or", d_chroma=-0.02).kind == tinctures.METAL
 
@@ -66,7 +64,6 @@ def test_russian_adjectives_are_complete():
             assert adj["instr_sg"].get(gender), f"{name} lacks instrumental {gender}"
 
 
-# ------------------------------------------------------------------- field
 def _coverage(layers, hw, hh, n=8000, seed=0):
     rng = np.random.default_rng(seed)
     x = rng.uniform(-hw, hw, n)
@@ -78,8 +75,7 @@ def _coverage(layers, hw, hh, n=8000, seed=0):
 
 
 def test_divisions_partition_the_field():
-    # A division is a partition: every point belongs to exactly one region, at
-    # every aspect ratio the silhouettes actually use.
+
     for hw, hh in ((1.0, 1.0), (0.8, 1.0), (1.5, 1.0), (0.6, 1.0)):
         for name, build in sorted(field.DIVISIONS.items()):
             cov = _coverage(build(hw, hh), hw, hh)
@@ -88,8 +84,7 @@ def test_divisions_partition_the_field():
 
 
 def test_variations_cover_the_field():
-    # A variation may *overlay* its base coat (ermine, vair, a lozenge lattice),
-    # so overlapping is fine, but nothing may fall through.
+
     for hw, hh in ((1.0, 1.0), (0.8, 1.0), (1.5, 1.0)):
         for name, build in sorted(field.VARIATIONS.items()):
             cov = _coverage(build(hw, hh), hw, hh)
@@ -97,8 +92,7 @@ def test_variations_cover_the_field():
 
 
 def test_chevronny_reaches_the_base():
-    # Regression: the chevron coordinate peaks inside the box, so measuring the
-    # extent from the corners only left the lowest chevron band short.
+
     layers = field.VARIATIONS["chevronny"](1.0, 1.0)
     cov = _coverage(layers, 1.0, 1.0)
     assert (cov == 1).mean() > 0.995
@@ -113,9 +107,7 @@ def test_field_tincture_at_uses_the_top_layer():
 
 
 def test_field_layers_reports_the_declared_tinctures():
-    # A fur is painted as its component tinctures laid over one another, so it
-    # comes back as more than one layer; that is a rendering detail, and the
-    # *rule* of tincture must still see the fur itself as neutral.
+
     fspec = {"kind": "plain", "tinctures": ["ermine"]}
     layers = field.field_layers(fspec, 1.0, 1.0)
     assert len(layers) >= 2
@@ -134,7 +126,6 @@ def test_field_layers_reports_the_declared_tinctures():
     assert field.tincture_at(div, 0.5, 0.0).key == "azure"
 
 
-# -------------------------------------------------------------- ordinaries
 def test_every_ordinary_builds_and_lies_inside_the_field():
     xs = np.linspace(-1.0, 1.0, 101)
     gx, gy = np.meshgrid(xs, xs)
@@ -157,8 +148,8 @@ def test_bordure_needs_the_silhouette_and_forms_a_ring():
 
     fn, hw, hh = shields.get("heater")
     d = ordinaries.sdf_for("bordure", hw, hh, field=fn)
-    assert d(0.0, 0.0) > 0.0                      # hollow in the middle
-    assert d(-hw * 0.97, 0.0) < 0.0               # a band along the edge
+    assert d(0.0, 0.0) > 0.0
+    assert d(-hw * 0.97, 0.0) < 0.0
     assert d(-hw * 0.40, 0.0) > 0.0
 
 
@@ -170,7 +161,6 @@ def test_ordinary_thickness_scales_with_thin():
     assert thick > thin
 
 
-# ----------------------------------------------------------------- charges
 def test_every_charge_is_non_empty_and_fits_its_unit_box():
     xs = np.linspace(-1.02, 1.02, 205)
     gx, gy = np.meshgrid(xs, xs)
@@ -202,7 +192,6 @@ def test_roundel_aliases_carry_their_own_tincture():
         assert charges.get(alias).forced == tincture
 
 
-# ------------------------------------------------------------------ shapes
 def test_shields_contain_the_origin_and_are_bounded():
     for name in shields.names():
         fn, hw, hh = shields.get(name)
@@ -219,7 +208,6 @@ def test_flag_silhouettes_respect_the_proportion():
         assert float(fn(0.0, 2.0 * hh)) > 0.0, name
 
 
-# ------------------------------------------------------------------ blazon
 def test_blazon_text_known_examples():
     chief = {"shield": "heater", "field": {"kind": "plain", "tinctures": ["argent"]},
              "ordinary": {"name": "chief", "tincture": "gules"}}
@@ -238,8 +226,7 @@ def test_blazon_text_known_examples():
 
 
 def test_russian_numerals_govern_the_noun_with_a_modifier():
-    # Two to four take a genitive plural adjective over a genitive singular head,
-    # and a charge with a modifier of its own must not break the phrase.
+
     spec = {"shield": "heater", "field": {"kind": "plain", "tinctures": ["gules"]},
             "charges": [{"name": "cross_pattee", "count": 3, "arrangement": "three",
                          "tincture": "or"}]}
@@ -268,8 +255,7 @@ def test_validate_catches_metal_on_metal_and_invisibility():
 
 
 def test_validate_judges_an_ordinary_over_every_division_it_crosses():
-    # A bordure runs all the way round, so a field carrying both a metal and a
-    # colour cannot give it a compliant tincture -- and that must be reported.
+
     spec = {"shield": "heater",
             "field": {"kind": "division", "name": "per_pale", "tinctures": ["gules", "argent"]},
             "ordinary": {"name": "bordure", "tincture": "azure"}}
@@ -277,7 +263,7 @@ def test_validate_judges_an_ordinary_over_every_division_it_crosses():
 
 
 def test_a_charge_spanning_a_partition_is_not_reported():
-    # Ordinary heraldry: a lion over a per pale field is normal, not a fault.
+
     spec = {"shield": "heater",
             "field": {"kind": "division", "name": "per_pale", "tinctures": ["gules", "azure"]},
             "charges": [{"name": "lion", "count": 1, "arrangement": "one", "tincture": "or"}]}
@@ -305,7 +291,6 @@ def test_generated_arms_have_both_blazons():
         assert len(en) > 4
 
 
-# ------------------------------------------------------------------- flags
 def test_flag_builders_place_the_first_tincture_at_the_chief_or_hoist():
     h = flags.tricolour("argent", "azure", "gules")
     fspec = h["field"]
@@ -343,15 +328,12 @@ def test_nordic_cross_is_offset_towards_the_hoist():
     spec = flags.nordic_cross("gules", "or")
     fn, hw, hh = blazon.resolve_shape(spec)
     d = blazon.compose(spec, fn, hw, hh)[1][0]
-    # Sampled above the horizontal arm, which spans the whole width: the upright
-    # sits towards the hoist, which is the whole point of the pattern.
-    assert float(d(-hw * 0.62, hh * 0.6)) < 0.0   # the hoist side is on it
-    assert float(d(0.0, hh * 0.6)) > 0.0          # the centre is not
-    assert float(d(hw * 0.75, hh * 0.6)) > 0.0    # nor the fly side
-    assert float(d(hw * 0.9, 0.0)) < 0.0          # the horizontal arm crosses
 
-    # ... and the contrast that proves the offset is real: an ordinary cross is
-    # centred, so the same sample lands on its upright.
+    assert float(d(-hw * 0.62, hh * 0.6)) < 0.0
+    assert float(d(0.0, hh * 0.6)) > 0.0
+    assert float(d(hw * 0.75, hh * 0.6)) > 0.0
+    assert float(d(hw * 0.9, 0.0)) < 0.0
+
     centred = flags.cross_flag("gules", "or")
     fn2, hw2, hh2 = blazon.resolve_shape(centred)
     dc = blazon.compose(centred, fn2, hw2, hh2)[1][0]
@@ -369,7 +351,6 @@ def test_random_flags_are_deterministic_and_render():
     assert flags.random_flag(seed=1) != flags.random_flag(seed=2)
 
 
-# ---------------------------------------------------------------------- cloth
 def _lum(canvas):
     """Per-pixel luminance of the *drawn* part of a canvas, NaN elsewhere."""
     arr = np.asarray(canvas.to_uint8())
@@ -491,10 +472,7 @@ def test_the_bands_run_across_the_folds_axis():
     """
     def spread(canvas):
         lum = _lum(canvas)
-        # A margin row is entirely outside the cloth and therefore entirely NaN, and
-        # ``nanmean`` of an empty slice is what numpy warns about.  Fill those pixels
-        # with the flag's own mean: "no ink here" is not a measurement, and a row of
-        # the mean has no spread, which is exactly what the test wants to say about it.
+
         hole = ~np.isfinite(lum)
         if hole.any():
             lum = np.where(hole, np.nanmean(lum), lum)
@@ -563,7 +541,6 @@ def test_a_crest_banner_flies_flat():
     assert "wave" not in crest.faction("Kingdom of Alder")["flag"]
 
 
-# ------------------------------------------------------------- the animation
 def test_a_waving_flag_is_one_flag_at_a_sequence_of_phases():
     """An animation is the spec sampled, not a set of pictures of the flag.
 
@@ -607,9 +584,7 @@ def test_the_loop_closes_because_the_wave_is_periodic():
     for a, b in zip(frames, later):
         assert a.to_uint8().tobytes() == b.to_uint8().tobytes()
     assert np.allclose(later_phases, np.asarray(phases) + 2.0 * np.pi)
-    # and the axis is uniform rather than a list of chosen moments: sampling every
-    # other phase of a slow cycle is the same drawing as sampling every phase of a
-    # fast one, because there is only one function here.
+
     coarse, _ = flags.waving(spec, count=2, size=96)
     for i, frame in enumerate(coarse):
         assert frame.to_uint8().tobytes() == frames[2 * i].to_uint8().tobytes()
@@ -709,7 +684,6 @@ def test_a_sheet_refuses_frames_that_are_not_the_same_size():
             raise AssertionError("a sheet that cannot be played should be refused")
 
 
-# ---------------------------------------------------------- the pole
 def _silhouette(canvas):
     """Rows and columns of the drawn part of a canvas, as index arrays."""
     a = np.asarray(canvas.a)
@@ -786,17 +760,11 @@ def test_the_droop_is_gravity_whichever_way_the_folds_run():
                              dict(base, droop=droop, phase=0.6))
             a = np.asarray(can.a) > 0.5
             if direction == "vertical":
-                # The folds run across the cloth, so the hoist is its left edge and
-                # the fly its right; the question is how low the cloth reaches over
-                # each band of columns.  A *mean* would not do: the cloth can only
-                # leave the bottom of the frame, never enter it, so the mean is
-                # clipped there and reads as half the droop.
+
                 reaches.append((int(np.where(a[:, x0:x0 + xspan // 8])[0].max()),
                                 int(np.where(a[:, x1 - xspan // 8:x1])[0].max())))
             else:
-                # The folds run up the cloth, so the hoist is its bottom edge and the
-                # fly its top, and the question is how low each edge reaches: the
-                # bottom edge is the anchored end, the top edge the free one.
+
                 ys, _ = np.where(a)
                 reaches.append((int(ys.max()), int(ys.min())))
         anchored, free = reaches[1][0] - reaches[0][0], reaches[1][1] - reaches[0][1]
@@ -824,8 +792,7 @@ def test_a_pole_gets_room_in_the_frame_and_stays_on_the_canvas():
                 assert border < 1e-6, (ratio, shape, finial, border)
                 ys, xs = _silhouette(can)
                 assert len(ys) > 0
-                # The pole is left of the cloth's own box and reaches past it, above
-                # and below: two thirds of the frame at the very least.
+
                 assert xs.min() < 0.5 * a.shape[1], (ratio, shape, finial, xs.min())
                 assert ys.min() < 0.30 * a.shape[0], (ratio, shape, finial, ys.min())
                 assert ys.max() > 0.70 * a.shape[0], (ratio, shape, finial, ys.max())
@@ -874,8 +841,7 @@ def _shaft_profile(light):
     row = can.h // 2
     lum = np.asarray(can.to_uint8())[..., :3].astype(np.float64).mean(axis=2)[row]
     d = pole.field(p, hw, 1.0)(*can.grid())[row]
-    # Only the pixels the shaft *covers*: a pixel half on the edge is half
-    # background, and a profile that ended on one would be measuring the sheet.
+
     return lum[d < -can.dx]
 
 
@@ -931,17 +897,14 @@ def test_a_faction_banner_can_be_flown_on_a_pole():
     flown = crest.flag(name, pole=True)
     assert flown["pole"]["material"] in pole.MATERIALS
     assert flown["field"] == crest.flag(name)["field"]
-    # A banner on a pole is cloth, and the pole is what anchors it: the hoist is
-    # still, and the wind comes from the name rather than from the call.
+
     assert flown["wave"]["taper"] == 0.0
     assert flown["wave"]["droop"] > 0.0
     assert crest.flag(name, pole=True)["wave"] == flown["wave"], "the wind is the name's"
     table = crest.shade_table(name)
     plain = np.asarray(flags.render(crest.flag(name), size=128, shade=table).a)
     poled = np.asarray(flags.render(flown, size=128, shade=table).a)
-    # The pole reaches outside the cloth's own box on three sides -- the shaft to the
-    # left of the hoist, the finial above, the foot below -- and the room is what the
-    # frame paid for that, because the cloth keeps its coordinates either way.
+
     margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(flown["wave"])
     x0, x1, y0, y1 = _cloth_box(128, margin)
     drawn = np.where(poled > 0.5)
@@ -950,13 +913,12 @@ def test_a_faction_banner_can_be_flown_on_a_pole():
     assert drawn[0].max() > y1, "and the foot is below it"
     assert np.where(plain > 0.5)[1].min() >= _cloth_box(128, flags.FLAG_STYLE["margin"])[0], \
         "while the flat banner is inside its own frame"
-    # The drift-proof entry point flies the same banner, pole and wind included.
+
     one = crest.render(name, size=64, which="flag", pole=True).to_uint8().tobytes()
     two = flags.render(flown, size=64, shade=table).to_uint8().tobytes()
     assert one == two, "crest.render and crest.flag disagree about the banner"
 
 
-# ---------------------------------------------------------- the bar
 def _fold_contrast(canvas, fractions=(0.05, 0.5, 0.95)):
     """How much the luminance varies across the cloth at each of these heights.
 
@@ -1043,9 +1005,7 @@ def test_an_anchored_gonfalon_is_still_at_the_bar_and_free_at_the_hem():
     assert float(cloth.surface(pole.anchor(wave), 0.3, 3.0, envelope=0.0)) == 0.0
     along, down = cloth.drift(pole.anchor(wave), 0.3, 3.0, envelope=0.0, drop=2.0)
     assert float(along) == 0.0 and float(down) == 0.0
-    # And the bar is not asking for more than the cloth's own height: the drop it is
-    # given is the cloth's, because the cloth keeps its coordinates however the frame
-    # grew around it.
+
     assert float(cloth.surface(wave, 0.5, 3.0, envelope=0.5)) > 0.0
 
 
@@ -1106,15 +1066,13 @@ def test_a_bar_may_not_hold_up_a_shield_but_may_share_a_frame_with_a_pole():
         pass
     else:
         raise AssertionError("a bar hangs a cloth, not a shield")
-    # The classic gonfalon is a staff with a crossbar on it: one spec with both, and
-    # the frame takes the larger of the two demands rather than the sum.
+
     staff = {**flags.plain("azure", ratio=(3, 2)), "pole": pole.spec(), "bar": pole.bar(),
              "wave": pole.anchor(cloth.wave(1))}
     a = np.asarray(flags.render(staff, size=160).a)
     assert float(a.max()) > 0.9 and float(a[0].max()) < 1e-6
     margin = flags.FLAG_STYLE["margin"] + 1.6 * cloth.reach(staff["wave"])
-    # The *cloth's* top edge, not the frame's: the frame is taller than the cloth by
-    # exactly the room the staff asked for, and the staff fills it.
+
     y0 = _cloth_box(160, margin)[2]
     assert np.where(a > 0.5)[0].min() < y0, "the staff rises above the cloth on the bar"
 
@@ -1138,8 +1096,7 @@ def test_a_faction_banner_can_be_hung_from_a_bar():
     assert hung["wave"]["taper"] == 0.0
     assert hung["wave"]["droop"] > 0.0
     assert crest.flag(name, bar=True)["wave"] == hung["wave"], "the wind is the name's"
-    # A bar and a pole are two mountings of one cloth, so the faction's wind -- which
-    # is the name's -- is the same either way, and only the spec key differs.
+
     assert crest.flag(name, pole=True)["wave"] == hung["wave"]
     table = crest.shade_table(name)
     one = crest.render(name, size=64, which="flag", bar=True).to_uint8().tobytes()
@@ -1147,7 +1104,6 @@ def test_a_faction_banner_can_be_hung_from_a_bar():
     assert one == two, "crest.render and crest.flag disagree about the banner"
 
 
-# --------------------------------------------------------------- end to end
 def test_rendering_is_deterministic_and_byte_identical():
     with tempfile.TemporaryDirectory() as tmp:
         spec = blazon.random_arms(seed=3)
@@ -1164,7 +1120,6 @@ def test_rendering_is_deterministic_and_byte_identical():
         assert all(p.stat().st_size > 0 for p in paths)
 
 
-# ------------------------------------------------------------------- factions
 def _tinctures_used(spec) -> set:
     """Every tincture a spec actually wears."""
     used = set(spec["field"]["tinctures"])
@@ -1219,7 +1174,7 @@ def test_case_and_spacing_do_not_make_a_new_faction():
         assert other["seed"] == a["seed"]
         assert other["arms"] == a["arms"] and other["flag"] == a["flag"]
     assert crest.normalise("  The   Mirefen\nLeague ") == "the mirefen league"
-    # The spelling is kept for display even though the key is not.
+
     assert crest.faction("  Kingdom of Alder  ")["name"] == "Kingdom of Alder"
 
 
@@ -1227,7 +1182,7 @@ def test_different_names_are_different_factions():
     names = ["Alder", "Brythmark", "Halven", "Craymoor", "Delvane", "Ostmark"]
     assert len({crest.seed_from(n) for n in names}) == len(names)
     blazons = {crest.faction(n)["blazon"]["en"] for n in names}
-    assert len(blazons) >= len(names) - 1      # a blazon collision is possible, not likely
+    assert len(blazons) >= len(names) - 1
 
 
 def test_an_empty_name_is_a_bug_rather_than_a_plain_crest():
@@ -1286,10 +1241,9 @@ def test_every_faction_renders_and_is_json():
         assert not f["warnings"], (name, f["warnings"])
         for spec in (f["arms"], f["flag"]):
             canvas = blazon.render(spec, size=48)
-            assert float(canvas.a.max()) > 0.5      # something was actually drawn
+            assert float(canvas.a.max()) > 0.5
 
 
-# ------------------------------------------------------------------ livery
 def _shade_tables(count: int = 40):
     """The livery of ``count`` imaginary factions, as plain integer tables."""
     return [crest.shade(f"Faction {i}") for i in range(count)]
@@ -1392,7 +1346,7 @@ def test_a_shade_never_collides_with_the_tincture_beside_it():
             if d < worst:
                 worst, pair = d, (a, b)
     assert worst >= 0.05, (worst, pair)
-    # and the classical separation of that pair is the headroom it came out of
+
     assert tinctures.contrast(*pair) >= worst
 
 
@@ -1412,7 +1366,7 @@ def test_a_fur_is_shaded_through_its_bearings():
         assert tinctures.get(key).kind != tinctures.FUR
     table = tinctures.shade_table({"argent": {"l": -6, "c": 0, "h": 0},
                                    "sable": {"l": 4, "c": 3, "h": 0}})
-    assert "ermine" not in table                      # the fur itself is skipped
+    assert "ermine" not in table
     plain = blazon.render(coat, size=96)
     shaded = blazon.render(coat, size=96, shade=table)
     assert np.array_equal(plain.a, shaded.a)
@@ -1436,7 +1390,7 @@ def test_a_livery_is_derived_from_the_name_like_everything_else():
     for steps in shade.values():
         assert set(steps) == set(tinctures.SHADE_AXES)
         assert all(isinstance(v, int) and not isinstance(v, bool) for v in steps.values())
-    # a fresh process must draw the same livery, for the same reason the coat does
+
     import os
     import subprocess
 
@@ -1490,7 +1444,6 @@ def test_one_call_renders_a_faction_in_its_own_livery():
     else:
         raise AssertionError("a faction is rendered as arms or a flag, not a banner")
 
-
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
@@ -1499,7 +1452,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

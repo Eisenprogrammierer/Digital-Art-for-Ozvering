@@ -15,6 +15,7 @@ Nothing here writes a file and nothing here runs a command; the server does both
 from __future__ import annotations
 
 from gen.figures import figure
+from gen.objects import buildings, props
 from gen.portraits import demography as portrait_demography
 from gen.portraits import accessories as portrait_accessories
 from gen.portraits import dna as portrait_dna
@@ -26,11 +27,8 @@ from gen.ui import style as ui_style
 from gen.wardrobe import awards as wardrobe_awards
 from gen.wardrobe import garment as wardrobe_garment
 
-#: The cloth's hangings, as ``cli.py`` spells them.  "bar" is a crossbar; the
-#: command line has always used the short name.
 HANGINGS = ("pole", "bar", "staff")
 
-#: Flag silhouettes, from the parser that validates them.
 SHAPES = ("rectangle", "swallowtail", "pennant", "guidon")
 
 
@@ -80,7 +78,6 @@ def _text(name: str, label: str, default: str = "", help: str = "",
     if repeat:
         out["repeat"] = True
     return out
-
 
 SEED = _int("seed", "Seed", 7, 0, 2**31 - 1,
             "The same seed is the same picture; a different seed is a different one.")
@@ -209,6 +206,8 @@ GENERATORS = [
                  "brush and the one light as every other asset.",
         "base": ["portraits"],
         "out": "portraits.png",
+        "slow": True,
+        "timeout": 3600,
         "fields": [
             SEED,
             _int("count", "Portraits", 8, 1, 24),
@@ -362,38 +361,76 @@ GENERATORS = [
     {
         "id": "maps",
         "group": "World",
-        "title": "Strategic map",
-        "blurb": "The wide view: terrain, relief, coastline, rivers, roads, provinces "
-                 "and names, drawn in one raster pass and exported as data too.",
+        "title": "Voxel world",
+        "blurb": "An isometric voxel country with no hex lattice: quantised height "
+                 "columns, continuous movement, rivers, roads and a character.",
         "base": ["maps"],
         "out": "maps.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
-            _int("count", "Maps", 1, 1, 4),
-            _int("cols", "Hexes across", 26, 8, 60),
-            _int("rows", "Hexes down", 17, 6, 40),
-            _float("size", "Hex radius (px)", 13.0, 5.0, 40.0, step=0.5),
-            _float("sea", "Sea fraction", 0.42, 0.0, 0.90, step=0.01),
-            _int("provinces", "Provinces", 8, 0, 30),
-            _float("river", "River opacity", 0.92, 0.0, 1.0, step=0.01),
-            _float("road", "Road opacity", 0.85, 0.0, 1.0, step=0.01),
-            _int("seas", "Sea provinces", 8, 0, 30),
-            _int("factions", "Realms", 4, 0, 12),
-            _bool("no_names", "No names", "--no-names"),
+            _int("count", "Worlds", 1, 1, 4),
+            _int("cols", "Voxel columns", 42, 8, 96),
+            _int("rows", "Voxel rows", 30, 6, 72),
+            _float("size", "Tile width (px)", 14.0, 6.0, 48.0, step=0.5),
+            _float("sea", "Sea fraction", 0.34, 0.0, 0.90, step=0.01),
+            _int("rivers", "Rivers", 4, 0, 12),
+            _int("roads", "Roads", 2, 0, 8),
+            _text("hero", "Hero x,y", "", "free world position; empty = spawn",
+                  optional=True),
+            _int("hero_seed", "Hero seed", 7, 0, 2**31 - 1),
+            _bool("no_hero", "No character", "--no-hero"),
+        ],
+    },
+    {
+        "id": "buildings",
+        "group": "World",
+        "title": "Isometric buildings",
+        "blurb": "Five projections of each seeded building: north, west, south, east "
+                 "and plan, with a metadata table of footprint, floors and palette.",
+        "base": ["buildings"],
+        "out": "buildings.png",
+        "slow": True,
+        "timeout": 900,
+        "fields": [
+            SEED,
+            _int("count", "Buildings", 4, 1, 8),
+            _int("size", "Projection (px)", 160, 96, 320),
+            _choice("kind", "Type", "", [""] + list(buildings.KINDS),
+                    "empty = seeded mix", optional=True),
+            _int("gap", "Gap (px)", 22, 0, 60),
+        ],
+    },
+    {
+        "id": "objects",
+        "group": "World",
+        "title": "Modern objects",
+        "blurb": "Machines, vehicles, aircraft, furniture and field kit as deterministic "
+                 "isometric voxel models with sidecars.",
+        "base": ["objects"],
+        "out": "objects.png",
+        "slow": True,
+        "timeout": 900,
+        "fields": [
+            SEED,
+            _int("count", "Objects", 12, 1, 32),
+            _int("size", "Object (px)", 128, 64, 256),
+            _int("cols", "Columns", 6, 1, 10),
+            _choice("kind", "Type", "", [""] + list(props.KINDS),
+                    "empty = seeded mix", optional=True),
         ],
     },
     {
         "id": "site",
         "group": "World",
-        "title": "Site close-up",
-        "blurb": "The camera down: the same hexes at a size where the ground is the "
-                 "subject, with a carved river, cliffs and a wet shore.",
+        "title": "Legacy site close-up",
+        "blurb": "The old hex camera down: a separate hex geography at a size where "
+                 "the ground is the subject, with a carved river and a wet shore.",
         "base": ["site"],
         "out": "site.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("cols", "Hexes across", 8, 3, 16),
@@ -408,13 +445,13 @@ GENERATORS = [
     {
         "id": "iso",
         "group": "World",
-        "title": "Isometric board",
-        "blurb": "A board from the south: terraced hex prisms, world-sampled tops, "
-                 "dirt cliffs, foam, and a hero who can face four ways.",
+        "title": "Legacy isometric board",
+        "blurb": "The old hex board from the south: terraced prisms, world-sampled "
+                 "tops, cliffs, foam and a hero who can face four ways.",
         "base": ["iso"],
         "out": "iso.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("cols", "Hexes across", 11, 4, 20),
@@ -441,7 +478,7 @@ GENERATORS = [
         "base": ["coast"],
         "out": "coast-tiles.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("count", "Maps counted", 2, 1, 6),
@@ -462,7 +499,7 @@ GENERATORS = [
         "base": ["grounds"],
         "out": "grounds.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("size", "Cell (px)", 256, 64, 512),
@@ -479,7 +516,7 @@ GENERATORS = [
         "base": ["tiles"],
         "out": "tiles.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("size", "Cell (px)", 256, 64, 512),
@@ -510,7 +547,7 @@ GENERATORS = [
         "base": ["icons"],
         "out": "icons.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             _int("seed", "Seed", 3, 0, 2**31 - 1),
             _int("count", "Icons", 8, 1, 24),
@@ -531,7 +568,7 @@ GENERATORS = [
         "base": ["wardrobe"],
         "out": "wardrobe.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             _int("seed", "Seed", 3, 0, 2**31 - 1),
             _int("count", "Seeded variants", 6, 0, 20),
@@ -555,7 +592,7 @@ GENERATORS = [
         "base": ["decorations"],
         "out": "decorations.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             _int("seed", "Seed", 3, 0, 2**31 - 1),
             _int("count", "Seeded variants", 6, 0, 20),
@@ -580,7 +617,7 @@ GENERATORS = [
         "base": ["ui"],
         "out": "ui.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             SEED,
             _int("count", "Seeded kits", 3, 0, 8),
@@ -599,7 +636,7 @@ GENERATORS = [
         "base": ["text"],
         "out": "text.png",
         "slow": True,
-        "timeout": 240,
+        "timeout": 900,
         "fields": [
             _int("size", "Pixels / em", 20, 8, 64),
             _int("width", "Page width (px)", 1400, 600, 3000),
@@ -634,7 +671,6 @@ GENERATORS = [
         ],
     },
 ]
-
 
 BY_ID = {g["id"]: g for g in GENERATORS}
 

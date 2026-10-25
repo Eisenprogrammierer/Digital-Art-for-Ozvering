@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gen.wardrobe import awards, garment  # noqa: E402
+from gen.wardrobe import awards, garment
 
 
 def _alpha(canvas) -> np.ndarray:
@@ -33,7 +33,7 @@ def test_every_garment_cut_renders_inside_its_tile():
         assert a.max() > 200, cut
         ys, xs = np.where(a > 40)
         assert xs.min() > 0 and ys.min() > 0 and xs.max() < c.w - 1 and ys.max() < c.h - 1, cut
-        # The garment is a tall object, not a smear across the tile.
+
         assert (ys.max() - ys.min()) > (xs.max() - xs.min()) * .45, cut
 
 
@@ -43,7 +43,7 @@ def test_garment_cut_changes_the_silhouette():
     coat = garment.render(dict(base, cut="coat"), 96)
     assert not np.array_equal(_alpha(shirt), _alpha(coat))
     mantle = garment.render(dict(base, cut="mantle"), 96)
-    # A cape has no sleeves; its widest row is much lower than a jacket's.
+
     def width(c):
         a = _alpha(c)
         return (a > 40).sum()
@@ -55,7 +55,7 @@ def test_garment_pins_reach_colour_and_pattern_without_reseeding_geometry():
     a = garment.render(base, 96)
     b = garment.render(dict(base, cloth="#102030", trim="#d0b060"), 96)
     assert not np.array_equal(_rgb(a), _rgb(b))
-    # The silhouette is still the jacket's; only the cloth changed.
+
     assert np.array_equal(_alpha(a), _alpha(b))
     c = garment.render(dict(base, pattern="check"), 96)
     assert np.array_equal(_alpha(a), _alpha(c))

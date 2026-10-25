@@ -66,11 +66,9 @@ class Tincture:
     srgb: tuple
     en: str
     ru: str
-    #: Russian adjective forms: nominative masculine/feminine/neuter,
-    #: prepositional (used for "в ... поле"), and instrumental plural (used
-    #: after "между").
+
     ru_adj: dict = _field(default_factory=dict)
-    #: For furs: the base tincture and the spot/bell tincture.
+
     fur: tuple | None = None
     classical: bool = False
 
@@ -90,15 +88,13 @@ class Tincture:
     def lightness(self) -> float:
         return float(self.lch[0])
 
-    def __str__(self) -> str:  # pragma: no cover - display helper
+    def __str__(self) -> str:
         return self.en
 
 
 def _t(key, kind, hex_color, en, ru, ru_adj, fur=None, classical=False) -> Tincture:
     return Tincture(key, kind, tuple(palette.hex_to_srgb(hex_color)), en, ru, ru_adj, fur, classical)
 
-
-#: The traditional emblazonment anchors used for every generated asset.
 TINCTURES: dict = {
     t.key: t
     for t in [
@@ -153,10 +149,8 @@ TINCTURES: dict = {
     ]
 }
 
-#: The seven tinctures that make up classical arms.
 CLASSICAL = ("or", "argent", "gules", "azure", "vert", "sable", "purpure")
 
-#: Plain-language aliases, so a game can just say "gold" or "crimson".
 _ALIASES = {
     "gold": "or", "yellow": "or",
     "silver": "argent", "white": "argent",
@@ -255,39 +249,15 @@ def variant(name, d_lightness: float = 0.0, d_chroma: float = 0.0, d_hue: float 
         classical=False,
     )
 
-
-# --------------------------------------------------------------------------
-# faction shades
-# --------------------------------------------------------------------------
-#: How far a faction's shade may move a tincture, and how many steps that span is
-#: cut into.  A shade is stored as *integers*, one per axis, because "a shade
-#: apart" has to mean something and a continuous nudge cannot promise anything --
-#: two factions either wear the same shade or wear shades a measurable step apart.
-#:
-#: The two classes are given different budgets on purpose.  Argent and Sable are
-#: very nearly neutral, so a hue on them is invisible and a shade of either is a
-#: *lightness*; a colour has chroma to move and a hue to lean, so that is where its
-#: budget goes.  Between them the seven classical tinctures can carry enough shades
-#: that two houses which both chose Azure are not thereby the same house.
 SHADE = {
     METAL: {"l": (0.16, 8), "c": (0.05, 3), "h": (0.05, 4)},
     COLOUR: {"l": (0.16, 6), "c": (0.14, 5), "h": (0.09, 6)},
 }
 
-#: The axes, in the order a shade is written in a sidecar.
 SHADE_AXES = ("l", "c", "h")
 
-#: The range a shade is allowed to move *into*.  A budget that runs out of gamut is
-#: a budget that lies: the clip would eat the step, and two factions would be told
-#: apart by a number instead of by a colour.  So every tincture is offered the part
-#: of its budget that has room, and the tests can then check the invariant that
-#: matters -- a shaded tincture is the colour its steps asked for, exactly.
 _L_ROOM = (0.06, 0.97)
 
-#: The smallest colour change a single step is allowed to be worth, in OKLab.  A
-#: tenth of what this project calls "a different tint" -- a step any smaller is a
-#: number in a sidecar rather than a difference on screen, so the direction is
-#: closed instead.  "Two shades apart" has to be true of the picture.
 _MIN_STEP = 0.004
 
 

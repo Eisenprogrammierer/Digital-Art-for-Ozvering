@@ -39,7 +39,6 @@ __all__ = [
     "render", "render_seed", "compose", "canvas", "describe",
 ]
 
-#: The friendliest entry point: genes in, canvas out.
 render = portrait.render
 render_seed = portrait.render_seed
 compose = portrait.compose

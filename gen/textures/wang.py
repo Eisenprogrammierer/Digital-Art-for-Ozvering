@@ -56,19 +56,10 @@ from . import tile as tiling
 __all__ = ["PALETTES", "corner_samples", "fill", "from_field", "height_field", "levels",
            "tile_set", "texture"]
 
-#: How many octaves :func:`height_field` sums.  One octave of smooth noise quantised
-#: into bands is a handful of blobs and a coastline; three is a country, with ridges
-#: inside the plateaus and a ragged edge between two bands.
 FIELD_OCTAVES = 3
 
-#: How many features :func:`height_field` lays across the tile.  Eight, so one is
-#: four tiles wide and a tiling of sixteen cells shows four of them: at three the
-#: blobs were a third of the tile, which reads as a picture of a landscape rather
-#: than as a piece of ground.
 FIELD_FEATURES = 8.0
 
-#: Corner colours and the height each stands for, which is what gives the blobs
-#: their relief.  Named for what they look like, because a texture is chosen by eye.
 PALETTES = {
     "meadow": {
         "colours": ("#5d7f3c", "#87a24a", "#c9b46b", "#8c6f46"),
@@ -82,11 +73,7 @@ PALETTES = {
         "colours": ("#3f6b57", "#6f9163", "#8e9a5a", "#3b5570"),
         "heights": (0.5, 0.6, 0.65, 0.15),
     },
-    # A *ramp*: ordered low to high, which is what :func:`from_field` needs, because
-    # there the colour index is a level of the landscape and not a name.  Its heights
-    # are the level positions themselves, which is what makes the ramp a ramp -- though
-    # the relief of a tiling read off a field is the field and not these numbers, since
-    # a level is a staircase and lighting a staircase shades only its steps.
+
     "highland": {
         "colours": ("#3d5544", "#5f7d4a", "#93a05e", "#c9b98d"),
         "heights": (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0),
@@ -313,10 +300,7 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
     if size % cells:
         raise ValueError(f"a {size} px tile is not a whole number of {cells} cells")
     if not 0.0 < margin <= 0.5:
-        # Above half a tile the blend reaches the opposite corner, and then agreeing
-        # about the shared corners is no longer enough to make the field continuous;
-        # at zero there is no blend at all and the partition is a hard Voronoi edge,
-        # which is the discontinuity this whole module exists to avoid.
+
         raise ValueError("margin is a fraction of a tile, above 0 and at most 0.5")
     pal = PALETTES[palette_name]
     if colours > len(pal["colours"]):
@@ -336,27 +320,16 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
 
     i, j, u, v = tiling.tile_coords((size, size), size // cells)
 
-    # The four corner colours of the tile under every pixel, in a fixed order:
-    # top-left, top-right, bottom-left, bottom-right.  One gather per corner, over
-    # the whole canvas at once, because a texture is evaluated on every pixel.
-    codes = np.array(tset, dtype=np.int64)          # (tiles, 4)
+    codes = np.array(tset, dtype=np.int64)
     idx = grid[i, j]
     tl, tr, bl, br = (codes[idx, k] for k in range(4))
 
-    # And the four corner *heights*, which for a tiling read off a field are the
-    # field's own samples.  A level is a staircase, and lighting a staircase shades
-    # only its steps; the field the levels are levels *of* is smooth, so the colour
-    # posterises and the light does not -- which is what a painted texture does, and
-    # what turns a ring of bands into the shaded flank of a hill.
     if read is None:
         heights = (height_of[tl], height_of[tr], height_of[bl], height_of[br])
     else:
         corner = corner_samples(read, cells)
         heights = (corner[i, j], corner[i, j + 1], corner[i + 1, j], corner[i + 1, j + 1])
 
-    # A partition of unity that depends on nothing but the offset inside the tile,
-    # so it is the same on both sides of every edge and takes the same value at
-    # both ends of it.  Flat in the middle, so corners become patches and not cones.
     def edge(t):
         return render_smoothstep(np.clip((t - 0.5 + margin) / (2.0 * margin), 0.0, 1.0))
 
@@ -372,16 +345,10 @@ def texture(seed: int = 0, size: int = 256, cells: int = 16, colours: int = 3,
         height += w * h
 
     speck = tiling.periodic_noise((size, size), seed=int(seed) + 913, scale=2.5)
-    # A hair of blur on the colour as well as on the relief.  The blend is
-    # continuous but its *slope* jumps where a flat cell meets a graded one, and the
-    # eye reads that kink as an edge however equal the two sides are; a pixel of
-    # blur is enough to stop it reading as one, and being periodic it costs nothing.
+
     srgb = tiling.smooth(srgb, 1.0)
     srgb *= (1.0 - grain + 2.0 * grain * speck)[..., None]
-    # The relief is smoothed before it is lit, and the grain on it is gentle.  A
-    # bilinear blend is continuous but its *slope* jumps at every cell edge, and a
-    # normal computed from an unsmoothed height turns that jump into a visible edge
-    # -- which is how a continuous field ends up looking tiled anyway.
+
     height = tiling.smooth(height, 1.4) * float(relief) + (speck - 0.5) * 0.12
     canvas.over_srgb(np.clip(tiling.lit(srgb, height, y_up=False), 0.0, 1.0),
                      np.ones((size, size), dtype=np.float64))

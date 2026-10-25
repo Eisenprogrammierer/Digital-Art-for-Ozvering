@@ -65,64 +65,37 @@ __all__ = ["DEFAULTS", "PRESETS", "LINES", "SERIF_LEN", "SERIF_THICK", "SERIF_AN
            "validate", "thickness", "glyph_field", "ink_box", "core_box", "overhang",
            "advance", "offset", "strokes"]
 
-#: The five faces that come for free.  The skeleton is the same for all of them.
 PRESETS = {
-    # a monoline: for a control, a tooltip, anything that has to read at 12 px.
+
     "sans": {"weight": 0.088, "contrast": 0.0, "serif": 0.0, "slant": 0.0, "width": 1.0},
-    # a book face: thick stems, thin hairlines, feet.
+
     "text": {"weight": 0.082, "contrast": 0.32, "serif": 0.90, "slant": 0.0, "width": 0.98},
-    # a headline: heavier, and the contrast opens up because it can be seen.
+
     "display": {"weight": 0.120, "contrast": 0.42, "serif": 0.70, "slant": 0.0, "width": 0.96},
-    # the slanted book face: the same letter, sheared, with the feet left level.
+
     "italic": {"weight": 0.082, "contrast": 0.30, "serif": 0.75, "slant": 0.17, "width": 0.98},
-    # thick, low contrast, big feet: a slab.
+
     "slab": {"weight": 0.108, "contrast": 0.10, "serif": 1.00, "slant": 0.0, "width": 1.02},
 }
 
-#: What an unqualified request gets.
 DEFAULTS = PRESETS["text"]
 
-#: A serif is this many stems long and this many thick, at ``serif = 1``.
 SERIF_LEN = 2.6
 SERIF_THICK = 0.62
 
-#: The daylight a letter's *body* keeps on each side, in em units.  This is the whole
-#: of the spacing system, and it is measured off the stems rather than off every last
-#: serif -- see :func:`advance`.
 SIDEBEARING = 0.05
 
-#: The air a serif keeps from the edge of its neighbour's ground.  A serif is allowed
-#: to hang into the sidebearing, and this is how far past the sidebearing it may reach
-#: before the advance grows to make room.
 AIR = 0.02
 
-#: The daylight between a letter's ink and the mark over it, in em units.  Measured
-#: from ink to ink -- the letter's serifs and the pen's own width are already in the
-#: numbers this is added to -- so a heavy face does not wear its accents closer than a
-#: light one, and a serifed face does not wear them inside the serifs.
 MARK_GAP = 0.05
 
-#: The fillet the joins get, as a fraction of a stem.  Small on purpose: a
-#: smooth union pulls the boundary *out* by about a quarter of its radius, so a
-#: fillet as big as a stem does not round the corners of a letter -- it swells
-#: the letter, and thirty segments of a bowl swell it thirty times.
 FILLET = 0.15
 
-#: How far from vertical or horizontal a stroke may arrive and still be called a
-#: stem or an arm.  Eighteen degrees excludes a slash, which is the one punctuation
-#: mark whose ends are on the cap line and must not grow feet.
 SERIF_ANGLE = 18.0
 _COS_SERIF = float(np.cos(np.radians(SERIF_ANGLE)))
 
-#: Which guide a serif may grow on, and how close the end has to land to it.  The
-#: tolerance is in em units and is tight, because the skeletons are drawn on the
-#: guides exactly: an end that is a hundredth off is an arc that happens to stop
-#: nearby, not a terminal.
 _GUIDE_TOL = 0.03
 
-#: The lines a serif is allowed on, indexed.  The x-height is index 1 and is the one
-#: horizontal an *arm* is not serifed on: a bowl springs from the x-height
-#: tangentially, and a brush stroke landing there is a curve, not a terminal.
 LINES = (("baseline", skeleton.GUIDES[0]), ("x-height", skeleton.GUIDES[1]),
          ("cap", skeleton.GUIDES[2]), ("ascender", skeleton.GUIDES[3]))
 
@@ -156,9 +129,6 @@ def clamp(spec) -> dict:
         out[key] = float(np.clip(v, lo, hi))
     return out
 
-
-#: The range each number is clipped to.  A weight of zero is a letter nobody can see
-#: and one of a third of an em is a letter nobody can read.
 _RANGE = {
     "weight": (0.025, 0.28),
     "contrast": (0.0, 0.85),
@@ -186,9 +156,6 @@ def validate(spec) -> list:
     return bad
 
 
-# --------------------------------------------------------------------------
-# the pen itself
-# --------------------------------------------------------------------------
 def thickness(dx: float, dy: float, weight: float, contrast: float) -> float:
     """The width the pen lays down for a stroke in direction ``(dx, dy)``.
 
@@ -233,9 +200,9 @@ def _serifs(pts, s: dict) -> list:
         if line is None:
             continue
         if uy >= _COS_SERIF:
-            out.append((end[0], end[1], length * 0.5, thick * 0.5))       # a foot
+            out.append((end[0], end[1], length * 0.5, thick * 0.5))
         elif ux >= _COS_SERIF and line != 1:
-            out.append((end[0], end[1], thick * 0.5, length * 0.5))       # a beak
+            out.append((end[0], end[1], thick * 0.5, length * 0.5))
     return out
 
 
@@ -308,20 +275,13 @@ def _mark_of(ch: str, s: dict, raw: list) -> list:
     _skeleton, side = skeleton.MARKS[mark]
     pts = skeleton.mark_strokes(mark)
     r = 0.5 * s["weight"]
-    # The anchor is measured on the letter as the alphabet drew it, because the pen's
-    # shear takes the mark and the letter together.  Across, the mark sits over the
-    # letter's **body** -- bodies are symmetric and serifs are not, and an accent
-    # centred on a box with one beak in it slides off to the side of an ``e``.  Up, it
-    # sits over the **feet**, because a cap's serif reaches above the cap line and a
-    # mark a fixed distance above the skeleton would sit inside it.
+
     core, full = _box_of(raw, s, False), _box_of(raw, s, True)
     if full is None:
         return []
     centre = 0.5 * (core[0] + core[2])
     dy = (full[3] + MARK_GAP + r) if side == "above" else (full[1] - MARK_GAP - r)
-    # The ground is the letter's, and it is the ground *without* the mark -- which is
-    # what makes this callable at all, and what makes it fair: the letter is charged
-    # for its body and its feet, and the mark lives in what is left.
+
     _core, _full, _lsb, _rsb, adv, off = _metrics(ch, s)
     lo, hi = AIR - off, adv - off - AIR
 
@@ -344,10 +304,7 @@ def _mark_of(ch: str, s: dict, raw: list) -> list:
     ink = _box_of(at(scale, 0.0, True), s, False)
     dx = 0.0
     if not _fits(ink, lo, hi):
-        # A mark too tall to fit even as a hairline -- which only a very slanted face
-        # can manage -- slides over instead of leaving the ground.  It is the last
-        # thing tried rather than the first, because an accent off the middle of its
-        # letter is a mistake the eye catches.
+
         dx = ((lo - ink[0]) if ink[0] < lo else (hi - ink[2])) / s["width"]
     return at(scale, dx)
 
@@ -394,7 +351,7 @@ def glyph_field(ch: str, spec, X, Y, marks: bool = True):
     """
     s = clamp(spec)
     weight, contrast = s["weight"], s["contrast"]
-    k = FILLET * weight                    # the fillet the joins get
+    k = FILLET * weight
     reach = 0.5 * weight
     base, accents = _placed(ch, s)
     if not marks:

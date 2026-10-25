@@ -27,11 +27,6 @@ from . import body, cycle as cycle_lib, rig
 
 __all__ = ["FACINGS", "render", "frames", "describe", "cycles", "background"]
 
-#: The four directions a board asks a figure to face.  ``right`` is the side view
-#: the rig is drawn in; ``left`` is that view mirrored; ``down`` and ``up`` are the
-#: front and back views, because on a board "towards the camera" is south and
-#: "away" is north.  A game with a turning camera would need more than a billboard;
-#: a board with a fixed one needs exactly these four.
 FACINGS = ("right", "left", "up", "down")
 
 _VIEW = {"right": "side", "left": "side", "up": "back", "down": "front"}
@@ -75,8 +70,7 @@ def render(seed=0, cycle: str = "walk", phase: float = 0.0, size: int = 96,
         background(canvas, seed if backdrop is True else backdrop)
     body.paint(canvas, pts, st, view=_VIEW[facing])
     if facing == "left":
-        # A mirror is not a second drawing: flip the finished sprite, alpha and
-        # colour together, so the light and the ink are mirrored with it.
+
         canvas.rgb = np.ascontiguousarray(canvas.rgb[:, ::-1])
         canvas.a = np.ascontiguousarray(canvas.a[:, ::-1])
     return canvas

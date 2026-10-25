@@ -41,9 +41,7 @@ def _rifle(x, y, s: dict):
 
 
 def _tank(x, y, s: dict):
-    # Tracks run up and down the tile, so this is a tank seen from above: the
-    # arrangement a counter uses, and the one that stays readable when the plate
-    # is only 32 px high.
+
     tw = 0.070
     tracks = _u(
         sdf.box(x, y, tw, 0.335, 0.045, -0.245, -0.005),
@@ -203,8 +201,7 @@ def _medical(x, y, s: dict):
 
 
 def _fort(x, y, s: dict):
-    # Tall keep plus two lower towers.  A single wide block is a tank's top-down
-    # hull at small size; the stepped skyline is what makes this a castle.
+
     keep = sdf.box(x, y, 0.170, 0.335, 0.015, 0.0, -0.035)
     tower = _u(sdf.box(x, y, 0.080, 0.245, 0.012, -0.290, -0.125),
                sdf.box(x, y, 0.080, 0.245, 0.012, 0.290, -0.125))
@@ -239,9 +236,6 @@ def _rocket(x, y, s: dict):
     flame = sdf.polygon(x, y, [(-0.075, -0.250), (0.075, -0.250), (0.0, -0.440)])
     return _u(nose, body, fins, flame)
 
-
-#: Military charge -> hue.  The hues stay in the same OKLCH script: olive and
-#: steel for land, blue for air and sea, signal red for command and medicine.
 MILITARY = {
     "rifle": (_rifle, 0.095),
     "tank": (_tank, 0.125),
@@ -263,10 +257,6 @@ MILITARY = {
     "rocket": (_rocket, 0.020),
 }
 
-#: The two families a game can ask for by name.  A charge may belong to both; the
-#: difference is the *set* a caller draws, not a second shape.  This is the
-#: metadata a division designer reads when it wants a NATO-style palette or a
-#: HOI4-style counter.
 FAMILIES = {
     "nato": ("rifle", "tank", "cannon", "plane", "anchor", "parachute",
              "crosshair", "chevron", "star", "signal", "medical", "fort"),

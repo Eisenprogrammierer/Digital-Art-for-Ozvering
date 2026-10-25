@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import cli  # noqa: E402
+import cli
 
 
 def _run(*argv) -> int:
@@ -223,7 +223,6 @@ def test_the_portrait_phenotype_flags_and_gene_overrides_reach_the_genome():
             assert cell["genes"]["face_shape"] == "diamond"
             assert cell["genes"]["skin_melanin"] == 0.6
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -233,9 +232,51 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     raise SystemExit(1 if failures else 0)
+
+
+def test_the_maps_command_writes_a_continuous_voxel_world():
+    """The strategic map is no longer a board: positions are floats, not hexes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "maps.png"
+        assert _run("maps", "--out", out, "--seed", 7, "--cols", 10,
+                    "--rows", 8, "--size", 7, "--rivers", 1, "--roads", 1,
+                    "--hero", "3.25,4.5") == 0
+        assert out.is_file() and out.stat().st_size > 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["source"] == "procedural:gen.maps.voxel"
+        assert meta["movement"] == "continuous"
+        assert meta["maps"][0]["hero"]["x"] == 3.25
+        assert meta["maps"][0]["hero"]["y"] == 4.5
+        assert "heightmap" in meta["maps"][0]
+        assert "walkable" in meta["maps"][0]
+
+
+def test_the_buildings_command_writes_five_views_and_metadata():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "buildings.png"
+        assert _run("buildings", "--out", out, "--seed", 7, "--count", 1,
+                    "--size", 48, "--kind", "house") == 0
+        assert out.is_file() and out.stat().st_size > 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["source"] == "procedural:gen.objects.buildings"
+        assert meta["views"] == ["north", "west", "south", "east", "top"]
+        assert meta["buildings"][0]["kind"] == "house"
+        assert meta["buildings"][0]["floors"] == 1
+
+
+def test_the_objects_command_writes_a_modern_object_sheet():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "objects.png"
+        assert _run("objects", "--out", out, "--seed", 7, "--count", 2,
+                    "--size", 40, "--cols", 2) == 0
+        assert out.is_file() and out.stat().st_size > 0
+        meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["source"] == "procedural:gen.objects.props"
+        assert len(meta["objects"]) == 2
+        assert meta["views"] == ["north", "west", "south", "east", "top"]

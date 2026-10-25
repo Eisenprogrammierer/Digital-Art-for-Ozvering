@@ -30,12 +30,6 @@ import numpy as np
 
 from .canvas import Canvas
 
-#: Everything in the tree that is not generated from a seed.
-#:
-#: A source is a dict with ``id``, ``title``, ``author``, ``license``, ``url`` and
-#: ``attribution``.  The ``attribution`` string is the one that has to survive into
-#: the shipped credits *verbatim*: it is what the licence asks for, so it is stored
-#: in the form it has to appear rather than assembled at print time.
 SOURCES = (
     {
         "id": "kevin-macleod",
@@ -50,24 +44,13 @@ SOURCES = (
     },
 )
 
-#: What a credit line needs to be one.  A licence asks for a *correct* spelling of
-#: what it names, so this is a validation list rather than a comment: CC BY needs
-#: the author, the title and the licence, and a URL is what makes it checkable.
 REQUIRED = ("id", "title", "author", "license", "url", "attribution")
 
-#: The two files a build carries the attribution *in*.  The screen is not an asset
-#: we made -- it is the credit itself -- so it is the one picture the gate below
-#: does not ask for a sidecar from.
 TEXT_NAME = "credits.txt"
 SCREEN_NAME = "credits.png"
 
-#: The kinds of picture a build can hold.  A vector the same as a raster: an ``.svg``
-#: with no sidecar is a file whose provenance nobody wrote down, which is the same
-#: leak a PNG with no sidecar is -- so the gate walks both, and a new back-end is
-#: covered the day it starts writing.
 PICTURES = (".png", ".svg")
 
-#: Ours, and the prefix every generated sidecar's ``source`` begins with.
 OURS = "procedural:"
 
 
@@ -163,9 +146,6 @@ def write(directory, path=None) -> Path:
     return path
 
 
-# --------------------------------------------------------------------------
-# the gate
-# --------------------------------------------------------------------------
 def unrecorded(directory) -> list:
     """Assets in a build whose rights nobody wrote down.
 
@@ -211,7 +191,6 @@ def unrecorded(directory) -> list:
             if picture.name != SCREEN_NAME and picture.stem not in sidecars:
                 problems.append(f"{picture.name}: no sidecar -- no seed, no source, no licence")
     return problems
-
 
 _UNSET = object()
 
@@ -269,9 +248,6 @@ def check(directory=None, credits_text=_UNSET) -> list:
     return problems
 
 
-# --------------------------------------------------------------------------
-# the screen
-# --------------------------------------------------------------------------
 def screen_lines(directory=None, cols: int = 48) -> list:
     """The credits as rows of ``(kind, text)``, wrapped to ``cols`` characters.
 
@@ -301,7 +277,7 @@ def screen_lines(directory=None, cols: int = 48) -> list:
     wrap("note", "Everything else here is generated: a function of a seed, "
                  "reproduced from the sidecar beside it.  No third party holds "
                  "rights in it.")
-    rows.append(("note", ""))  # the list needs air above it on a screen
+    rows.append(("note", ""))
     if directory is not None:
         entries = manifest(directory)
         for e in entries:
@@ -312,8 +288,6 @@ def screen_lines(directory=None, cols: int = 48) -> list:
             wrap("note", f"(no sidecars found in {directory})")
     return rows
 
-
-#: Ink per row kind, in sRGB, for the screen.
 _SCREEN_INK = {
     "title": (0.97, 0.95, 0.90),
     "head": (0.86, 0.74, 0.44),
@@ -322,10 +296,6 @@ _SCREEN_INK = {
     "note": (0.52, 0.56, 0.63),
 }
 
-#: How a row kind is set: the face, an optional weight of its own, the row's em as a
-#: multiple of the body em, and the air above it.  Every row is drawn at its own size,
-#: so there is no scale anywhere in this file -- a title is a bigger drawing, not a
-#: bigger picture of a small one.
 _SCREEN_SET = {
     "title": ("display", None, 2.05, 0.00),
     "head": ("text", 0.112, 1.06, 0.62),
@@ -334,26 +304,16 @@ _SCREEN_SET = {
     "note": ("italic", None, 0.93, 0.00),
 }
 
-#: How much of a row's em its line box claims above and below the baseline.  A line
-#: box, not a measurement: a row with no descender in it still holds the row below it
-#: down, which is what keeps baselines on a rhythm instead of on a slope.
 _SCREEN_ASCENT = 0.80
 _SCREEN_DESCENT = 0.34
 
-#: The paper around the text and the air of a blank row, in body ems.
 _SCREEN_MARGIN = 1.15
 _SCREEN_AIR = 0.62
 
-#: The rule under the title: its ink in sRGB, how far below the title's baseline it
-#: sits (in ems of the title's own em) and how thick it is (in body ems).
 _SCREEN_RULE = (0.34, 0.38, 0.45)
 _RULE_DROP = 0.30
 _RULE_WIDTH = 0.07
 
-#: The padding a row is drawn with, in ems of its own em: the gap the pen leaves
-#: between a line's ink and the edge of the little canvas the line is set on.  It is a
-#: rounding guard for the blit that follows, not a design number -- the margin is the
-#: design number.
 _SCREEN_PAD = 0.02
 
 
@@ -402,13 +362,10 @@ def screen(directory=None, cols: int = 48, size: float = 24.0):
     em = float(size)
     specs = [_screen_spec(kind) for kind, _text in rows]
 
-    # the lines, measured: the sheet is as wide as its widest row and no wider
     widest = max((typeset.measure(text, spec) * _SCREEN_SET[kind][2]
                   for (kind, text), spec in zip(rows, specs)), default=0.0)
     width_em = 2.0 * _SCREEN_MARGIN + widest
 
-    # the baselines, from the top of the sheet, in body ems: a line box each, with
-    # the air its kind asks for above it
     baselines, room = [], _SCREEN_MARGIN
     for kind, text in rows:
         _face, _weight, k, air = _SCREEN_SET[kind]
@@ -429,13 +386,13 @@ def screen(directory=None, cols: int = 48, size: float = 24.0):
         k = _SCREEN_SET[kind][2]
         line = typeset.draw(text, spec, em=em * k, pad=_SCREEN_PAD,
                             colour=_SCREEN_INK[kind])
-        # where the line's own canvas put its ink and its baseline, in its own pixels
+
         ink_top = typeset.ink_bounds(text, spec)[3]
         x = _SCREEN_MARGIN * em - _SCREEN_PAD * em * k
         y = top * em - (_SCREEN_PAD + ink_top) * em * k
         sheet.blit(line.rgb, line.a, int(round(x)), int(round(y)))
         if kind == "title":
-            # the rule is part of the layout, so it is drawn where the layout put it
+
             row = int(round((top + _RULE_DROP * title_k) * em))
             row = max(0, min(h - 1, row))
             thick = max(1, min(int(round(_RULE_WIDTH * em)), h - row))
@@ -444,9 +401,6 @@ def screen(directory=None, cols: int = 48, size: float = 24.0):
             a[:, x0:w - x0] = 1.0
             sheet.over(palette.srgb_to_linear(_SCREEN_RULE), a, 0, row)
 
-    # A soft vertical gradient, so it is a screen and not a stark block: the top is
-    # a little lighter, which is what makes a flat panel read as lit.  It is built in
-    # linear light like everything else and composited under the ink in one pass.
     ramp = np.linspace(0.108, 0.052, h)[:, None]
     bg = palette.srgb_to_linear(np.clip(ramp * np.array([0.92, 0.98, 1.25])[None, :],
                                         0.0, 1.0))

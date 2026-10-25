@@ -34,11 +34,6 @@ __all__ = [
 ]
 
 
-
-
-# --------------------------------------------------------------------------
-# small helpers
-# --------------------------------------------------------------------------
 def mask(canvas, shape) -> np.ndarray:
     """Full-frame coverage array of a shape, for reuse as a cheap clip."""
     out = np.zeros((canvas.h, canvas.w), dtype=np.float64)
@@ -70,9 +65,6 @@ def _tile(canvas, rgb, a, r0, c0):
     canvas.over(rgb, a, c0, r0)
 
 
-# --------------------------------------------------------------------------
-# one-shot painting
-# --------------------------------------------------------------------------
 def paint(canvas, shape, colour=None, clip=None, alpha: float = 1.0, soft: float = 0.0,
           ramp=None, premultiplied: bool = False):
     """Composite ``shape`` onto ``canvas``.
@@ -148,9 +140,6 @@ def multiply(canvas, shape, factor, clip=None, alpha: float = 1.0):
     )
 
 
-# --------------------------------------------------------------------------
-# the multi-pass surface
-# --------------------------------------------------------------------------
 class Surface:
     """A shape's distance field, evaluated once and then painted many ways.
 
@@ -186,7 +175,6 @@ class Surface:
         self.scale = canvas.scale
         self.y_up = canvas.y_up
 
-    # -- derivations -------------------------------------------------------
     def coverage(self) -> np.ndarray | None:
         return None if self.empty else render.coverage(self.d, self.dx)
 
@@ -207,7 +195,6 @@ class Surface:
             else palette.srgb_to_linear(colour)
         canvas.over(rgb, a, self.cols, self.rows)
 
-    # -- passes ------------------------------------------------------------
     def paint(self, canvas, colour=None, alpha: float = 1.0, soft: float = 0.0,
               ramp=None, mask=None):
         if self.empty:
@@ -242,10 +229,7 @@ class Surface:
         L = L / max(float(np.linalg.norm(L)), 1e-12)
         lam = np.clip(n @ L, 0.0, 1.0)
         base = self.coverage()
-        # ``edges`` is descending (wide band first, deep band last), so paint in
-        # the same order as the list.  Iterating the other way used to paint the
-        # widest band *over* the deep one, erasing every second shadow; a band
-        # list of two produced only one band on screen.
+
         for i in range(min(len(colours), len(edges))):
             m = ((lam < float(edges[i])) & (self.d < 0.0)).astype(np.float64)
             if soft > 0.0:

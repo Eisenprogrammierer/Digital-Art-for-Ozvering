@@ -43,27 +43,10 @@ from . import frame, paint
 
 __all__ = ["STOPS", "Curve", "curves", "document", "write"]
 
-#: How many stops a palette ramp is written with.  SVG interpolates linearly
-#: between stops and :mod:`core.palette` interpolates in OKLab, so this is a
-#: sampled approximation of a two-stop ramp; 17 is past the point where the two
-#: differ by a visible amount on any style here, and the test measures rather than
-#: assumes it.
 STOPS = 17
 
-#: How finely the ornament's radius function is drawn.  A polar curve is not a
-#: Bezier, so it goes out as a polyline, and the only thing to say about that is how
-#: close it is: the sagitta of a chord is ``r*(1 - cos(pi/n))``, which for the
-#: largest ornament on the shelf -- a radius near 8 design pixels -- is 2.4e-3 pixels
-#: at this count.  A quarter of a thousandth of a pixel is not a thing a screen or
-#: an engine can show, and the file stays a few kilobytes.
 BOSS_SEGMENTS = 128
 
-#: A curve and the points it was built from.  The ``d`` is written for SVG, where
-#: ``y`` runs down; ``vertices`` and ``on_curve`` are in the package's world, where
-#: ``y`` runs up -- because the fields are the source of truth, and the point of
-#: returning the points is that a test can ask *them*.  ``vertices`` are the points
-#: the path literally contains and ``on_curve`` adds samples along an arc, which is
-#: the only way to see a sweep flag that turned the wrong way.
 Curve = namedtuple("Curve", "d vertices on_curve")
 
 
@@ -72,9 +55,6 @@ def _world(points):
     return [(float(x), -float(y)) for x, y in points]
 
 
-# --------------------------------------------------------------------------
-# the geometry
-# --------------------------------------------------------------------------
 def curves(panel: frame.Panel, kind: str = "panel") -> "OrderedDict[str, Curve]":
     """Every curve of a panel, named, ready to write.
 
@@ -99,8 +79,7 @@ def curves(panel: frame.Panel, kind: str = "panel") -> "OrderedDict[str, Curve]"
     out = OrderedDict()
 
     def rounded(cx, cy, hw, hh, radius):
-        # The radius arrives already fitted (`Panel.outer_radius` and friends are the
-        # one place the rule lives), so this is a shape, not a second opinion.
+
         d, vertices, on_curve = svg.rounded_rect(cx, -cy, hw, hh, radius)
         return Curve(d, _world(vertices), _world(on_curve))
 
@@ -141,9 +120,6 @@ def band(curves_: "OrderedDict[str, Curve]") -> str:
     return d
 
 
-# --------------------------------------------------------------------------
-# the document
-# --------------------------------------------------------------------------
 def document(spec: dict, size, kind: str = "panel", state: str = "idle",
              scale: float = 1.0, steps: int = STOPS) -> str:
     """One panel, frame or button face as an SVG document.
@@ -160,22 +136,16 @@ def document(spec: dict, size, kind: str = "panel", state: str = "idle",
     body, body_low, edge, accent = paint.tones(s, state)
     cs = curves(panel, kind)
 
-    # User units are design pixels, so the document is resolution-independent: the
-    # width and height are output pixels and the viewBox is the design, which is
-    # the whole reason a vector asset needs no nine-slice.
     doc = svg.Document(panel.w, panel.h,
                        view_box=(-panel.hw, -panel.hh, 2.0 * panel.hw, 2.0 * panel.hh))
 
     if kind == "panel":
         lo = palette.mix(body, body_low, s["gradient"])
-        # The raster's ramp runs from the top edge (t=0) to the bottom (t=1), and
-        # screen y runs down, so the start stop is at -hh.
+
         doc.define(svg.linear_gradient(palette.ramp([body, lo], int(steps)), "body",
                                        0.0, -panel.hh, 0.0, panel.hh, opacity=s["alpha"]))
         doc.add(f'<path d="{cs["outer"].d}" fill="url(#body)"/>')
 
-    # The band, twice over: it is the asset for a hollow frame, and the moulding on
-    # top of the body for a panel.
     doc.add(f'<path d="{band(cs)}" fill="{palette.srgb_to_hex(edge)}" '
             f'fill-rule="evenodd"/>')
 
@@ -185,9 +155,7 @@ def document(spec: dict, size, kind: str = "panel", state: str = "idle",
                 f'stroke-width="{svg.num(s["rule"])}" stroke-opacity="0.55"/>')
 
     if "boss0" in cs:
-        # The raster clips the ornament to the silhouette (a panel) or to the band
-        # (a frame, so a rivet cannot show through the hole); so does this, once for
-        # the whole group rather than once per mark.
+
         hole = (f'<path d="{band(cs)}" clip-rule="evenodd"/>' if kind == "frame"
                 else f'<path d="{cs["outer"].d}"/>')
         doc.define(f'<clipPath id="band">{hole}</clipPath>')

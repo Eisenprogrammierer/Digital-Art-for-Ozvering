@@ -36,8 +36,6 @@ __all__ = [
     "random_values", "modify", "validate",
 ]
 
-#: The named silhouette families.  These are offsets on the style, not separate
-#: heads: a diamond face is a cheekbone emphasis on whatever skull the style owns.
 FACE_SHAPES = ("oval", "round", "square", "heart", "long", "diamond")
 JAW_SHAPES = ("soft", "angular", "square", "tapered", "round", "pointed")
 EYE_SHAPES = ("almond", "round", "hooded", "upturned", "downturned", "wide", "narrow")
@@ -46,13 +44,9 @@ NOSE_SHAPES = ("button", "straight", "roman", "wide", "snub", "delicate")
 MOUTH_SHAPES = ("line", "full", "bow", "wide", "small", "downturned")
 HAIRLINE_SHAPES = ("straight", "rounded", "high", "low", "swept", "widow")
 FRECKLE_PATTERNS = ("none", "sparse", "bridge", "cheeks", "full")
-#: Facial hair is a paint pattern, not a change to the skull: the jaw, chin and
-#: lip keep their geometry and the hair is laid over them.  The variants are
-#: ordered from a clean jaw to a full beard, because the middle of the list is
-#: where most adult faces actually sit.
+
 FACIAL_HAIR = ("none", "stubble", "mustache", "goatee", "short_beard", "full_beard")
 
-#: Every categorical phenotype gene and the values it accepts.
 CATEGORIES = {
     "face_shape": FACE_SHAPES,
     "jaw_shape": JAW_SHAPES,
@@ -65,8 +59,6 @@ CATEGORIES = {
     "facial_hair": FACIAL_HAIR,
 }
 
-#: Continuous geometry axes.  They are appended after the legacy shape genes so
-#: older DNA strings can be read with every new gene defaulting to neutral.
 MORPH = (
     "head_depth", "forehead_w", "forehead_h", "temple_w", "cheek_bone",
     "cheek_drop", "cheek_full", "jaw_angle", "jaw_width", "chin_len",
@@ -77,8 +69,6 @@ MORPH = (
     "side_lock", "shoulder_slope",
 )
 
-#: Continuous colour-expression axes.  Zero is the base colour itself, so an old
-#: genome renders exactly as it did before this layer existed.
 PIGMENT = (
     "skin_melanin", "skin_warmth", "skin_rosiness", "skin_olive",
     "hair_melanin", "hair_warmth", "hair_redness", "hair_gloss",
@@ -103,10 +93,6 @@ DEFAULTS = {
     **{key: 0.0 for key in PIGMENT},
 }
 
-#: Categorical offsets, in head units.  The numbers are half-widths and heights
-#: like every other style parameter.  They stay below a fifth of the feature they
-#: move: enough to read as a family, not enough to turn the preset into another
-#: style.
 _CATEGORY_MODS = {
     "face_shape": {
         "oval": {},
@@ -170,9 +156,7 @@ _CATEGORY_MODS = {
         "downturned": {"mouth_curve": -0.011, "mouth_w": -0.004},
     },
     "freckles": {"none": {}, "sparse": {}, "bridge": {}, "cheeks": {}, "full": {}},
-    # Facial hair is painted, not sculpted: the geometry of the lower face is the
-    # same for a clean jaw and a full beard, so every variant maps to no style
-    # change.  Keeping the entry explicit keeps the category table complete.
+
     "facial_hair": {name: {} for name in FACIAL_HAIR},
     "hairline_shape": {
         "straight": {},
@@ -184,8 +168,6 @@ _CATEGORY_MODS = {
     },
 }
 
-#: Continuous morph maps.  ``head_depth`` is a multiplier on a multiple, so its
-#: scale is in the units of ``head_d`` rather than in head widths.
 _MORPH_MODS = {
     "head_depth": [("head_d", 0.110)],
     "forehead_w": [("top_w", 0.023)],
@@ -216,8 +198,6 @@ _MORPH_MODS = {
     "shoulder_slope": [("shoulder_slope", 0.70)],
 }
 
-#: The part of a style that a named eye/brow/mouth shape may change, used by the
-#: tests to prove that a category has a visible, bounded effect.
 _STYLE_KEYS = frozenset(
     key for mods in _CATEGORY_MODS.values() for mod in mods.values() for key in mod
 ) | frozenset(key for mods in _MORPH_MODS.values() for key, _ in mods)
@@ -287,12 +267,7 @@ def random_values(rng: np.random.Generator) -> dict:
         g[key] = float(np.clip(value, -1.0, 1.0))
     for key in PIGMENT:
         g[key] = float(np.clip(rng.normal(0.0, 0.40), -1.0, 1.0))
-    # Facial hair is drawn *last* on purpose.  ``facial_hair`` was added to the
-    # genome after every gene above it, and a generator is a stream: inserting a
-    # draw in the middle would silently change every seed's existing genes.  This
-    # keeps old genomes rendering byte-identical and only adds the new axis.
-    # Most faces are clean-shaven; a stubble or a short beard is ordinary adult
-    # grooming, and a full beard is the rare end of the range.
+
     g["facial_hair"] = str(rng.choice(FACIAL_HAIR,
                                       p=(0.56, 0.16, 0.08, 0.07, 0.08, 0.05)))
     return {key: (round(value, 4) if isinstance(value, float) else value)

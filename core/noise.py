@@ -168,7 +168,7 @@ def worley_edges(x, y, seed: int = 0, freq: float = 1.0, jitter: float = 1.0) ->
             fy = cy + 0.5 + jitter * (hash2(cx, cy, seed + 7717) - 0.5)
             d = np.hypot(x - fx, y - fy)
             closer = d < f1
-            # Update F2 from the *previous* F1 before F1 advances.
+
             f2 = np.where(closer, f1, np.minimum(f2, d))
             f1 = np.where(closer, d, f1)
     return f2 - f1

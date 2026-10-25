@@ -51,18 +51,11 @@ from .grid import HexGrid
 __all__ = ["EDGES", "MASKS", "SHEET_COLS", "borders", "tiles", "border_layer",
            "tile_size", "tile_image", "sheet"]
 
-#: A hexagon has six edges, so a tile's key is six bits and the set has 64 tiles.
 EDGES = 6
 MASKS = 1 << EDGES
 
-#: The tilesheet is square: an eight-by-eight grid, so tile ``m`` sits at
-#: ``(m // 8, m % 8)`` and the layout needs no table to read it back.
 SHEET_COLS = 8
 
-#: Unit vectors towards the six corners, ``60k - 30`` degrees, y up.  The same six
-#: the lattice holds; repeated rather than borrowed because this module wants them
-#: as *offsets from a centre* on every pixel, and a private import across modules
-#: would be a worse kind of duplication.
 _COS = tuple(float(np.cos(np.radians(60.0 * k - 30.0))) for k in range(6))
 _SIN = tuple(float(np.sin(np.radians(60.0 * k - 30.0))) for k in range(6))
 

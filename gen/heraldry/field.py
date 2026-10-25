@@ -48,9 +48,6 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------
-# region primitives
-# --------------------------------------------------------------------------
 def halfplane(a: float, b: float, c: float = 0.0):
     """Region ``{a*x + b*y + c > 0}`` as an exact SDF (negative inside)."""
     norm = float(np.hypot(a, b)) or 1.0
@@ -106,9 +103,6 @@ def whole_plane():
     return lambda x, y: -np.ones(np.broadcast_shapes(np.shape(x), np.shape(y))) - 1e3
 
 
-# --------------------------------------------------------------------------
-# helpers for building families of regions
-# --------------------------------------------------------------------------
 def _corners(hw: float, hh: float):
     return (
         np.array([-hw, hw, hw, -hw]),
@@ -149,9 +143,6 @@ def _chevron_coord(hw: float, hh: float, k: float):
     return lambda x, y: (y + k * np.abs(x)) / norm
 
 
-# --------------------------------------------------------------------------
-# divisions: partitions of the field
-# --------------------------------------------------------------------------
 def _per_pale(hw, hh):
     return [(halfplane(-1.0, 0.0), 0), (halfplane(1.0, 0.0), 1)]
 
@@ -161,8 +152,7 @@ def _per_fess(hw, hh):
 
 
 def _per_bend(hw, hh):
-    # Line through the dexter chief and sinister base corners; region 0 is the
-    # half towards the chief.
+
     a, b = hh, hw
     return [(halfplane(a, b), 0), (halfplane(-a, -b), 1)]
 
@@ -177,9 +167,9 @@ def _chevron_side(hw, hh, apex_y, to_base):
     end_y = -hh if to_base else hh
     m = (end_y - apex_y) / hw
     if to_base:
-        # Above both arms.
+
         return union_of(halfplane(m, 1.0, -apex_y), halfplane(-m, 1.0, -apex_y))
-    # Below both arms.
+
     return union_of(halfplane(-m, -1.0, apex_y), halfplane(m, -1.0, apex_y))
 
 
@@ -194,9 +184,7 @@ def _per_chevron_inverted(hw, hh):
 
 
 def _per_saltire(hw, hh):
-    # Both diagonals cut the field into four triangles: chief, dexter, base,
-    # sinister.  Ordered so that a two-tincture field alternates chief/sinister
-    # with dexter/base, which is how "per saltire A and B" is read.
+
     chief = intersect(halfplane(-1.0, 1.0), halfplane(1.0, 1.0))
     dexter = intersect(halfplane(-1.0, -1.0), halfplane(-1.0, 1.0))
     base = intersect(halfplane(-1.0, -1.0), halfplane(1.0, -1.0))
@@ -205,7 +193,7 @@ def _per_saltire(hw, hh):
 
 
 def _quarterly(hw, hh):
-    # dexter chief, sinister chief, sinister base, dexter base: A, B, A, B.
+
     return [
         (intersect(halfplane(-1.0, 0.0), halfplane(0.0, 1.0)), 0),
         (intersect(halfplane(1.0, 0.0), halfplane(0.0, 1.0)), 1),
@@ -215,13 +203,10 @@ def _quarterly(hw, hh):
 
 
 def _per_pall(hw, hh):
-    # A Y: arms to the chief corners, stem down the centre.  Regions are the
-    # dexter and sinister wedges and the chief wedge between the arms.
+
     apex_y = 0.10 * hh
     m = (hh - apex_y) / hw
-    # Below the dexter arm on the left, below the sinister arm on the right, and
-    # between the two arms above.  The slope sign must follow the side, or the
-    # wedges do not meet and the field has holes.
+
     dexter = intersect(halfplane(-1.0, 0.0), halfplane(-m, -1.0, apex_y))
     sinister = intersect(halfplane(1.0, 0.0), halfplane(m, -1.0, apex_y))
     chief = intersect(halfplane(-m, 1.0, -apex_y), halfplane(m, 1.0, -apex_y))
@@ -233,9 +218,8 @@ def _tierced_in_pale(hw, hh):
 
 
 def _tierced_in_fess(hw, hh):
-    # Chief first, like per_fess: region 0 is the chief band.
-    return [(r, i) for i, r in enumerate(_bands(_linear(0.0, -1.0), 3, hw, hh))]
 
+    return [(r, i) for i, r in enumerate(_bands(_linear(0.0, -1.0), 3, hw, hh))]
 
 DIVISIONS = {
     "per_pale": _per_pale,
@@ -252,15 +236,12 @@ DIVISIONS = {
 }
 
 
-# --------------------------------------------------------------------------
-# variations: repeating patterns
-# --------------------------------------------------------------------------
 def _bars(hw, hh, n, u):
     return [(r, i % 2) for i, r in enumerate(_bands(u, n, hw, hh))]
 
 
 def _barry(hw, hh, n=6):
-    # u = -y so stripe 1 is at the chief, where blazon counting starts.
+
     return _bars(hw, hh, n, _linear(0.0, -1.0))
 
 
@@ -308,7 +289,7 @@ def _lozengy(hw, hh, n=6):
     """
     period = 2.0 * hw / n
     half_w, half_h = period * 0.5, period * 0.5 * (hh / hw)
-    diamond = lambda x, y: sdf.polygon(  # noqa: E731
+    diamond = lambda x, y: sdf.polygon(
         x / half_w, y / half_h, [(0.0, 1.0), (1.0, 0.0), (0.0, -1.0), (-1.0, 0.0)]
     ) * min(half_w, half_h)
     lattice = sdf.repeated(diamond, period, 2.0 * half_h)
@@ -330,7 +311,7 @@ def _ermine_spot(x, y):
 
 
 def _ermine_lattice(hw, hh, period_x, period_y, scale):
-    spot = lambda x, y: _ermine_spot(x / scale, y / scale) * scale  # noqa: E731
+    spot = lambda x, y: _ermine_spot(x / scale, y / scale) * scale
     row_a = sdf.repeated(spot, period_x, 2.0 * period_y)
     row_b = sdf.moved(row_a, period_x * 0.5, period_y)
     return lambda x, y: np.minimum(row_a(x, y), row_b(x, y))
@@ -362,7 +343,7 @@ def _potent(x, y):
 def _fur_tiles(hw, hh, shape):
     """Interlocking tiles: upright shapes, and their inversions in the gaps."""
     scale = 0.25 * min(hw, hh)
-    tile = lambda x, y: shape(x / scale, y / scale) * scale  # noqa: E731
+    tile = lambda x, y: shape(x / scale, y / scale) * scale
     period = 2.0 * scale
     upright = sdf.repeated(tile, period, period)
     inverted = sdf.moved(sdf.repeated(sdf.scaled(tile, 1.0, -1.0), period, period), scale, scale)
@@ -384,8 +365,7 @@ def _ermine(hw, hh):
 
 
 def _counter_ermine(hw, hh):
-    # Same geometry; counter-ermine differs only in which tinctures the fur maps
-    # base and spot to, and that lives in the tincture table.
+
     return _fur_ermine(hw, hh)
 
 
@@ -399,7 +379,6 @@ def _counter_vair(hw, hh):
 
 def _potent_fur(hw, hh):
     return _fur_vair(hw, hh, _potent)
-
 
 VARIATIONS = {
     "barry": _barry,
@@ -417,15 +396,11 @@ VARIATIONS = {
     "potent": _potent_fur,
 }
 
-#: Named under both keys so a fur can be used as a whole field or as a variation.
 BUILDERS = {}
 BUILDERS.update(DIVISIONS)
 BUILDERS.update(VARIATIONS)
 
 
-# --------------------------------------------------------------------------
-# assembling layers
-# --------------------------------------------------------------------------
 def layers(name: str, palette_names, hw: float, hh: float, shade=None, **kwargs) -> list:
     """Build a paint list for a named division or variation.
 
@@ -472,7 +447,7 @@ def field_layers(spec: dict, hw: float, hh: float, shade=None) -> list:
         if len(names) == 1:
             return _plain_layers(names[0], hw, hh, shade=shade)
         return [(whole_plane(), tinctures.shaded(names[0], shade))]
-    # A fur used as a variation takes its tinctures from the fur itself.
+
     if spec["name"] in tinctures.TINCTURES and tinctures.get(spec["name"]).kind == tinctures.FUR:
         return _plain_layers(spec["name"], hw, hh, shade=shade)
     kwargs = {k: v for k, v in spec.items() if k not in ("kind", "name", "tinctures")}

@@ -47,10 +47,6 @@ class Biome(NamedTuple):
     cost: int
     water: bool
 
-
-#: The biome table, in classification order.  Water comes first because the
-#: renderer treats it as one family -- a depth ramp -- and land after it because
-#: land is classified by altitude first and moisture second, like the real thing.
 BIOMES = (
     Biome("deep", "deep water", "#15304a", 99, True),
     Biome("ocean", "ocean", "#1d4a6b", 99, True),
@@ -66,7 +62,6 @@ BIOMES = (
     Biome("snow", "snowcaps", "#e6edf2", 4, False),
 )
 
-#: ``BIOMES`` index by key, which is what the generator and the sidecar speak.
 INDEX = {b.key: i for i, b in enumerate(BIOMES)}
 
 _WATER = np.array([b.water for b in BIOMES])
@@ -113,19 +108,16 @@ def fields(
     subset of it and the names are the documentation.
     """
     w, h = grid.extent
-    # Normalised map coordinates: 1.0 is half the width, in both axes, so the
-    # noise is isotropic and independent of how big the hexes are drawn.
+
     half = 0.5 * float(w)
     nx = grid.centers[..., 0] / half
     ny = grid.centers[..., 1] / half
 
-    # Domain warp, in units where 1.0 is one feature across the half-width.
     ux, uy = noise.warp(nx * features, ny * features, seed=seed + 3, amp=0.45, freq=1.0, octaves=3)
     elev = noise.fbm(ux, uy, seed=seed + 11, freq=1.0, octaves=6, gain=0.55)
     if ridges > 0.0:
         elev = elev + ridges * noise.ridged(ux, uy, seed=seed + 29, freq=1.7, octaves=5, gain=0.5)
-    # Sink the rim along a warped radius, so the ocean is an irregular ring and
-    # the coastline that follows from it is a coastline rather than an ellipse.
+
     span = float(np.hypot(1.0, h / max(w, 1e-9)))
     r = np.hypot(ux / features, uy / features) / span
     t = np.clip((r - 0.50) / 0.42, 0.0, 1.0)
@@ -135,8 +127,6 @@ def fields(
     elev = (elev - lo) / max(hi - lo, 1e-9)
     elev = smooth(elev, grid, smooth_passes)
 
-    # The sea level is a quantile: "42% water" is a fraction of the map, not a
-    # number that happens to look right for one seed and floods the next.
     sea = float(np.quantile(elev, sea_fraction))
     water = elev < sea
     alt = (elev - sea) / max(1.0 - sea, 1e-6)
@@ -163,8 +153,7 @@ def fields(
         "near_sea": (~water) & nbr_water,
         "near_land": water & nbr_land,
     }
-    # The relief height: the drainage of the map.  Water is flattened to sea
-    # level so the ocean stays flat and the land gets the facets.
+
     out["height"] = np.where(water, sea, elev)
     out["biome"] = classify(out)
     return out
@@ -179,9 +168,7 @@ def classify(f: dict) -> np.ndarray:
     sea = f["sea"]
 
     code = np.zeros(elev.shape, dtype=np.int64)
-    # Water is a depth ramp: a shallow shelf hugging every coast, then open water,
-    # then the deep.  The shelf is adjacency rather than elevation because that is
-    # what a shelf *is*.
+
     code[water] = INDEX["ocean"]
     code[water & f["near_land"]] = INDEX["shallow"]
     code[water & ((sea - elev) > 0.13)] = INDEX["deep"]

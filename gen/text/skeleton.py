@@ -70,31 +70,17 @@ __all__ = ["GLYPHS", "ALIASES", "MARKS", "COMPOSED", "DOTTED", "LIGATURES", "X_H
            "CAP_HEIGHT", "ASCENDER", "DESCENDER", "GUIDES", "names", "has", "advance",
            "strokes", "mark_of", "mark_strokes"]
 
-#: The lines of the face, in em units.  See the module docstring.
 X_HEIGHT = 0.50
 CAP_HEIGHT = 0.70
 ASCENDER = 0.80
 DESCENDER = -0.20
 
-#: The horizontals a serif may grow on, in em units.
 GUIDES = (0.0, X_HEIGHT, CAP_HEIGHT, ASCENDER)
 
-#: Degrees per arc segment.  Twelve is about a sixteenth of a circle: enough that a
-#: bowl reads as round at any size a game draws text, and few enough that the pen is
-#: still dealing with a polyline rather than a mesh.
 ARC_STEP = 12.0
 
-
-# --------------------------------------------------------------------------
-# the alphabet
-# --------------------------------------------------------------------------
-#: One entry per printable ASCII character, plus the Cyrillic letters that are neither
-#: another letter's shape nor a letter with a mark: ``(advance, strokes)``.  Space has no strokes, and a stroke
-#: that is a single point is a dot -- which is how a period is a period rather than a
-#: small box.
 GLYPHS = {
-    # ---- capitals.  Flat letters keep a body of four tenths; rounds take more,
-    # and the wide ones (M, W) take what their strokes need.
+
     "A": (5.6, "0,0 2.2,7 4.4,0 | 0.55,2.6 3.85,2.6"),
     "B": (5.6, "0,0 0,7 | A0,5.4,3.0,1.6,90,-90 A0,1.9,3.4,1.9,90,-90"),
     "C": (5.6, "A2.3,3.5,2.3,3.5,40,320"),
@@ -121,7 +107,7 @@ GLYPHS = {
     "X": (5.6, "0,0 4.4,7 | 0,7 4.4,0"),
     "Y": (5.6, "0,7 2.2,3.4 2.2,0 | 2.2,3.4 4.4,7"),
     "Z": (5.2, "0,7 4.2,7 0,0 4.2,0"),
-    # ---- lowercase.  The x-height is 5 and the ascender 8; a descender reaches -2.
+
     "a": (5.1, "A2.0,2.3,2.0,2.3,0,360 | 4.0,0 4.0,5 A2.3,3.6,1.7,1.4,0,180"),
     "b": (5.0, "0,0 0,8 | A2.4,2.5,2.4,2.5,0,360"),
     "c": (5.0, "A2.1,2.5,2.1,2.5,40,320"),
@@ -149,7 +135,7 @@ GLYPHS = {
     "x": (5.2, "0,0 4.2,5 | 0,5 4.2,0"),
     "y": (5.2, "0,5 2.2,0.4 | 4.2,5 1.5,-1.9"),
     "z": (5.0, "0,5 4.0,5 0,0 4.0,0"),
-    # ---- lining figures: they sit on the baseline and rise to the cap height.
+
     "0": (5.6, "A2.4,3.5,2.4,3.5,0,360"),
     "1": (4.2, "1.6,5.5 2.8,7 2.8,0"),
     "2": (5.6, "0.2,5.5 A2.3,5.5,2.3,1.6,165,-20 0,0 4.9,0"),
@@ -160,8 +146,7 @@ GLYPHS = {
     "7": (5.4, "0.2,7 4.8,7 1.6,0"),
     "8": (5.8, "A2.4,5.0,2.2,2.0,0,360 | A2.4,1.9,2.4,1.9,0,360"),
     "9": (5.6, "A2.4,4.8,2.4,2.2,0,360 | A1.2,3.6,3.6,3.4,-105,10"),
-    # ---- punctuation.  A dot is a one-point stroke: the pen draws a disc, and the
-    # advance says how much of a gap it leaves.
+
     " ": (3.0, ""),
     ".": (2.6, "0.5,0.45"),
     ",": (2.6, "0.5,0.45 0.2,-0.8"),
@@ -196,8 +181,7 @@ GLYPHS = {
     "^": (4.6, "0.2,4.4 2.3,7.0 4.4,4.4"),
     "`": (2.6, "0.2,6.8 1.6,5.8"),
     "|": (2.2, "0.5,-1.5 0.5,7.7"),
-    # ---- Cyrillic capitals.  А, В, Е, З, К, М, Н, О, Р, С, Т and Х are not here:
-    # they are the Latin letters (or the digit), and ALIASES says so.
+
     "Б": (5.5, "0,0 0,7 | 0,7 3.6,7 | A0,2.0,3.5,2.0,90,-90"),
     "Г": (4.9, "0,0 0,7 | 0,7 3.8,7"),
     "Д": (5.4, "0.4,7 3.6,7 | 0.4,7 -0.2,-0.7 | 3.6,7 4.2,-0.7 | -0.6,0 4.6,0"),
@@ -217,7 +201,7 @@ GLYPHS = {
     "Э": (5.9, "A2.4,3.5,2.4,3.5,220,500 | 2.3,3.5 4.6,3.5"),
     "Ю": (7.4, "1.8,0 1.8,7 | A4.4,3.5,2.4,3.5,0,360"),
     "Я": (5.6, "4.4,0 4.4,7 | A4.4,5.3,3.2,1.7,90,270 | 3.4,3.6 0.1,0"),
-    # ---- Cyrillic lowercase: the x-height is 5 and the descender -2 here too.
+
     "б": (5.1, "A2.2,2.5,2.2,2.5,0,360 | 0,2.5 0,6.4 | A1.6,6.4,1.6,1.5,180,60"),
     "в": (4.6, "0,0 0,5 | A0,3.7,2.1,1.3,90,-90 A0,1.2,2.3,1.2,90,-90"),
     "г": (4.0, "0,0 0,5 | 0,5 3.0,5"),
@@ -245,23 +229,12 @@ GLYPHS = {
     "я": (4.8, "3.0,0 3.0,5 | A3.0,3.6,2.2,1.4,90,270 | 2.8,2.4 0.2,0"),
 }
 
-
-#: The letters whose form is another letter's: Cyrillic А is Latin A, Н is H, С is C,
-#: and eighteen of the sixty-six are like that (one of them is the digit 3, because a
-#: З is a 3 in this design).  It is not a shortcut -- it is the fact the two alphabets
-#: are built on, and saying it in the data keeps the two copies from ever disagreeing.
 ALIASES = {
     "А": "A", "В": "B", "Е": "E", "З": "3", "К": "K", "М": "M", "Н": "H", "О": "O",
     "Р": "P", "С": "C", "Т": "T", "Х": "X",
     "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x",
 }
 
-#: The marks, as skeletons of their own in the same grammar as the letters -- tenths
-#: of an em, arcs as ellipses -- centred on ``x = 0`` with their ink on ``y = 0``, and
-#: either ``above`` the letter or ``below`` it.  A mark is a separate thing that rides
-#: over a letter, so it is data about the mark and not about any one letter -- and
-#: every mark here is used by at least one :data:`COMPOSED` letter, because a mark
-#: nobody writes is a mark nobody has looked at.
 MARKS = {
     "acute": ("-1.2,0 1.4,2.8", "above"),
     "grave": ("1.2,0 -1.4,2.8", "above"),
@@ -273,11 +246,6 @@ MARKS = {
     "cedilla": ("0.2,0 0.2,-1.4 A-1.0,-1.4,1.2,1.2,0,-90", "below"),
 }
 
-#: The letters written as a base and a mark: "this letter, with this over it".  The
-#: accented letters of ISO-8859-1 are all of them -- that is the set a Western European
-#: game actually types, and it is closed, so the face either has all of it or is
-#: missing a letter somebody will type.  A letter that needs a caron, an ogonek or a
-#: stroke (ł, ą, č, ż) is one line here away, and until then it is refused by name.
 COMPOSED = {
     "À": ("A", "grave"), "Á": ("A", "acute"), "Â": ("A", "circumflex"),
     "Ã": ("A", "tilde"), "Ä": ("A", "diaeresis"), "Å": ("A", "ring"),
@@ -305,28 +273,13 @@ COMPOSED = {
     "ù": ("u", "grave"), "ú": ("u", "acute"), "û": ("u", "circumflex"),
     "ü": ("u", "diaeresis"),
     "ý": ("y", "acute"), "ÿ": ("y", "diaeresis"),
-    # ---- and the two Cyrillic ones.  Ё is Е with two dots and Й is И with a breve:
-    # one letter and a mark, which is what the machinery is for.  Note that the base of
-    # Ё is the *Cyrillic* Е, which is itself an alias -- two steps, and never a cycle.
+
     "Ё": ("Е", "diaeresis"), "ё": ("е", "diaeresis"),
     "Й": ("И", "breve"), "й": ("и", "breve"),
 }
 
-#: The two letters whose dot a mark takes the place of.  An i and a j wear a dot
-#: because there is nowhere else for the eye to catch them, and a mark lands exactly
-#: where the dot is: an acute on an i is *above the stem*, not above the dot.
 DOTTED = ("i", "j")
 
-#: The joins: what the typesetter draws where two letters would otherwise have to be
-#: kept apart by the daylight each of them asks for.  Unicode files these five as
-#: *presentation forms*, and that is exactly what they are -- nobody types a ligature,
-#: a text is *set* with one -- so they are glyphs and not characters: :func:`names`
-#: still lists 214 characters, and these are what the same alphabet does when it joins.
-#:
-#: Only the ``f`` joins, and that is not an accident of this alphabet: an ``f`` is the
-#: one letter in the lower case whose ink reaches right at the top -- its hook ends in
-#: mid-air, over the letter after it -- so it is the one letter that has something to
-#: put down.  The sequences are the five a Latin text actually met: ff, fi, fl, ffi, ffl.
 LIGATURES = {
     "\ufb00": ("f", "f"),
     "\ufb01": ("f", "i"),
@@ -336,9 +289,6 @@ LIGATURES = {
 }
 
 
-# --------------------------------------------------------------------------
-# reading it
-# --------------------------------------------------------------------------
 def names() -> list:
     """Every *character* the face has a skeleton for, in a stable order.
 
@@ -449,30 +399,6 @@ def _undotted(pts: list) -> list:
     return [s for i, s in enumerate(pts) if i != drop]
 
 
-# --------------------------------------------------------------------------
-# the joins
-# --------------------------------------------------------------------------
-#: A ligature is not drawn here, and that is the point of the section: it is the
-#: letters' own skeletons, moved -- so a join cannot drift away from the alphabet the
-#: way a second copy of a letter would.  A join makes exactly two moves, and both are
-#: about the same thing, which is where the letter *after* the f stands.
-#:
-#: * it stands at the **f's own design width** -- the edge of the slot the f asked for
-#:   and never filled.  The f's crossbar and its hook both stop short of that edge, and
-#:   they have to: the hook descends onto the end of the crossbar, so a stem standing
-#:   under the hook would close the shape into an A.  One bar's air past the terminal,
-#:   the pair reads as f-then-i at a distance no kern can reach;
-#: * an ``i`` gives up its **dot**, and its stem **turns into the crossbar**.  The dot is
-#:   the whole reason ``fi`` is a ligature -- a kern has to keep the f's hook clear of
-#:   it, and without it the hook is clear of everything -- and the turn is what stops
-#:   the i growing a *head*: a stem that ends on the x-height guide earns a serif there
-#:   (:func:`gen.text.pen` gives the x-height a foot and no beak), and a head on the
-#:   joined stem reaches back across the bar.  That is an A.  Ending the stroke in a
-#:   corner, where the bar runs on into the stem, is not an end at all.
-#:
-#: The ``f`` itself is untouched, the last one included -- nothing follows it, so it has
-#: nothing to make room for.
-
 def _raw(ch: str) -> str:
     """A character's own strokes-string, before the pen or a mark touches it."""
     return GLYPHS[_base(ch)][1]
@@ -499,14 +425,14 @@ def _compose(parts) -> tuple:
     """
     out = []
     end = 0.0
-    bar_end = None                  # the crossbar of the f before, in the join's units
+    bar_end = None
     for j, part in enumerate(parts):
         pts = _read(_raw(part), part)
         if part in DOTTED:
             pts = _undotted(pts)
         dx = 0.0 if j == 0 else end - _stem_x(pts, part)
         if bar_end is not None and part in DOTTED:
-            # the stem turns into the bar instead of ending under it
+
             stem = pts[0]
             pts = [[(stem[0][0], stem[0][1]), (stem[-1][0], stem[-1][1]),
                     (bar_end - dx, stem[-1][1])]] + pts[1:]

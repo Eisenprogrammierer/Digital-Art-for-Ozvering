@@ -56,43 +56,21 @@ __all__ = ["PROFILE_ROWS", "PROFILE_COLS", "AIR_FLOOR", "CLOSE_MAX", "CACHE_MAX"
            "REFERENCE_PAIR", "profile", "air", "floor", "reference", "kern", "stats",
            "clear"]
 
-
-#: How finely a glyph is read.  The profile is a raster of the ink, one entry per row,
-#: and 64 rows over the tallest glyph in the face is about a hundredth of an em -- four
-#: times finer than the smallest kern this module can produce, which is where a raster
-#: of a smooth field stops being the limitation.
 PROFILE_ROWS = 64
 PROFILE_COLS = 128
 
-#: The closest two letters may come, in em units.  This is the pen's own :data:`AIR`,
-#: not a new number: the pen already reserves it between a foot and the next letter's
-#: ground, so a kern that closed past it would be spending room the advance set aside.
 AIR_FLOOR = pen.AIR
 
-#: The closest a pair may come when one of them wears an accent.  A mark is fitted into
-#: the ground its letter has (``pen._mark_of``) and keeps :data:`pen.MARK_GAP` from the
-#: letter it sits on; two accents are the thinnest ink in the face, so a kern that
-#: measured only the closest approach would happily close ``ÀÁ`` until the two
-#: circumflexes graze.  A mark is not a stem and does not get a stem's daylight.
 MARK_FLOOR = pen.MARK_GAP
 
-#: The largest kern, in em units.  A twelfth of an em: above that the rule is guessing.
 CLOSE_MAX = 1.0 / 12.0
 
-#: Profiles are cached by (character, pen), because a line of text asks for the same
-#: letter again and again and a glyph's profile is a property of the pen and not of the
-#: line it happens to be in.  Bounded, because a generator that walks the alphabet with
-#: a slider under it would otherwise grow a cache for every weight it was ever shown.
 CACHE_MAX = 4096
 
 _PROFILES: "OrderedDict[tuple, tuple]" = OrderedDict()
 _AIR: "OrderedDict[tuple, tuple]" = OrderedDict()
 _STATS = {"hits": 0, "misses": 0}
 
-#: The pair the face is tuned to.  Two stems with nothing between them: whatever daylight
-#: the pen leaves here is the daylight this face calls normal, and every other pair is
-#: read against it.  It is a measurement of the pen rather than a taste, which is why a
-#: monoline and a book face get different references out of the same rule.
 REFERENCE_PAIR = ("n", "n")
 
 
@@ -143,7 +121,7 @@ def profile(ch: str, spec=None, marks: bool = True):
     x0, y0, x1, y1 = pen.ink_box(ch, s, marks=marks)
     off = pen.offset(ch, s)
     if not (x1 > x0) or not (y1 > y0):
-        profil = None                      # a space, or a letter with no ink
+        profil = None
     else:
         ys = np.linspace(y0, y1, PROFILE_ROWS)
         xs = np.linspace(x0, x1, PROFILE_COLS)
@@ -170,8 +148,7 @@ def _gap(pa, pb, adv) -> tuple:
     step = np.linspace(max(ya[0], yb[0]), min(ya[-1], yb[-1]), PROFILE_ROWS)
     right = np.interp(step, ya, ra, left=np.nan, right=np.nan)
     left = np.interp(step, yb, lb, left=np.nan, right=np.nan)
-    # an overhang: the rows a glyph misses are filled in from its own far edge, because
-    # a bar above a bowl constrains that bowl just as a stem beside it would
+
     right = np.where(np.isnan(right), np.nanmax(ra), right)
     left = np.where(np.isnan(left), np.nanmin(lb), left)
     gap = (adv + left - right)

@@ -35,30 +35,12 @@ from . import paint
 __all__ = ["PLATE_C", "C_REF", "NEUTRAL", "L_SPAN", "L_GAIN", "field", "worn", "lch",
            "hue", "chroma", "light_step", "tint", "table"]
 
-#: The chroma a faction's hue is worn at on a plate.  Plain icons wear their plate
-#: between 0.018 and 0.048; this is a little above that top end, because the plate
-#: now has to *say* something -- and still well under the charge's ~0.115, because
-#: the ground has to stay the ground.
 PLATE_C = 0.075
 
-#: The chroma a tincture needs to count as fully chromatic here.  Gules is the most
-#: saturated classical colour at about 0.21 and Azure and Or are near 0.17, so this
-#: puts every colour at or near the full plate chroma and leaves the metals --
-#: Argent at 0.0025, Sable at 0.008 -- very nearly grey.
 C_REF = 0.17
 
-#: Below this a tincture has no hue to lend a plate; it is a metal or the black.
-#: The map draws the same line for the same reason: a grey has no hue to confuse
-#: with anything, and a metal is told apart by lightness.
 NEUTRAL = 0.03
 
-#: How far the livery's lightness step may move the plate, and how hard it is
-#: pressed against that bound.  A metal has no hue to wear, so this is the whole of
-#: what tells two metals apart -- exactly as it is on the map, which spends the same
-#: step the same way -- and it is bounded because a plate that drifted further would
-#: stop being a dark ground for a bright charge.  The plate's lightness is the
-#: *only* design number a faction moves: hue and chroma are added, lightness is
-#: nudged, so an icon redrawn later is still the icon it was.
 L_SPAN = 0.055
 L_GAIN = 2.2
 

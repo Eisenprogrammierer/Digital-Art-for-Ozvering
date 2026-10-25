@@ -20,7 +20,7 @@ If you only read one section, read [Quick start](#quick-start) and
 6. [Seeds, sizes and reproducibility](#seeds-sizes-and-reproducibility)
 7. [Asset families](#asset-families)
 8. [The four hero facings](#the-four-hero-facings)
-9. [Maps, sites and boards](#maps-sites-and-boards)
+9. [Voxel worlds, sites and boards](#voxel-worlds-sites-and-boards)
 10. [The full build](#the-full-build)
 11. [Credits and licensing](#credits-and-licensing)
 12. [Troubleshooting](#troubleshooting)
@@ -42,7 +42,7 @@ The families are:
 
 - **Characters** — figure sprite sheets, portraits, portrait sheets, lineage, wardrobe and decorations.
 - **Heraldry** — coats of arms, flags, flag animations, faction sheets.
-- **World** — strategic hex maps, campaign data, site close-ups, isometric boards.
+- **World** — continuous isometric voxel worlds, five-view buildings, modern objects, legacy hex site close-ups and boards.
 - **Materials** — ground materials, tiling textures, the core material sheet.
 - **Interface** — icons and atlases, nine-slice UI kits, the generated typeface.
 - **Core** — palettes and the SDF reference sheet.
@@ -169,7 +169,9 @@ older than seven days and keeps at most the newest two hundred.
 | Heraldry | `flags` | `flags.png` | Flags; proportion, silhouette, hanging, flat. |
 | Heraldry | `factions` | `factions.png` | A coat, banner and livery from names. |
 | Heraldry | `anim` | `anim.png` | One flag through one loop; frames and timeline. |
-| World | `maps` | `maps.png` | Strategic map plus campaign JSON; slow. |
+| World | `maps` | `maps.png` | Continuous isometric voxel world with a free-placed character; slow. |
+| World | `buildings` | `buildings.png` | Five projections per seeded building; slow. |
+| World | `objects` | `objects.png` | Modern machines, vehicles, aircraft and furniture; slow. |
 | World | `site` | `site.png` | Close-up, two panels; slow. |
 | World | `iso` | `iso.png` | Isometric board with a hero; slow. |
 | World | `coast` | `coast-tiles.png` | 64 coast tiles plus the border panel; slow. |
@@ -231,8 +233,11 @@ python cli.py factions --out out/factions.png --name "Kingdom of Alder"
 python cli.py blazon  --out out/one.png --seed 5
 
 # World
-python cli.py maps --out out/maps.png --seed 7 --count 2 --cols 26 --rows 17 \
-                    --sea 0.42 --provinces 8 --factions 4
+python cli.py maps --out out/maps.png --seed 7 --count 2 --cols 42 --rows 30 \
+                    --size 14 --rivers 4 --roads 2
+python cli.py maps --out out/maps.png --seed 7 --hero 12.5,8.25
+python cli.py buildings --out out/buildings.png --seed 7 --count 4 --size 160
+python cli.py objects --out out/objects.png --seed 7 --count 12 --size 128 --cols 6
 python cli.py site --out out/site.png --seed 7 --size 56 --river-fraction 0.90
 python cli.py iso  --out out/iso.png --seed 7 --cols 11 --rows 8 --size 46 --facing left
 python cli.py coast --out out/coast-tiles.png --size 20 --count 2
@@ -286,7 +291,9 @@ Every exporter writes a JSON sidecar beside the picture:
 
 - `source` — the module path that drew it, e.g. `procedural:gen.maps.iso`;
 - `seed` and parameters;
-- for maps, the province, river, road and realm data, and a separate campaign file;
+- for a voxel world, the heightmap, walkable mask, biomes, spawn, rivers, roads, projection and character placement;
+- for a building, footprint, floors, palette and the five view names;
+- for an object, kind, dimensions, part count and palette;
 - for sheets, the cell rectangles, the timeline and the per-cell specs;
 - for the typeface, metrics and the characters drawn;
 - for a board, the camera, terraces, material parameters and the hero's facing;
@@ -502,36 +509,66 @@ python cli.py blazon --out out/one.png --seed 5
 `blazon` prints a textual blazon and draws the coat, so the description and the
 picture can be compared.
 
-### Maps
+### Maps, buildings and objects
 
-`maps` draws the strategic view: terrain, relief, coast, rivers, roads, provinces,
-realms, names and a campaign JSON. It is the wide view where a hex is a piece of
-information.
+`maps` draws a continuous isometric voxel world: quantised height columns, flat
+water, rivers, roads and a free-placed character. There is a lookup grid underneath,
+but no hex or cell border is drawn.
 
 ```bash
-python cli.py maps --out out/maps.png --seed 7 --count 1 --cols 26 --rows 17 \
-                    --sea 0.42 --provinces 8 --factions 4
-python cli.py maps --out out/maps.png --seed 7 --no-names
+python cli.py maps --out out/maps.png --seed 7 --count 1 --cols 42 --rows 30 \
+                    --size 14 --rivers 4 --roads 2
+python cli.py maps --out out/maps.png --seed 7 --hero 12.5,8.25
+python cli.py maps --out out/maps.png --seed 7 --no-hero
 ```
 
-For each map the demo also writes `out/maps.campaign.<seed>.json`: the map as data, not
-pixels. That file is what a game without this generator loads.
+The sidecar carries `heightmap`, `walkable`, `biome`, `spawn`, `rivers`, `roads`,
+`hero`, `projection` and `movement: "continuous"`. `--hero x,y` is a float world
+point, not a cell index; the character can stand anywhere walkable.
 
-### Sites and boards
+`buildings` renders a seeded building in five projections, always in this order:
 
-`site` is the camera down: the same kind of terrain, but the ground is the subject. It
-draws two panels by default — the biome colour on the left and the material on the
-right — with a carved river, cliffs and a wet shore. `--flat` draws only the colour
-panel.
+```
+north, west, south, east, top
+```
+
+The four sides share one scale; `top` is an orthographic plan. Kinds include house,
+office, shop, factory, station, warehouse, hotel, clinic and school.
+
+```bash
+python cli.py buildings --out out/buildings.png --seed 7 --count 4 --size 160
+python cli.py buildings --out out/buildings.png --seed 7 --kind office --count 1
+```
+
+`objects` is the modern object library: machine tools, industrial plant, tanks,
+armoured carriers, artillery, cars, trucks, aircraft, helicopters, drones, furniture,
+appliances, medical equipment and field kit.
+
+```bash
+python cli.py objects --out out/objects.png --seed 7 --count 12 --size 128 --cols 6
+python cli.py objects --out out/objects.png --seed 7 --kind tank --count 4
+```
+
+Both are pure functions of `(seed, kind)`, built from the same voxel boxes as the
+world; the sheet only lays out views and labels.
+
+### Legacy sites and boards
+
+`site` and `iso` still use the older hex lattice. They are close-up and debugging
+views, not crops of a voxel world.
+
+`site` is the camera down: the ground is the subject. It draws two panels by default
+-- the biome colour and the material -- with carved rivers, cliffs and a wet shore.
+`--flat` draws only the colour panel.
 
 ```bash
 python cli.py site --out out/site.png --seed 7 --size 56 --cols 8 --rows 6
 python cli.py site --out out/site.png --seed 7 --size 56 --river-fraction 0.90
 ```
 
-`iso` is a board from the south: terraced hex prisms, world-sampled tops, dirt cliffs,
-foam, and a figure. Only south-facing faces are drawn, rows are painted far to near,
-and the hero is inserted after its row.
+`iso` is a board from the south: terraced hex prisms, world-sampled tops, dirt
+cliffs, foam and a figure. For this legacy command `--hero` is `row,col`; it must be
+inside the grid and on land.
 
 ```bash
 python cli.py iso --out out/iso.png --seed 7 --cols 11 --rows 8 --size 46
@@ -539,18 +576,10 @@ python cli.py iso --out out/iso.png --seed 7 --cols 11 --rows 8 --size 46 \
                    --hero 3,5 --facing down
 ```
 
-`--hero` is `row,col`. It must be inside the grid and on land; a bad hex stops with a
-message and no file. `--hero-seed` keeps the figure independent of the map seed.
-`--levels` is the number of terraces, `--rise` the height exaggeration, and `--sea`
-the sea fraction.
-
-**A known limitation, stated plainly:** `maps`, `site` and `iso` generate their own
-geography at the grid size you ask for. `terrain.fields` normalizes by the grid extent,
-so a site or board at `--cols 8 --rows 6` is not a crop of the 26×17 strategic map at
-the same seed — it is a different island of the same kind. A window/crop mode is not
-implemented. If you need a specific place in a game, generate the strategic map and its
-campaign file, and treat the site/board as a separate illustration; or use the same
-seed and shape for a family of pictures and accept that they are siblings, not crops.
+**A known limitation, stated plainly:** `site` and `iso` generate their own
+geography at the grid size you ask for. A site or board at `--cols 8 --rows 6` is
+not a crop of a larger map at the same seed -- it is a different island of the same
+kind. The voxel `maps` command has its own continuous coordinate model.
 
 ### Coast and border tiles
 
@@ -652,31 +681,42 @@ The board's default is `right`, so unchanged commands produce unchanged bytes. T
 figure's mirror is exact: `left` is `right` flipped after drawing, alpha and colour
 together.
 
-## Maps, sites and boards
+## Voxel worlds, sites and boards
 
-The three world views are deliberately different cameras:
+The world commands use two data models.
 
-- **`maps`** — the strategic view, one raster pass, fourteen-ish pixels per hex. It is
-  about information: biome, owner, roads, names.
-- **`site`** — the close-up, where the hex is large enough to ask what it is made of.
-  The ground is sampled in world coordinates, lit once with the terrain height, and the
-  sea is masked exactly. Rivers are carved into the height field; cliffs and a wet shore
-  are overlays on the land.
-- **`iso`** — the board a player looks at. Orthographic axonometry from the south,
-  terraced hex prisms, only the south faces, rows far to near, and a figure inserted in
-  its row. The camera is fixed on purpose; the figure has four billboard facings rather
-  than a free yaw.
+### Voxel world
 
-The projection is:
+The map, the buildings and the objects share one projection:
+
+```
+x east, y south, z up
+screen_x = (x - y) * tile / 2
+screen_y = (x + y) * tile / 4 - z * tile * rise
+```
+
+`world_to_screen` and `screen_to_world` invert it, so an icon or a character can be
+placed at any float `(x, y)`. Water is at height zero and land is quantised into
+levels; `--levels` controls the number of steps and `--rise` exaggerates height.
+The sidecar's `heightmap`, `walkable` and `biome` tables use the same row/column
+order as the picture.
+
+Buildings are a five-view turnaround. `north`, `west`, `south` and `east` are
+axonometric side views sharing a scale; `top` is an orthographic plan. Objects use
+one north isometric view each, so front details face the camera and a machine or a
+vehicle can be dropped into a world without a second camera or a second light.
+
+### Legacy hex camera
+
+`site` and `iso` retain the older hex projection:
 
 ```
 screen_x = x
 screen_y = -y * squash - height * rise
 ```
 
-`--rise` exaggerates height because a real island's relief would be a few pixels at
-this scale. `--levels` controls how many terraces the land is quantised into; more
-levels means more, smaller steps.
+The board's `--hero` is a `row,col` hex; the voxel map's `--hero` is an `x,y` float.
+The two are not interchangeable, and a legacy board is not a crop of a voxel world.
 
 ## The full build
 
@@ -700,6 +740,7 @@ python tests/test_ui.py
 python tests/test_maps.py
 python tests/test_textures.py
 python tests/test_cli.py
+python tests/test_voxel.py
 python tests/test_icons.py
 python tests/test_text.py
 python tests/test_figures.py
@@ -762,7 +803,7 @@ The server is still running; open the URL it printed. Next time add `--no-browse
 and open it yourself.
 
 **A render is slow**
-The first request includes Python startup. `maps`, `site`, `iso`, `grounds`, `tiles`,
+The first request includes Python startup. `maps`, `buildings`, `objects`, `site`, `iso`, `grounds`, `tiles`,
 `icons` and `text` can take seconds to a minute. The studio serializes renders, so a
 second request waits rather than competing. The status line says what is happening.
 
@@ -784,10 +825,11 @@ The picture needs a sidecar and a known source. Regenerate it with the CLI rathe
 copying a PNG into `out/`; the exporter writes the sidecar. If it is a curated external
 asset, add it to `core/credits.py` with the required fields.
 
-**The site/board does not look like my strategic map**
-They are separate geographies at the grid size you ask for, not crops. See
-[Maps, sites and boards](#maps-sites-and-boards). Use the campaign JSON for the
-strategic map's actual data.
+**The site/board does not look like my voxel map**
+`site` and `iso` are the legacy hex camera: they generate a separate geography at
+the grid size you ask for, not a crop of a voxel world. Use `maps` and its
+`heightmap`/`walkable` sidecar for the continuous world; use `site` or `iso` when
+you want a hex close-up.
 
 **The output is not byte-identical on another machine**
 Pin Python, numpy and Pillow. Floating-point and anti-aliasing details can change
@@ -803,7 +845,7 @@ two hundred. Generate again; every render is reproducible from its command and s
 | --- | --- |
 | `cli.py` | every command, the demo pipeline, sidecars and reports |
 | `core/` | SDF, canvas, noise, palette, lighting, credits |
-| `gen/` | the generators (icons, heraldry, portraits, figures, maps, textures, text, ui) |
+| `gen/` | the generators (icons, heraldry, portraits, figures, voxel worlds, buildings, objects, textures, text, ui) |
 | `export/` | PNG, atlas, sprite sheet, SVG, gallery |
 | `studio/` | the local browser workbench |
 | `tests/` | one suite per package, runnable without pytest |

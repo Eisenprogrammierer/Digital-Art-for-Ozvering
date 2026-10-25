@@ -41,13 +41,8 @@ import numpy as np
 
 __all__ = ["Skull", "FRONT_SHARE"]
 
-#: How much of the head's depth sits in front of the ear axis.  A head is not
-#: symmetrical front to back -- the ears are behind the middle of it -- and that
-#: asymmetry is the only thing that tilts a three-quarter outline.
 FRONT_SHARE = 0.53
-#: The depth profile: deepest at the eye line, tapering to the crown and the chin.
-#: A jaw that swings as far as a nose is a mask, so the two ends of a face have to
-#: turn less than the middle of it.
+
 DOME_Y = 0.02
 DOME_SPAN = 0.52
 
@@ -71,7 +66,6 @@ class Skull:
         self.depth = float(depth)
         self.peak = float(np.max(self.xs)) if len(self.xs) else 0.0
 
-    # -- the cross-section at one height ---------------------------------
     def width(self, y):
         """Half-width at ``y``: the profile, straight off the silhouette."""
         return np.interp(y, self.ys, self.xs, left=0.0, right=0.0)
@@ -100,7 +94,6 @@ class Skull:
         u = np.clip(np.abs(x) / np.maximum(rx, 1e-9), 0.0, 1.0)
         return x, y, self.centre(y) + rz * np.sqrt(np.maximum(1.0 - u * u, 0.0))
 
-    # -- the turn ---------------------------------------------------------
     def project(self, x, y, turn: float, vol: float = 0.0):
         """Rotate a surface point by ``turn`` and drop the depth."""
         t = float(turn)
@@ -175,9 +168,6 @@ class Skull:
             dz = -rz * x / (rx * rx * np.sqrt(max(1.0 - u * u, 1e-12)))
             return -np.sin(t) + dz * np.cos(t)
 
-        # The cross-section is convex, so its slope falls from +inf to -inf: the
-        # root of ``slope`` -- the point nearest the camera -- is bracketed by the
-        # two sides and found by halving.
         lo, hi = -rx, rx
         for _ in range(48):
             mid = 0.5 * (lo + hi)

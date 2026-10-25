@@ -31,7 +31,6 @@ from . import shape as S
 
 __all__ = ["shapes", "paint", "placement"]
 
-#: A highlight is never pure white; it takes a little of the iris, or it burns.
 _HL = 0.10
 
 
@@ -54,10 +53,7 @@ def placement(st, side: int, turn: float = 0.0, asym=None):
     """
     t = float(turn)
     cx, _ = head.turn_point(side * st.eye_dx, st.eye_y, t, st)
-    # Both eyes lie on the same face plane, so the only difference between them
-    # is the few percent of perspective a real pair has.  A larger coefficient
-    # made the far eye read as a different size even before the skull curvature
-    # was involved, which is the asymmetry a viewer notices first.
+
     scale = float(np.cos(t)) * (1.0 - 0.04 * side * np.sin(t))
     if asym is not None:
         e = asym.eye[side]
@@ -93,10 +89,6 @@ def shapes(st, expr: dict) -> dict:
     pupil_ring = (S.ellipse(st.pupil_r * 1.20, st.pupil_r * 1.34, icx, icy + st.iris_r * 0.04)
                   - pupil)
 
-    # The lash: the upper lid's own curve, extended past the outer corner into a
-    # short wing.  The wing used to be half an eye wide, which turns a neutral
-    # face into a mascara advert; it is now a flick the width of the outer
-    # corner, and the individual hairs below carry the softness.
     upper = S.arc(inner, outer, up, 0.44, 16)
     wing = outer + np.array([hw * 0.255, up * 0.36], dtype=np.float64)
     lash = S.lock(np.vstack([upper, wing[None]]), w0=0.10 * st.lash * expr["lash_mul"],
@@ -119,16 +111,6 @@ def shapes(st, expr: dict) -> dict:
                          w0=st.crease_w * 1.5, w1=st.crease_w * 0.4,
                          bulge=st.crease_w * 1.2, per_segment=4)
 
-    # The socket: an elongated orbital pool, not a ring around the eye.  It is
-    # wider than the opening and sits above it, so its lower edge dissolves into
-    # the cheek instead of drawing a dark circle under the lid.  The fine
-    # infraorbital puff is a separate, much softer shape; how much of it shows is
-    # a life-stage parameter, because a child has none and an elder has a bag.
-    # Keep the orbital pool outside the nasal wall.  The old socket was centred
-    # on the eye and reached 1.58 half-widths inward, so on an adult face it
-    # crossed the bridge and the socket (painted first) swallowed the nose.  The
-    # inner edge is now bounded by the alar width, which leaves the bridge as a
-    # lit plane between the two eyes instead of a smudge under the inner corners.
     nasal_wall = float(st.nose_w) * 0.76 + 0.010
     socket_in = float(np.clip(float(st.eye_dx) - nasal_wall, hw * 0.82, hw * 1.22))
     socket_out = hw * 1.74
@@ -144,9 +126,6 @@ def shapes(st, expr: dict) -> dict:
     outer_shade = S.ellipse(hw * 0.18, down * 0.55, hw * 0.88, -down * 0.04)
     tear = S.ellipse(hw * 0.075, down * 0.20, -hw * 0.91, -down * 0.12)
 
-    # Separate lash hairs along the same upper arc.  They share the arc's own
-    # points, so they grow from the lid instead of floating above it.  Six hairs
-    # of unequal length read as a lash line; four equal ones read as a comb.
     lash_fine = []
     for u, ln in ((0.16, 0.015), (0.30, 0.022), (0.44, 0.030),
                   (0.58, 0.032), (0.71, 0.027), (0.84, 0.020)):
@@ -162,10 +141,6 @@ def shapes(st, expr: dict) -> dict:
         low_lash.append(S.lock([p, p + np.array([0.007, ln])],
                                w0=st.lash * 0.09, w1=0.0, per_segment=3))
 
-    # Two or three conjunctival vessels, kept inside the opening.  They are not
-    # red enough to read as irritation: they are the faint directional grain that
-    # separates a living sclera from a white sticker at 384 px.  The fine lines
-    # run from the corners towards the iris and fade before they reach it.
     vessels = []
     for root, tip, bend, width in (
         (np.array([-hw * 0.88, -down * 0.10]),
@@ -248,10 +223,7 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
         from . import expression
         expr = expression.neutral()
     closed = side in tuple(expr.get("closed", ()))
-    # An eye lies on the face plane: a turn compresses it sideways by ``cos`` and
-    # keeps the lid-to-lid height.  The centre is projected on the solid so it
-    # stays on the nose's midline, and the local frame is mirrored for the other
-    # side (``sx`` carries the sign).
+
     cx, width_scale = placement(st, side, turn, asym)
     if asym is None:
         e = {"dx": 0.0, "dy": 0.0, "sx": 1.0, "sy": 1.0, "rot": 0.0,
@@ -261,23 +233,17 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
     kw = dict(cx=cx, cy=float(st.eye_y) + e["dy"],
               sx=side * width_scale, sy=e["sy"],
               rot=side * st.eye_tilt + e["rot"])
-    # The iris is a disc on the eyeball, not a decal welded to the lid.  It gets
-    # its own frame so a small gaze and an asymmetric catchlight can move it
-    # while the opening stays exactly where the lids are.
+
     gaze_kw = dict(kw, cx=cx + e["gaze_x"], cy=kw["cy"] + e["gaze_y"])
     hl_kw = dict(gaze_kw, cx=gaze_kw["cx"] + e["hl_dx"],
                  cy=gaze_kw["cy"] + e["hl_dy"])
 
     g = shapes(st, expr)
-    P = lambda sh: sh.place(**kw)  # noqa: E731
-    G = lambda sh: sh.place(**gaze_kw)  # noqa: E731
-    H = lambda sh: sh.place(**hl_kw)  # noqa: E731
+    P = lambda sh: sh.place(**kw)
+    G = lambda sh: sh.place(**gaze_kw)
+    H = lambda sh: sh.place(**hl_kw)
     opening = P(g["opening"])
 
-    # Pool of shade on the skin, under the eye's own ink.  The socket is broad
-    # and soft; a hard, darker ellipse here is what used to read as a pair of
-    # goggles.  The infraorbital puff is painted as light over shadow, so an
-    # adult has a living lower lid rather than a second dark ring.
     if not closed and h is not None:
         under = float(np.clip(getattr(st, "under_eye", 0.26), 0.0, 0.9))
         brush.paint(canvas, P(g["socket"]), h.skin_shadow, clip=clip,
@@ -285,10 +251,7 @@ def paint(canvas, st, h, side: int, turn: float = 0.0, expr=None, clip=None,
         brush.paint(canvas, P(g["socket_outer"]), h.skin_shadow, clip=clip,
                     alpha=0.032, soft=3.0)
         if under > 0.02:
-            # A lower lid is a lit pillow with one crease under it, not a second
-            # dark ring.  The old warm wash at full age weight read as a bruise;
-            # the lift is what makes an elder's eye socket look lived-in rather
-            # than injured.
+
             brush.paint(canvas, P(g["under_eye"]), h.skin_light, clip=clip,
                         alpha=0.060 * under, soft=2.4)
             brush.paint(canvas, P(g["under_crease"]), h.skin_shadow, clip=clip,

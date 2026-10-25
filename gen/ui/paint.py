@@ -27,7 +27,6 @@ from core.render import LIGHT
 from . import material
 from .frame import Panel
 
-#: What a panel throws on the ground.
 SHADOW = (0.03, 0.03, 0.05)
 
 STATES = ("idle", "hover", "pressed")
@@ -110,32 +109,17 @@ def draw(spec: dict, size, kind: str = "panel", state: str = "idle", scale: floa
     d_band = p.body(X, Y)
     a_band = render.coverage(d_band, dx)
 
-    # 1. shadow -- from the silhouette, so it costs nothing to keep consistent.
-    #    A hollow frame is shadowed by its *band*: a frame is meant to lie over
-    #    content, so its hole has to stay genuinely transparent.
-    #    It does not react to the state: what a button throws should not flicker.
     sh = render.drop_shadow(a_band if kind == "frame" else a_outer, scale,
                             offset=(0.0, -2.0), sigma=2.6,
                             opacity=0.40 * (0.35 + 0.65 * s["alpha"]))
     c.over_srgb(SHADOW, sh)
 
-    # 2. body.  A vertical gradient by default: anything varying across the panel
-    #    would smear when the middle is stretched sideways.  `ramp_map`
-    #    interpolates in OKLab, so a dark-to-light body does not sag through grey
-    #    in the middle.  A material body is the deliberate exception -- it varies
-    #    across the panel because that is what a material *is* -- and the price is
-    #    measured rather than hidden: see `slice.stretch_error`.
     if kind == "panel":
         lo = palette.mix(body, body_low, s["gradient"])
-        t = (p.hh - Y) / (2.0 * p.hh)  # 0 at the top edge, 1 at the bottom
+        t = (p.hh - Y) / (2.0 * p.hh)
         field = palette.ramp_map([body, lo], t)
         if s["material"] != "none":
-            # Only where it can be seen: the band over the body is opaque, so the
-            # material is evaluated on the inner rectangle, the same "evaluate
-            # where it can be drawn" rule the ornament follows.  `material.body`
-            # remembers the lit field per recipe and window, so the other two
-            # states of this button -- the same panel in other colours -- cost a
-            # multiply rather than a noise field.
+
             cx, cy, hw, hh = p.inner_box()
             x0, y0, x1, y1 = _window(c, (cx - hw, cy - hh, cx + hw, cy + hh), margin=4.0)
             if x1 > x0 and y1 > y0:
@@ -144,17 +128,13 @@ def draw(spec: dict, size, kind: str = "panel", state: str = "idle", scale: floa
                     LIGHT, stain_colour=body_low, y_up=c.y_up)
         c.over(palette.srgb_to_linear(field), a_outer * s["alpha"])
 
-    # 3. the frame band, as a rounded moulding with a ridge down its middle.
     c.over(render.shade(edge, d_band, dx, bevel=s["bevel"], light=LIGHT,
                         inset=(state == "pressed")), a_band)
 
-    # 4. the inner rule.
     if p.has_rule():
         a_rule = render.coverage(p.rule(X, Y), dx) * a_outer
         c.over_srgb(s["ink"], a_rule * 0.55)
 
-    # 5. the corner ornaments, clipped to the silhouette so a hollow frame keeps
-    #    its rivet on the band and nothing shows through the hole.
     if p.has_boss():
         clip = a_outer if kind == "panel" else a_band
         for i in range(4):

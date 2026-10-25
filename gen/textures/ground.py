@@ -75,15 +75,6 @@ class Ground(NamedTuple):
     grit: float
     relief: float
 
-
-#: The six, in the order a sheet shows them: the soft grounds first, the hard ones after.
-#: Every number is a *measurement of what the material looks like at a tile*: a feature
-#: size of 4 px on a 64 px tile is a clod, and 20 px is a snowdrift, which is the whole
-#: difference between the two rows that are otherwise the same soft noise.  The hues are
-#: turns of OKLCH and sit where the map's own biomes sit -- plains is 0.353, desert 0.262,
-#: mountain 0.296, snow 0.663 -- so a tile of ground and the hex it covers are the same
-#: family of colour.  They are darker than the map's fills on purpose: a map is read from
-#: above at a distance, and a hex a figure stands on is read from a metre away.
 GROUNDS = (
     Ground("grass", base=(0.55, 0.100, 0.350), drop=0.13, turn=0.030,
            lump=1.00, lump_scale=6.0, ribbon=0.70, ribbon_scale=2.6, ribbon_stretch=3.5,
@@ -105,8 +96,6 @@ GROUNDS = (
            facet=0.60, cells=12, bevel=0.20, dome=1.0, grit=0.16, relief=3.0),
 )
 
-#: Which ground a map biome wears.  The water biomes are absent because water is not
-#: ground, and ``dirt`` is absent because no biome is made of it -- see the module.
 FOR_BIOME = {
     "shore": "shore",
     "desert": "sand",
@@ -181,7 +170,7 @@ def facets(size: int = 128, cells: int = 4, seed: int = 0, jitter: float = 0.7) 
     if not 0.0 <= float(jitter) < 1.0:
         raise ValueError("jitter is a fraction of a cell, so it stays below one")
 
-    rng = np.random.default_rng(int(seed) ^ 0x46414345)      # 'FACE'
+    rng = np.random.default_rng(int(seed) ^ 0x46414345)
     rows, cols = np.meshgrid(np.arange(cells), np.arange(cells), indexing="ij")
     cx = (cols + 0.5 + float(jitter) * (rng.random((cells, cells)) - 0.5)) / cells
     cy = (rows + 0.5 + float(jitter) * (rng.random((cells, cells)) - 0.5)) / cells
@@ -197,8 +186,7 @@ def facets(size: int = 128, cells: int = 4, seed: int = 0, jitter: float = 0.7) 
         for j in range(cells):
             ux = xs - cx[i, j]
             uy = ys - cy[i, j]
-            # The torus: the point is also its own image a whole tile away, so the
-            # displacement is the shortest one of the three on each axis.
+
             ux -= np.round(ux)
             uy -= np.round(uy)
             d = np.hypot(ux, uy) * size
@@ -245,7 +233,7 @@ def fields(kind, seed: int = 0, size: int = 128, zoom: float = 1.0) -> dict:
     zoom = float(zoom)
     if not zoom > 0.0:
         raise ValueError(f"a ground is drawn at a positive zoom, not {zoom!r}")
-    rng = np.random.default_rng((int(seed) * 2654435761 + 0x47524E44) & 0xFFFFFFFF)  # 'GRND'
+    rng = np.random.default_rng((int(seed) * 2654435761 + 0x47524E44) & 0xFFFFFFFF)
     lump = (_noise(size, int(seed) + 101, g.lump_scale * zoom)
             if g.lump > 0 else np.full((size, size), 0.5))
     ribbon = (_noise(size, int(seed) + 211, g.ribbon_scale * zoom,
@@ -261,10 +249,7 @@ def fields(kind, seed: int = 0, size: int = 128, zoom: float = 1.0) -> dict:
 
     height = g.relief * ((lump - 0.5) * g.lump + (ribbon - 0.5) * g.ribbon) / total
     if fac is not None:
-        # A slab is flat until its bevel; a pebble is round all the way to the crack.
-        # ``sin`` is the dome -- flat at the top, steep at the rim -- and ``dome`` is the
-        # material's own answer to "is this stone or is this gravel".  The bevel is a
-        # fraction of a cell and never under a pixel, so the crack stays a crack at dpi.
+
         bevel = max(size / max(g.cells, 1) * g.bevel, 0.75)
         r = np.clip(fac["edge"] / bevel, 0.0, 1.0)
         top = (1.0 - g.dome) * r + g.dome * np.sin(0.5 * np.pi * r)
@@ -289,8 +274,7 @@ def texture(kind, seed: int = 0, size: int = 128, zoom: float = 1.0) -> Canvas:
     light = g.base[0] + g.drop * (t - 0.5)
     chroma = np.clip(g.base[1] * (0.75 + 0.5 * t), 0.0, 0.4)
     hue = g.base[2] + g.turn * (t - 0.5) * 2.0
-    # ``fit_gamut`` walks a list of colours, so the field goes through it one row at a
-    # time: flattened, fitted, put back -- which is also how the boards build a table.
+
     flat = np.stack([light.ravel(), chroma.ravel(), hue.ravel()], axis=-1)
     srgb = palette.oklch_to_srgb(flat).reshape(size, size, 3)
 

@@ -46,22 +46,14 @@ from .grid import HexGrid
 
 __all__ = ["MIX", "REF", "RELIEF", "SPAN", "TERRAIN_RELIEF", "site_image", "worn"]
 
-#: The hex size, in pixels, the ground table's feature sizes were tuned at.  A material
-#: says ``lump_scale = 20`` texels, and at this zoom a texel is a pixel.
 REF = 56.0
 
-#: How many hexes one tile of material covers.  This is the material's period, not its
-#: feature size: at six hexes the eye cannot find the repeat before it finds the hexes.
 SPAN = 6.0
 
-#: How far the material's tone may move the biome colour, either way.
 MIX = 0.40
 
-#: The material's height added to the hex relief, in texels per pixel of the tile.
 RELIEF = 1.15
 
-#: The map's own relief, turned down from the strategic map's 4.0 for the reason the
-#: docstring gives: at this zoom the six-triangle crease is a folded sheet.
 TERRAIN_RELIEF = 0.9
 
 
@@ -181,10 +173,7 @@ def _river_field(canvas: Canvas, grid: HexGrid, f: dict, courses,
                                                        dtype=np.float64)]
         if len(pts) < 2:
             continue
-        # A river does not end at the middle of the last land hex; it ends at the
-        # coast.  Extend the centre line to the shared edge, and let the land mask
-        # clip the last half-hex -- the water then meets the sea instead of stopping
-        # in a rounded cap in a field.
+
         mouth = course.get("mouth")
         if mouth is not None:
             mr, mc = int(np.rint(mouth[0])), int(np.rint(mouth[1]))
@@ -205,12 +194,10 @@ def _river_field(canvas: Canvas, grid: HexGrid, f: dict, courses,
                 t = np.clip(((X - a[0]) * vx + (Y - a[1]) * vy) / L2, 0.0, 1.0)
                 seg = np.hypot(X - (a[0] + t * vx), Y - (a[1] + t * vy))
             d = np.minimum(d, seg)
-        # A spring is a taper, not a cut: fade the water in over the first length of
-        # the course, so the source reads as ground giving way to water.
+
         source = np.hypot(X - pts[0][0], Y - pts[0][1])
         fade = np.clip(source / (1.3 * half), 0.0, 1.0)
-        # The groove is wider than the water: a bank is a slope, and the light has
-        # to have something to fall across before the water starts.
+
         profile = np.clip(1.0 - (d / (half * 1.6)) ** 2, 0.0, 1.0)
         carve = np.minimum(carve, -float(depth) * grid.size * profile)
         water = np.maximum(water, np.clip((half - d) / (0.40 * half), 0.0, 1.0) * fade)
@@ -292,17 +279,10 @@ def site_image(seed: int = 0, cols: int = 8, rows: int = 6, size: float = REF,
     paint.terrain_layer(canvas, grid, f, seed=seed, relief=terrain_relief,
                         ground=hook)
 
-    # The crease is the map's, not the material's: it is a fact about the cells, so it
-    # is drawn whether or not a ground is worn.  On the sea it is the coast's business
-    # and the water keeps the flat depth ramp it has always had.
     if cliff > 0.0:
         a = paint.cliff_alpha(canvas, grid, f, cell, strength=cliff)
         canvas.over_srgb(paint.INK, a * (~water) * cell.ok)
 
-    # Ground the tide has only just left.  The band is on the land side and inside the
-    # cell whose nearest edge is the coast, which is the same sector arithmetic the
-    # border uses; a corner between two coasts gets the band from the edge it is
-    # nearest to, not a second one.
     if shore > 0.0:
         d = cell.sector
         nr = grid.nbr[r, c, d, 0]
@@ -314,8 +294,6 @@ def site_image(seed: int = 0, cols: int = 8, rows: int = 6, size: float = REF,
         canvas.over_srgb((0.13, 0.16, 0.14),
                          0.26 * wet * (~water) * across * cell.ok)
 
-    # The coast is the land's edge, and the biome border is the same tileset asked of
-    # the land alone -- `within` is what keeps the shore the coast's business.
     edge = autotile.borders((~f["water"]).astype(np.int64), grid, outside=0)
     autotile.border_layer(canvas, grid, edge, cell, paint.INK, width=coast, alpha=0.85)
     if inland > 0.0:
@@ -323,15 +301,8 @@ def site_image(seed: int = 0, cols: int = 8, rows: int = 6, size: float = REF,
         autotile.border_layer(canvas, grid, rim, cell, paint.INK, width=inland,
                               alpha=0.40)
 
-    # The same hydrology the strategic map draws, but as a place: the water lies in
-    # the groove the terrain pass was given, so the banks are lit and the river is a
-    # level below the field rather than a blue line on top of it.  The lip is a dark
-    # edge because water meeting earth is where the eye finds the water.
     if water_a is not None:
-        # The bank is earth, not ink: a dark strip along the lip is what a stream
-        # looks like from above, and it is also the shadow the groove could not cast
-        # at this light.  The water then gets a slow ripple and a lighter centre, so
-        # that it is a surface and not a flat blue stroke.
+
         canvas.over_srgb((0.30, 0.25, 0.18), 0.34 * bank_a)
         X, Y = canvas.grid()
         ripple = noise.fbm(X / 9.0, Y / 9.0, seed=seed + 991, freq=1.0, octaves=3)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from core import palette, render
+from core import palette
 from core.canvas import Canvas
 
 from gen.portraits import brush
@@ -45,9 +45,7 @@ DEFAULTS = {
 }
 
 _METAL = {
-    # OKLCH hue is in turns.  Gold lives near .24, bronze near .16, and silver is
-    # a near-neutral with the faintest cool cast; the old numbers were red-orange
-    # and produced a salmon medal with a green ribbon.
+
     "gold": ((.73, .125, .235), (.40, .085, .220)),
     "silver": ((.79, .009, .240), (.46, .010, .240)),
     "bronze": ((.56, .090, .165), (.31, .065, .155)),
@@ -133,8 +131,7 @@ def _motif_shape(motif: str, cx: float, cy: float, r: float) -> S.Shape:
     if motif == "ring":
         return S.circle(r * .82, cx, cy) - S.circle(r * .53, cx, cy)
     if motif == "laurel":
-        # Two arcs of leaves.  The leaves are deliberately broad, because a laurel
-        # that is a row of dots is a caterpillar at 32 px.
+
         out = None
         for side in (+1, -1):
             for i in range(5):
@@ -144,7 +141,7 @@ def _motif_shape(motif: str, cx: float, cy: float, r: float) -> S.Shape:
                 leaf = S.ellipse(r * .16, r * .075).place(x, y, rot=float(np.degrees(side * (th - 0.35))))
                 out = leaf if out is None else out | leaf
         return out
-    # torch: a tapered handle and a flame
+
     handle = S.poly([(cx - r * .08, cy - r * .85), (cx + r * .08, cy - r * .85),
                      (cx + r * .05, cy + r * .15), (cx - r * .05, cy + r * .15)],
                     resample=8)
@@ -164,18 +161,17 @@ def _ribbon(canvas, spec: dict, shape: S.Shape, vertical: bool = True) -> None:
     b = palette.hex_to_srgb(spec["ribbon2"])
     surf = brush.Surface(canvas, shape)
     surf.paint(canvas, a, alpha=.995)
-    # Woven stripes: the second ribbon colour is the reason a ribbon is readable
-    # at icon size, so it gets a solid stripe rather than a tint.
+
     for k in (-2, -1, 1, 2):
         if vertical:
             line = S.box(.022, .22, 0.0, k * .070, .73)
         else:
             line = S.box(.22, .016, 0.0, 0.0, .58 + k * .060)
         brush.paint(canvas, line, b, clip=shape, alpha=.82, soft=.20)
-    # The fold: the ribbon is not a flat rectangle, it bends over the suspension.
+
     surf.bands(canvas, [palette.darken(a, .22)], (.44,), bevel=.025, soft=.55)
     surf.stroke(canvas, .0022, palette.darken(a, .38), inset=.0011, alpha=.70, soft=.16)
-    # A pin or a stitch down the back.
+
     for x in (-.12, .12):
         brush.paint(canvas, S.circle(.008, x, .60), b, clip=shape, alpha=.55, soft=.25)
 
@@ -197,7 +193,7 @@ def _medal(canvas, spec: dict):
     metal, hi, lo = _metal(spec)
     ribbon = _ribbon_shape("medal")
     _ribbon(canvas, spec, ribbon)
-    # Suspension ring: a real torus, not a dot.
+
     ring = S.circle(.060, 0.0, .49) - S.circle(.038, 0.0, .49)
     brush.paint(canvas, ring, metal, alpha=.98, soft=.20)
     brush.paint(canvas, ring.outline(.0018), lo, alpha=.65, soft=.15)
@@ -206,18 +202,16 @@ def _medal(canvas, spec: dict):
     surf.paint(canvas, metal, alpha=.99)
     surf.bands(canvas, [lo], (.44,), bevel=.035, soft=.65, alpha=.72)
     surf.stroke(canvas, .0070, lo, inset=.0030, alpha=.85, soft=.25)
-    # A recessed field inside the rim, then the motif raised on it.
+
     field = S.circle(.235, 0.0, .15)
     brush.paint(canvas, field, palette.darken(metal, .16), alpha=.72, soft=.30)
-    # A soft cast shadow under the raised motif, then the motif itself in the
-    # bright metal.  At 32 px this is the difference between a medal and a coin.
+
     motif = _motif_shape(spec["motif"], 0.0, .15, .185)
     brush.paint(canvas, motif.place(.004, -.008), lo, alpha=.55, soft=.55)
     _paint_motif(canvas, spec, motif, hi, hi, lo, alpha=.99)
     if spec["rosette"]:
         _rosette(canvas, spec, 0.0, .49)
-    # Highlight: one bright crescent on the upper left, the same light as the
-    # rest of the package.
+
     brush.paint(canvas, S.ellipse(.030, .012).place(-.10, .36, rot=32.0),
                 (1.0, 1.0, 1.0), alpha=.50, soft=.55)
 
@@ -227,8 +221,7 @@ def _cross(canvas, spec: dict):
     _ribbon(canvas, spec, _ribbon_shape("cross"))
     ring = S.circle(.045, 0.0, .51) - S.circle(.028, 0.0, .51)
     brush.paint(canvas, ring, metal, alpha=.95, soft=.20)
-    # Cross pattee: four flared arms, one union.  The arms are polygons rather
-    # than a plus sign, because a plus sign at 48 px reads as a medical cross.
+
     arms = []
     for th in (0, np.pi / 2, np.pi, 3 * np.pi / 2):
         p = [(0.0, .06), (.115, .10), (.095, .48), (-.095, .48), (-.115, .10)]
@@ -247,7 +240,7 @@ def _cross(canvas, spec: dict):
 
 def _star(canvas, spec: dict):
     metal, hi, lo = _metal(spec)
-    # An order star wears a ribbon bar rather than a neck ribbon.
+
     bar = S.box(.40, .055, .014, 0.0, .84)
     _ribbon(canvas, spec, bar, vertical=False)
     pts = []
@@ -260,7 +253,7 @@ def _star(canvas, spec: dict):
     surf.paint(canvas, metal, alpha=.99)
     surf.bands(canvas, [lo], (.45,), bevel=.030, soft=.50, alpha=.70)
     surf.stroke(canvas, .0038, lo, inset=.0018, alpha=.82, soft=.20)
-    # Facets: four diagonal seams make the star read as a struck metal object.
+
     for th in (np.pi / 4, 3 * np.pi / 4, -np.pi / 4, -3 * np.pi / 4):
         brush.paint(canvas, S.lock([(0.0, .24), (.48 * np.cos(th), .24 + .48 * np.sin(th))],
                                    w0=.0022, w1=.0010, per_segment=3),
@@ -288,7 +281,7 @@ def _ribbon_rack(canvas, spec: dict):
         brush.paint(canvas, S.lock([(-.38, y - .066), (.38, y - .066)],
                                    w0=.0016, w1=.0016, per_segment=3),
                     palette.darken(a, .40), alpha=.55, soft=.15)
-    # The brooch/pin that holds the rack.
+
     brush.paint(canvas, S.circle(.034, -.39, .55), _metal(spec)[0], alpha=.95, soft=.20)
 
 
@@ -319,14 +312,14 @@ def _armband(canvas, spec: dict):
     surf.paint(canvas, a, alpha=.99)
     surf.bands(canvas, [palette.darken(a, .24)], (.44,), bevel=.040, soft=.65)
     surf.stroke(canvas, .0050, palette.darken(a, .42), inset=.0022, alpha=.80, soft=.20)
-    # Chevrons: the rank is the only thing an armband has to say.
+
     for i in range(2):
         y = .38 - i * .24
         for side in (+1, -1):
             brush.paint(canvas, S.lock([(0.0, y), (side * .24, y - .18)],
                                        w0=.030, w1=.014, per_segment=3),
                         b, alpha=.92, soft=.35)
-    # A small embroidered badge at the lower edge.
+
     disc = S.circle(.13, 0.0, -.48)
     brush.paint(canvas, disc, metal, alpha=.96, soft=.25)
     brush.paint(canvas, disc.outline(.0028), lo, alpha=.65, soft=.20)
@@ -340,7 +333,7 @@ def render(spec: dict, size: int = 256) -> Canvas:
     if size < 24:
         raise ValueError("a decoration smaller than 24 px is a pixel, not an award")
     c = Canvas(size, size, scale=size / 2.0 * .94)
-    # One soft shadow under the whole object, from its own coverage.
+
     if s["kind"] == "medal" or s["kind"] == "cross":
         probe = _disc(0.0, .15, .33)
     elif s["kind"] == "star":
@@ -348,8 +341,7 @@ def render(spec: dict, size: int = 256) -> Canvas:
     elif s["kind"] == "armband":
         probe = S.box(.46, .74, 0.0, 0.0, .04)
     elif s["kind"] == "ribbon":
-        # A rack is a short stack, not a plaque: a full-cell shadow under one bar
-        # reads as a pale rectangle pasted behind the ribbon.
+
         probe = S.box(.46, .080 + .10 * (int(s["bars"]) - 1), .012,
                       0.0, .55 - .10 * (int(s["bars"]) - 1))
     else:

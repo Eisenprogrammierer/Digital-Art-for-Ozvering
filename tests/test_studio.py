@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from studio import server  # noqa: E402
+from studio import server
 
 
 @contextmanager
@@ -196,7 +196,6 @@ def test_the_page_and_its_script_are_static_and_local():
             page = body.decode("utf-8")
             assert "http://" not in page and "https://" not in page
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -206,7 +205,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

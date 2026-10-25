@@ -45,23 +45,16 @@ from core import noise, render
 __all__ = ["KINDS", "DEFAULTS", "CACHE_MAX", "kind", "height", "body", "modulation",
            "stats", "clear"]
 
-#: What a body can be made of.  ``none`` is a real member and the default: a
-#: plain body is the one that stretches cleanly, so which of the two a panel is
-#: has to be asked for rather than implied.
 KINDS = ("none", "wood", "stone")
 
-#: The one name and four numbers a material is described by.
 DEFAULTS = {
     "material": "none",
-    "material_scale": 22.0,   # design pixels per ring, per cell
+    "material_scale": 22.0,
     "material_seed": 0,
-    "material_relief": 0.55,  # how tall the material is, as a slope
-    "material_tone": 0.30,    # how far the stain pulls towards the low colour
+    "material_relief": 0.55,
+    "material_tone": 0.30,
 }
 
-#: The same ambient and diffuse terms the texture package uses.  They are not the
-#: moulding's numbers: a band is a rounded edge ten pixels wide, and a material is
-#: a rough surface seen from farther away.
 AMBIENT = 0.62
 DIFFUSE = 0.55
 
@@ -96,13 +89,6 @@ def height(X, Y, spec: dict):
     u, v = X / scale, Y / scale
     return _wood(u, v, seed) if k == "wood" else _stone(u, v, seed)
 
-
-# ------------------------------------------------------------------ the cache
-#: How many modulations to keep.  A UI redraws the same few panels -- one button in
-#: its three states, a bar, a tooltip -- so the useful number is small, and a bound
-#: is what stops a cache from being a leak with a friendly name.  The memory is
-#: bounded by this times the largest grid asked for, so it is a bound on the *panels*
-#: rather than on the pixels: a kit of mock windows peaks at 12.
 CACHE_MAX = 16
 
 _CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
@@ -185,8 +171,7 @@ def modulation(k, spec: dict, X, Y, dx: float, light, y_up: bool = True):
     flat = AMBIENT + DIFFUSE * float(lam.mean())
     factor = (AMBIENT + DIFFUSE * lam) / max(flat, 1e-9)
     tone = float(spec.get("material_tone", DEFAULTS["material_tone"]))
-    # Both are two-dimensional over the window -- the colour axis belongs to the
-    # caller -- so a remembered material costs half the memory it would otherwise.
+
     mix = tone * _stain(X, Y, spec) if tone > 0.0 else None
 
     value = (factor, mix)
@@ -232,7 +217,6 @@ def body(colour, spec: dict, X, Y, dx: float, light, stain_colour=None,
     return np.clip(out, 0.0, 1.0)
 
 
-# ------------------------------------------------------------------ the recipes
 def _wood(u, v, seed: int):
     """Rings across the grain, phase-warped, with a fine grain along it.
 
@@ -242,8 +226,7 @@ def _wood(u, v, seed: int):
     """
     _, wy = noise.warp(u, v, seed=seed, amp=0.80, freq=0.70, octaves=3)
     ring = 0.5 + 0.5 * np.sin(2.0 * np.pi * wy)
-    # A grain line is thin and dark: the power keeps the flats flat and narrows
-    # the line between them, which is most of what makes it read as a ring.
+
     ring = ring ** 3.0
     fine = noise.fbm(u * 1.4, v * 6.0, seed=seed + 31, freq=1.0, octaves=3)
     return np.clip(ring * (0.66 + 0.50 * fine), 0.0, 1.0)

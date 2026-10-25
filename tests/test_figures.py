@@ -38,14 +38,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import palette  # noqa: E402
-from export import sheet as sheetlib  # noqa: E402
-from gen.figures import body, cycle, figure, rig  # noqa: E402
+from core import palette
+from export import sheet as sheetlib
+from gen.figures import body, cycle, figure, rig
 
 PERIOD = 2.0 * math.pi
 
 
-# ---------------------------------------------------------------- the skeleton
 def test_the_proportions_add_up_to_a_figure():
     """The numbers are a figure, not a list: the hip is where the legs put it.
 
@@ -126,7 +125,7 @@ def test_an_unknown_bone_is_refused_by_name():
         rig.pose({"thigh_sidebar": 0.2})
     except KeyError as exc:
         assert "thigh_sidebar" in str(exc)
-    else:  # pragma: no cover - the failure is the point
+    else:
         raise AssertionError("an unknown bone was accepted")
 
 
@@ -145,7 +144,6 @@ def test_a_smaller_figure_is_the_same_figure():
     assert len(seen) > 20
 
 
-# ------------------------------------------------------------------- the gaits
 def test_every_cycle_is_two_pi_wide():
     """A cycle that returned after something else would be a loop with a seam."""
     assert len(cycle.CYCLES) == 4
@@ -225,7 +223,7 @@ def test_an_unknown_cycle_is_refused_by_name():
         cycle.angles("sprint", 0.0)
     except ValueError as exc:
         assert "sprint" in str(exc) and "walk" in str(exc)
-    else:  # pragma: no cover
+    else:
         raise AssertionError("an unknown cycle was accepted")
 
 
@@ -251,7 +249,6 @@ def test_a_finer_sampling_is_the_same_motion_sampled_finer():
     assert 0.0 < fine < 0.75 * coarse, (coarse, fine)
 
 
-# ------------------------------------------------------------------ the frames
 def test_frames_tile_one_turn_and_the_last_is_not_the_first():
     """Eight frames of a turn are eight distinct steps, and the ninth is the first.
 
@@ -344,7 +341,6 @@ def test_a_bigger_sprite_is_the_same_figure():
         assert abs(2.0 * s - b) <= 3.0, (small, big)
 
 
-# ------------------------------------------------------------------ the look
 def test_a_faction_colours_a_figure():
     """A tincture from outside is the tunic, and nothing else about the figure moves.
 
@@ -358,7 +354,7 @@ def test_a_faction_colours_a_figure():
     assert a.to_uint8().tobytes() != b.to_uint8().tobytes()
     st = body.style(7, tincture=tincture)
     assert np.allclose(st["cloth"], tincture)
-    # the rest of the palette is the seed's and does not follow the tincture
+
     other = body.style(7, tincture=palette.hex_to_srgb("#8a3b2a"))
     assert np.allclose(st["skin"], other["skin"])
     assert np.allclose(st["hair"], other["hair"])
@@ -442,7 +438,6 @@ def test_the_four_facings_are_four_pictures_and_left_is_the_mirror():
         raise AssertionError("a made-up facing was accepted")
 
 
-# ------------------------------------------------------------------ the sheet
 def test_the_sheet_table_matches_the_picture():
     """The table ``export.sheet`` writes is the sheet it wrote it for.
 
@@ -464,7 +459,6 @@ def test_the_sheet_table_matches_the_picture():
         assert 0 <= x and 0 <= y and x + w <= sheet.w and y + h <= sheet.h
         assert (w, h) == (64, 64)
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -474,7 +468,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

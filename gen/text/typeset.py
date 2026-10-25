@@ -38,15 +38,9 @@ from gen.text import kern, pen, skeleton
 __all__ = ["INK", "JOINS", "advance", "glyphs", "measure", "place", "ink_bounds",
            "spec_of", "paint", "draw", "block", "pair"]
 
-#: The sequences the face sets as one glyph, **longest first**: a text is read as
-#: ``ffi`` and not as ``ff`` and then ``i``, for the same reason a tokenizer sorts its
-#: keywords by length.  Derived from :data:`gen.text.skeleton.LIGATURES`, so there is
-#: one list of joins in the package and it is the skeleton's.
 JOINS = tuple(sorted((("".join(parts), ch) for ch, parts in skeleton.LIGATURES.items()),
                      key=lambda pair: -len(pair[0])))
 
-#: The colour a line of text is drawn in when nobody says otherwise: a soft black,
-#: which is what a page wants and what a bright UI wants to be told otherwise about.
 INK = (0.15, 0.17, 0.21)
 
 
@@ -66,9 +60,7 @@ def spec_of(spec=None) -> dict:
         except (TypeError, ValueError):
             v = fallback
         out[key] = float(np.clip(v, lo, hi))
-    # ``liga`` is a *switch* and not a strength: a join is one glyph or it is not, and
-    # there is no half of it.  The value is rounded so a caller that writes ``True``,
-    # ``1`` or ``0.9`` all mean the same thing.
+
     try:
         liga = float((spec or {}).get("liga", 1.0))
     except (TypeError, ValueError):
@@ -103,9 +95,6 @@ def glyphs(text: str, spec=None) -> list:
     return out
 
 
-# --------------------------------------------------------------------------
-# metrics
-# --------------------------------------------------------------------------
 def advance(ch: str, spec=None) -> float:
     """How far the pen moves after drawing ``ch``, in em units."""
     s = spec if spec is not None and "tracking" in spec else spec_of(spec)
@@ -135,8 +124,7 @@ def measure(text: str, spec=None) -> float:
     line = glyphs(text, s)
     if not line:
         return 0.0
-    # each pair's distance *starts* at a letter, so the last letter's own advance is
-    # added after the loop and the first one is never counted twice
+
     total = sum(_pair(a, b, s) for a, b in zip(line, line[1:]))
     return total + pen.advance(line[-1], s)
 
@@ -184,9 +172,6 @@ def ink_bounds(text: str, spec=None) -> tuple:
     return tuple(box) if box is not None else (0.0, 0.0, 0.0, 0.0)
 
 
-# --------------------------------------------------------------------------
-# drawing
-# --------------------------------------------------------------------------
 def _window(X, Y, box, pad: float = 2.0):
     """The slice of the canvas grid covering the world box ``box``, or ``None``.
 
@@ -273,7 +258,7 @@ def block(lines, spec=None, em: float = 64.0, pad: float = 0.16, leading: float 
     s = spec_of(spec)
     boxes = [ink_bounds(line, s) for line in text]
     step = float(leading)
-    # baselines are `step` apart; the block is as tall as the ink they carry
+
     high = boxes[0][3] + max(i * step - b[1] for i, b in enumerate(boxes))
     wide = max(b[2] - b[0] for b in boxes)
     w = max(1, int(round((wide + 2.0 * float(pad)) * em)))
@@ -287,8 +272,7 @@ def block(lines, spec=None, em: float = 64.0, pad: float = 0.16, leading: float 
             x = W * 0.5 - float(pad) - b[2]
         else:
             x = -(b[0] + b[2]) * 0.5
-        # the first line's ink top lands a padding below the top of the sheet, and
-        # every line after it is exactly one leading lower
+
         baseline = H * 0.5 - float(pad) - boxes[0][3] - i * step
         paint(canvas, line, s, x, baseline, colour=colour, emboss=emboss)
     return canvas

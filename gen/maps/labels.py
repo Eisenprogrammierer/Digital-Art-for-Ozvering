@@ -43,41 +43,21 @@ from .grid import HexGrid
 
 __all__ = ["FACE", "INK", "HALO", "layout", "draw", "census"]
 
-#: The ink of a label, and the paper it is separated from the ground by.  Text ink
-#: is its own colour: a name has to read over a pastel wash and over a forest, and a
-#: line's ink is chosen to sit *in* the picture rather than on top of it.
 INK = palette.hex_to_srgb("#1a2430")
 HALO = palette.hex_to_srgb("#f5f0e3")
 
-#: The face a map names its provinces in.  The sans pen is the UI face, and a map
-#: label is a UI job -- it is read at eight pixels or not at all -- so it is asked
-#: for a little heavier than the body text of a screen, where the eye has a paragraph
-#: to lean on.
 FACE = {"face": "sans", "weight": 0.105, "tracking": 0.02}
 
-#: How much of the inscribed radius the label's *diagonal* may use.  Not 1.0: the
-#: inscribed circle is computed on hex centres, and the edge of a province is half a
-#: cell beyond the last one, so a box that exactly fills the circle can still touch
-#: the frontier line.
 FILL = 0.88
 
-#: The largest em a label may take, and the smallest that is still type, as
-#: fractions of a hex's step.  A label taller than a hex is a headline in a province,
-#: and one below this floor is a smudge: both are refused rather than drawn.
 SMAX = 0.85
 SMIN = 0.42
 
-#: How much a label shrinks when it collides with one already placed, and how many
-#: times it may try.  Eight steps take an em to about a third of where it started.
 SHRINK = 0.85
 TRIES = 8
 
-#: The air kept between two labels, as a fraction of a hex's step.  Two names set
-#: flank to flank read as one word, and the failure mode of a crowded map is not
-#: overlap but *merger*.
 AIR = 0.30
 
-#: How far the halo is blitted from the centre, in ems, and the eight directions.
 HALO_GAP = 0.10
 _RING = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
 

@@ -96,8 +96,6 @@ def rounded_rect(cx: float, cy: float, hw: float, hh: float, radius: float):
         pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
         return path(pts), pts, pts
 
-    # Each corner arc, as (centre, start angle, end angle) in screen coordinates
-    # where y runs *down*: every arc turns clockwise, so every sweep flag is 1.
     arcs = (
         ((x1 - r, y0 + r), -0.5 * math.pi, 0.0),
         ((x1 - r, y1 - r), 0.0, 0.5 * math.pi),

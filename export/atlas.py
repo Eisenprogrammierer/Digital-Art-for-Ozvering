@@ -28,9 +28,6 @@ from core.canvas import Canvas
 
 __all__ = ["trim", "pack", "build", "density", "canvas_from"]
 
-#: Aspect ratios to try when no width is given.  A wide atlas and a tall one both
-#: pack badly once power-of-two rounding is applied, so the search is worth the few
-#: extra milliseconds and its answer is deterministic.
 _TRIES = (0.90, 1.15, 1.45, 1.85, 2.40, 3.20)
 
 
@@ -84,7 +81,7 @@ def _pack_at(sizes, width: int, padding: int, max_size: int):
     if width <= 0:
         raise ValueError("an atlas needs a positive width")
     order = sorted(range(len(sizes)), key=lambda i: (-sizes[i][1], -sizes[i][0], i))
-    sky = [(0, 0, width)]          # (x, y, w), left to right, a partition of [0, width)
+    sky = [(0, 0, width)]
     rects = [None] * len(sizes)
     used_w = used_h = 0
     for i in order:
@@ -117,8 +114,7 @@ def _pack_at(sizes, width: int, padding: int, max_size: int):
         rects[i] = (x, y, w, h)
         used_w = max(used_w, x + w)
         used_h = max(used_h, y + h)
-        # Raise the skyline over [x, x + need) to the top of what was just placed,
-        # keeping whatever sticks out on either side.
+
         raised = []
         for sx, sy, sw in sky:
             if sx + sw <= x or sx >= x + need:
@@ -131,7 +127,7 @@ def _pack_at(sizes, width: int, padding: int, max_size: int):
         raised.append((x, y + h + padding, need))
         raised.sort()
         sky = []
-        for sx, sy, sw in raised:                     # merge neighbours at one height
+        for sx, sy, sw in raised:
             if sky and sky[-1][0] + sky[-1][2] == sx and sky[-1][1] == sy:
                 sky[-1] = (sky[-1][0], sky[-1][1], sky[-1][2] + sw)
             else:
@@ -163,9 +159,7 @@ def pack(sizes, width=None, padding: int = 1, max_size: int = 4096,
 
     total = sum((w + padding) * (h + padding) for w, h in sizes)
     wmin = max(w for w, h in sizes) + padding
-    # The obvious widths: the narrowest that works, the square one, and the powers
-    # of two in between -- because a power-of-two width that packs perfectly is the
-    # difference between a full atlas and a half-empty one.
+
     candidates = {wmin}
     candidates.update(int(np.ceil(np.sqrt(total * k))) for k in _TRIES)
     k, limit = 1, 4 * int(np.sqrt(total)) + padding
@@ -182,13 +176,9 @@ def pack(sizes, width=None, padding: int = 1, max_size: int = 4096,
             continue
         final = _fit(size, power_of_two)
         if max(final) > int(max_size):
-            continue                       # the sheet would be over the size limit
+            continue
         area = final[0] * final[1]
-        # The squarest sheet wins, and among equals the smallest one.  Area alone
-        # would happily return a 136x2205 strip, which is the smallest number of
-        # pixels and the worst texture: tall sheets run into hardware limits and are
-        # impossible to look at.  This is also what keeps the atlases of very
-        # different sets comparable in shape.
+
         score = (max(final[0], final[1]), area, final[0])
         if best is None or score < best[0]:
             best = (score, rects, final)

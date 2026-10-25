@@ -132,10 +132,6 @@ def from_rgba(rgba, scale: float, center=(0.0, 0.0)) -> Canvas:
     c.a = rgba[..., 3] / 255.0
     return c
 
-
-#: Below this, a panel is called stretchable.  It is a number and not a rule
-#: because stretchability is *measured* here, not promised: see
-#: :func:`stretch_error`.
 STRETCHABLE = 0.02
 
 

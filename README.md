@@ -40,15 +40,16 @@ in the [user guide](docs/GUIDE.md) ([по-русски](docs/GUIDE.ru.md)).
 The demo writes `out/icons.png`, `out/icons-atlas.png`, `out/shapes.png`,
 `out/texture.png`, `out/palette.png`, `out/arms.png`, `out/flags.png`,
 `out/anim.png`, `out/figures.png`, `out/portraits.png`, `out/lineage.png`, `out/ui.png`, `out/maps.png`,
-`out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/grounds.png`, `out/grounds-atlas.png`, `out/site.png`, `out/iso.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
+`out/buildings.png`, `out/objects.png`, `out/coast-tiles.png`, `out/borders.png`, `out/tiles.png`, `out/grounds.png`, `out/grounds-atlas.png`, `out/site.png`, `out/iso.png`, `out/factions.png`, `out/text.png`, a sheet per mip level as
 `out/tiles-mip0.png` through `out/tiles-mip7.png`, and an SVG per UI kit as
 `out/ui.<style>.svg` -- each with a `.json`
 sidecar recording the
 seed, the spec, the blazon, the genome of every portrait tile, the corner insets of
 every UI part, for the typeface every character's advance and ink box per face, for
-every map its biome census, its rivers, its roads, its realms, its
-provinces and the sea provinces with the realms that hold them plus the province
-names it set into the picture and the size of each, for the coast and
+every voxel world its seed, size, projection, heightmap, walkable mask, biomes,
+spawn, rivers, roads and free-placed character, for every building its kind,
+footprint, floors, palette and five projection metadata, for every object its kind,
+dimensions, parts and palette, for the coast and
 biome-border tiles the grid they sit in and how many of the sixty-four each map
 wears of each, for every tiling
 texture its seam error and how many tiles its tiling used, for a ground material the
@@ -66,10 +67,9 @@ plays at, for a figure's sheet the cycle, the facing, the table and the figure i
 -- its proportions, its gait and the five colours it wears -- and for the
 factions the *names* they were derived from -- which, for that sheet, are the input
 rather than the seed -- the coat each name decided and the livery it is painted in.
-A map is written out twice, and deliberately: the sheet with its sidecar is the map
-as a *picture*, and `out/maps.campaign.<seed>.json` is the map as **data** -- the
-ground, the owners, the roads, the rivers and the sea as hexes, with the biome table
-in the file, which is what a game without this generator loads. Then
+The voxel world is one file: its sidecar *is* the map data, with a height and a
+biome per world cell and a projection that turns any continuous `(x, y, z)` into a
+screen point. Then
 `out/credits.txt` and `out/credits.png`, which are built from those sidecars, and
 last `out/index.html`, the build as one page: every sheet with its sidecar's numbers,
 its digest and the command that rebuilds it. The
@@ -106,8 +106,10 @@ python cli.py portraits  --seed 7 --count 8 --sex male --age middle
 python cli.py lineage    --seed 7 --children 6  # two parents and their children
 python cli.py ui         --seed 7 --count 3 --scale 2    # nine-slice UI kit sheet
 python cli.py ui         --seed 7 --count 3 --scale 2 --svg   # ...and each kit as SVG
-python cli.py maps       --seed 7 --count 2 --cols 26 --rows 17 --sea 0.42 --provinces 8 --factions 4
-python cli.py maps       --seed 7 --no-names              # ...without the province names
+python cli.py maps       --seed 7 --count 2 --cols 42 --rows 30 --size 14 --rivers 4 --roads 2
+python cli.py maps       --seed 7 --hero 12.5,8.25          # free world position, not a hex
+python cli.py buildings  --seed 7 --count 4 --size 160      # five views per building
+python cli.py objects    --seed 7 --count 12 --size 128 --cols 6  # machines, vehicles, furniture
 python cli.py tiles      --seed 7 --size 256              # Truchet, Wang, reaction, boards
 python cli.py tiles      --seed 7 --size 256 --mips 4     # ...and the mip chain, packed per level
 python cli.py grounds    --seed 7 --size 256              # six ground materials for map tiles, + atlas
@@ -127,7 +129,8 @@ python tests/test_portraits.py                  # 79 tests
 python tests/test_ui.py                         # 47 tests
 python tests/test_maps.py                       # 106 tests
 python tests/test_textures.py                   # 65 tests
-python tests/test_cli.py                        # 9 tests -- the wiring, not the pictures
+python tests/test_cli.py                        # 12 tests -- the wiring, not the pictures
+python tests/test_voxel.py                      # 10 tests -- projection, five views, free coordinates
 python tests/test_icons.py                      # 37 tests
 python tests/test_text.py                       # 53 tests
 python tests/test_figures.py                    # 28 tests
@@ -2081,7 +2084,69 @@ leading, every character's advance and ink box in em units, and the five joins (
 to glyph) under `ligatures`. A game that lays out text from it never has to re-derive the
 pen, and a game that does not can still draw the letters.
 
+## Voxel world and object library (`gen/voxel.py`, `gen/objects/`)
+
+The strategic map is a country, not a board. `maps` now draws a quantised height
+field as square voxel columns in isometric projection: no hex outline, no cell
+border, and no lattice drawn over the ground. A game still gets a grid for lookup
+and pathing, but the picture is continuous and the sidecar is the authority.
+
+The geometry is deliberately small enough to audit:
+
+```
+x east, y south, z up
+screen_x = (x - y) * tile / 2
+screen_y = (x + y) * tile / 4 - z * tile * rise        (rise = 0.72)
+```
+
+Water sits at height zero; land is quantised into `levels` steps. `world_to_screen`
+and `screen_to_world` invert the projection, so an icon, a character or a cursor
+can be placed at any float `(x, y)`. The sidecar carries `heightmap`, `walkable`,
+`biome`, `spawn`, `rivers`, `roads`, `hero`, `projection` and `movement:
+"continuous"`. `--hero x,y` places the demo character anywhere within the world; it
+does not have to sit in a cell centre.
+
+| Module | What it provides |
+| --- | --- |
+| `gen/voxel.py` | The box model, the five named projections (`north`, `west`, `south`, `east`, `top`), depth-sorted painting, outlines, contact shading and a common-scale turnaround renderer. |
+| `gen/maps/voxel.py` | The world: a deterministic elevation and moisture field built on the existing terrain rules, height quantisation, water, rivers, roads, a continuous coordinate API and a map sidecar. |
+| `gen/objects/buildings.py` | Eighteen generic and modern building kinds -- house, office, factory, shop, station, warehouse, hotel, clinic, school and their neighbours -- each as a foundation, wall mass, window bays, a roof and seeded details, rendered in five views. |
+| `gen/objects/props.py` | Thirty-nine modern objects: machine tools, industrial plant, tanks, armoured carriers, artillery, cars, trucks, aircraft, helicopters, drones, furniture, appliances, medical and field equipment. One isometric view each, with a metadata row. |
+
+The building and object libraries use the same box vocabulary as the map, so an
+asset can be dropped into a world without a second camera or a second light. Every
+model is a pure function of `(seed, kind)`; the sheet functions only arrange the
+views and add labels. The five-view order is always:
+
+```
+north, west, south, east, top
+```
+
+`top` is a true orthographic plan; the four sides are axonometric. Each building's
+views share one scale, so a tall tower and a shed are comparable in a sheet. The
+object sheet uses one north isometric view per object, so front details face the
+camera, and writes the view, dimensions and a palette to its sidecar.
+
+```python
+from gen.maps import voxel as world
+
+canvas, scene = world.render(seed=7, cols=42, rows=30, hero="spawn")
+sx, sy = world.world_to_screen(scene, 12.5, 8.25, z=world.height_at(scene, 12.5, 8.25))
+assert world.walkable_at(scene, 12.5, 8.25)
+```
+
+```python
+from gen.objects import buildings, props
+
+views, meta = buildings.views(seed=7, kind="office", size=192)
+tank, tank_meta = props.render(seed=7, kind="tank", size=192)
+```
+
 ## Maps (`gen/maps/`)
+
+> `maps` is the voxel world above. The hex-lattice modules in this section remain
+> for `site`, `iso`, `coast` and the tiling tests, and for clients that still read
+> the legacy campaign format. They are not what the `maps` command renders.
 
 A map is the first asset here that is *data* before it is a picture: a grid
 someone plays on, with a cell size, a coastline, movement costs, rivers and
@@ -3195,8 +3260,8 @@ against the build.
 ### A list is a length
 
 A sidecar is not a small document. An animation's sidecar holds every frame's
-rectangle and the phase it was drawn at; a map's holds its provinces, its rivers, its
-roads. Putting that in a card would make the page a JSON viewer with pictures in it,
+rectangle and the phase it was drawn at; a voxel world's sidecar holds its heightmap,
+its walkable mask, its biomes, its rivers and its roads. Putting that in a card would make the page a JSON viewer with pictures in it,
 so a list becomes `12 items` and a dict becomes `6 keys`, and only the scalars are
 printed. The frame rectangles are one `export.sheet` call away for anyone who wants
 them; the card's job is to tell you whether to want them.
@@ -3215,9 +3280,10 @@ credits block itself travels at the bottom of the page, verbatim from
 `credits.credits()`, including the Kevin MacLeod line. A gallery that is missing it is
 not a gallery of *this* build.
 
-A campaign file (`out/maps.campaign.<seed>.json`) is not an asset and has no picture,
-so it gets a line -- name, `format`, size -- under `data` instead of a card. The page
-is a catalogue of the build, not only of its illustrations.
+The voxel map is one file: its sidecar already carries the height, walkability and
+biome tables, so there is no separate campaign file to list. The legacy hex modules
+can still write one, but it is not part of the current demo build. The page is a
+catalogue of the build, not only of its illustrations.
 
 ### Two files or one
 

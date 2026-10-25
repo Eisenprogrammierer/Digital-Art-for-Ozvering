@@ -65,58 +65,26 @@ __all__ = [
     "waters",
 ]
 
-#: Where a province's wash sits on the sheet, and how far a livery's step can take
-#: it.  The band is a *span* rather than a pair of limits because the map spends
-#: the step through a saturating map: two liveries a step apart stay apart however
-#: far they are from the middle, and no livery can push a province out of the band
-#: its terrain is still read in -- a province dark enough to swallow a mountain
-#: range is a province that has stopped being a map.
 WASH_L = 0.74
 WASH_SPAN = 0.12
 
-#: How much of the livery's step the map spends.  A step is one whole OKLab on a
-#: shield; here it goes on at half opacity over terrain, so it is spent a few times
-#: over to survive the trip.
 WASH_GAIN = 2.6
 
-#: The chroma of a wash, which is also its ceiling: a province is a wash over a
-#: map, and the map is the thing the player is reading.
 WASH_C = 0.13
 
-#: Below this chroma a tincture has no hue to lend a map -- a metal, or the black.
-#: Those wear a grey and are told apart by lightness, which is what a metal *is*.
 NEUTRAL = 0.03
 
-#: How far apart two realms on one map have to be, in OKLab, at the colour they
-#: actually wear.  The project calls 0.04 "a different tint", and this is that
-#: number *divided by the opacity the wash goes on at* -- because a province is not
-#: a flat colour, it is the wash over its terrain, and a step measured before that
-#: mix would be a step that is not there when the map is looked at.  The two
-#: constants therefore have to move together, which is why one is written in terms
-#: of the other and the renderer is handed the same number.
 WASH_FILL = 0.5
 WASH_STEP = 0.04 / WASH_FILL
 
-#: The sea is a colour on this map too, and it has already been spent.  A realm
-#: that wears it is a realm with no coastline, so a *chromatic* wash is kept this
-#: far (in turns of hue) from every colour the water is drawn in -- and a wash with
-#: no chroma at all keeps out of the way by itself, which is why a metal is never
-#: refused for being grey.
 SEA_GUARD = 0.05
 SEA_CHROMA = 0.04
 
-#: The name stream the realms come off.  Salted apart from the provinces' so the
-#: two are not the same stream, and checked against the provinces' names as well,
-#: because two different streams still run out of ideas eventually.
 _NAME_SALT = 917
 
-#: A roster is drawn, not chosen, so the draw needs a bound: one that cannot be
-#: reached by a stream whose candidates are mostly acceptable, and small enough
-#: that a pathological map gives up with fewer realms instead of hanging.
 _DRAWS = 400
 
 
-# ------------------------------------------------------------------ colour
 def _tincture(name: str) -> tinctures.Tincture:
     """The tincture a realm wears: the faction's own field, via ``crest``.
 
@@ -160,8 +128,7 @@ def waters(grid, res: dict, seas: dict, owners) -> np.ndarray:
                     if o >= 0:
                         coast[o] = coast.get(o, 0) + 1
         if coast:
-            # Ties go to the lower realm index, so the answer is a function of the
-            # map rather than of the order the coast happened to be walked in.
+
             out[i] = min(coast, key=lambda o: (-coast[o], o))
     return out
 
@@ -177,15 +144,10 @@ def wash(name: str) -> np.ndarray:
     worn = tinctures.shaded(base.key, tinctures.shade_table(crest.shade(name)))
     l0, c0, h0 = palette.srgb_to_oklch(base.rgb)
     l1, c1, h1 = palette.srgb_to_oklch(worn.rgb)
-    if c0 < NEUTRAL:                       # a metal, or the black: grey, told apart by lightness
+    if c0 < NEUTRAL:
         chroma, hue = 0.0, h0
     else:
-        # The livery's chroma step, scaled into the wash.  Two bounds, and both are
-        # the map's rather than the livery's: the ratio is a *proportion* of the
-        # tincture's chroma, so on a near-neutral tincture (the black, say) it is
-        # enormous for a step that is a hair of colour; and a wash is drawn at a
-        # chroma the terrain is read through, so a livery that *raised* its
-        # tincture's chroma wears the wash's own and keeps its hue and lightness.
+
         chroma, hue = WASH_C * min(float(c1) / float(c0), 1.0), h1
     spent = WASH_GAIN * (float(l1) - float(l0))
     lightness = WASH_L + WASH_SPAN * float(np.tanh(spent / WASH_SPAN))
@@ -214,7 +176,6 @@ def tint_table(res: dict, owners, table) -> np.ndarray:
     return table[idx]
 
 
-# ------------------------------------------------------------------ roster
 def _sea_hues() -> tuple:
     """The hue band the water is drawn in, from the colours it is drawn with.
 
@@ -222,7 +183,7 @@ def _sea_hues() -> tuple:
     or to the river colour moves the guard with them instead of leaving a rule
     behind that the picture no longer obeys.
     """
-    from gen.maps import paint                    # local: the painter is the authority
+    from gen.maps import paint
     hues = [float(palette.srgb_to_oklch(c)[2]) for c in list(paint.SEA_RAMP) + [paint.RIVER]]
     return min(hues), max(hues)
 
@@ -282,7 +243,6 @@ def factions(res: dict, count: int, seed: int = 0, step: float = WASH_STEP,
     return taken
 
 
-# ------------------------------------------------------------------ owners
 def _neighbours(res: dict) -> list:
     return [[int(n) for n in p["neighbours"]] for p in res["provinces"]]
 
@@ -372,7 +332,7 @@ def _spread(comp: list, nbr: list, count: int) -> list:
     while len(chosen) < count:
         far = max(comp, key=lambda p: (dist[p], -p))
         if dist[far] <= 0:
-            break                       # the component is smaller than the roster
+            break
         chosen.append(far)
         other = _graph_dist(nbr, far)
         dist = [min(a, b) if b >= 0 else a for a, b in zip(dist, other)]

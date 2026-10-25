@@ -31,17 +31,16 @@ from . import field as _field
 
 __all__ = ["Ordinary", "ORDINARIES", "get", "names", "sdf_for"]
 
-#: Conventional proportions, as fractions of the field's half-extents.
-FESS = 1.0 / 3.0  # half-thickness, times hh
+FESS = 1.0 / 3.0
 BAR = 1.0 / 5.0
-PALE = 1.0 / 3.0  # times hw
-BEND = 0.34  # perpendicular half-width, times hw
+PALE = 1.0 / 3.0
+BEND = 0.34
 SALTIRE = 0.27
 CHEVRON = 0.18
 CROSS = 0.19
-CHIEF = 2.0 / 3.0  # height of the chief, times hh
-BORDURE = 1.0 / 7.0  # thickness, times hw
-CANTON = 1.0 / 3.0  # half-side, times hw
+CHIEF = 2.0 / 3.0
+BORDURE = 1.0 / 7.0
+CANTON = 1.0 / 3.0
 
 
 class Ordinary:
@@ -65,7 +64,7 @@ class Ordinary:
     def __call__(self, hw, hh, **kw):
         return self.build(hw, hh, **kw)
 
-    def __repr__(self):  # pragma: no cover - debugging aid
+    def __repr__(self):
         return f"Ordinary({self.key})"
 
 
@@ -164,9 +163,8 @@ def _pile(hw, hh, thin: float = 1.0, dx: float = 0.0, dy: float = 0.0, field=Non
 
 def _pall(hw, hh, thin: float = 1.0, dx: float = 0.0, dy: float = 0.0, field=None):
     t = hw * CROSS * thin
-    stem = lambda x, y: sdf.box(x, y, t, hh, 0.0, dx, hh * 0.5 + dy)  # noqa: E731
-    # The arms run from the centre to the chief corners: a slab whose normal is
-    # perpendicular to that diagonal, with the same thickness as the stem.
+    stem = lambda x, y: sdf.box(x, y, t, hh, 0.0, dx, hh * 0.5 + dy)
+
     dexter = _shifted(hh, hw, t, dx, dy)
     sinister = _shifted(-hh, hw, t, dx, dy)
 
@@ -174,7 +172,6 @@ def _pall(hw, hh, thin: float = 1.0, dx: float = 0.0, dy: float = 0.0, field=Non
         return np.minimum(stem(x, y), np.minimum(dexter(x, y), sinister(x, y)))
 
     return f
-
 
 ORDINARIES = {
     o.key: o
@@ -196,8 +193,6 @@ ORDINARIES = {
     ]
 }
 
-#: Flags need these two as first-class shapes even though a coat of arms rarely
-#: does: the Nordic cross is an offset cross, and the hoist triangle is a pile.
 ORDINARIES["nordic_cross"] = Ordinary("nordic_cross", lambda hw, hh, thin=1.0, dx=0.0, dy=0.0, field=None: _cross(hw, hh, thin, -hw * 0.62 + dx, dy, field), "Nordic cross", "скандинавский крест", "m")
 
 
@@ -211,7 +206,6 @@ def _hoist_triangle(hw, hh, thin: float = 1.0, dx: float = 0.0, dy: float = 0.0,
     apex = hw * (0.45 + 0.35 * float(thin)) + dx
     pts = np.array([[base, hh * 1.15 + dy], [base, -hh * 1.15 + dy], [apex, dy]])
     return lambda x, y: sdf.polygon(x, y, pts)
-
 
 ORDINARIES["triangle_hoist"] = Ordinary("triangle_hoist", _hoist_triangle, "hoist triangle", "треугольник у древка", "m")
 

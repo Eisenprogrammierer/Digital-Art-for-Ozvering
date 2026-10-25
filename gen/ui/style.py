@@ -52,79 +52,52 @@ __all__ = [
     "boss_limit",
 ]
 
-#: The corner ornament's shape constants, shared by the geometry, the painter and
-#: the validator so the box the design promises to stay inside is the box it is
-#: actually measured against.  All are fractions of the frame width.
-BOSS_R0 = 0.40       # base radius of the scalloped disc
-BOSS_O = 0.75        # distance from the panel corner to its centre, along the diagonal
-BOSS_OUTLINE = 0.10  # hairline outline width, as a fraction of the radius
-BOSS_MAX = 3.5       # largest multiple of BOSS_R0 * border worth drawing
+BOSS_R0 = 0.40
+BOSS_O = 0.75
+BOSS_OUTLINE = 0.10
+BOSS_MAX = 3.5
 
 
 def _c(L: float, C: float, hue: float) -> np.ndarray:
     """Short local alias: build one sRGB colour from OKLCH."""
     return palette.color(L, C, hue)
 
-
-#: Numeric keys, in design pixels.  Kept apart from the colours so a kit can be
-#: recoloured for a faction or a biome without touching its proportions.
 GEOMETRY = (
     "inset", "radius", "border", "bevel", "rule", "rule_gap", "gradient",
     "alpha", "boss", "boss_harmonics", "boss_amp",
 )
 
-#: The keys that take **one number per side**, in the order ``(left, top, right,
-#: bottom)``: the nine-slice cut and the width of the frame band.
-#:
-#: A window with a title bar is not a different kind of window -- it is the same
-#: window whose top band is wide enough to write in -- so the asymmetry is a number
-#: per side rather than a second asset.  The scalar form is still accepted and
-#: broadcasts to all four, which is why every style written before this existed is
-#: still exactly what it was.
 SIDED = ("inset", "border")
 
-#: The keys a material body is described by: one name and four numbers, defined in
-#: :mod:`gen.ui.material` because that module is what knows what they mean.
-#:
-#: They are kept out of :data:`GEOMETRY` deliberately.  A material never moves a
-#: pixel of the frame -- it is a body, not a layout -- which is exactly why the
-#: tests can assert that turning one on changes the body and nothing else, and why
-#: it costs the nine-slice nothing it was not already paying.
 MATERIAL = ("material", "material_scale", "material_seed", "material_relief",
             "material_tone")
 
-#: Colour keys, all sRGB triples.
 COLOURS = ("body", "body_low", "edge", "ink", "accent")
 
-#: The neutral default: a dark panel in a light frame, which is the shape most
-#: strategy-game chrome ends up taking.
 DEFAULTS = {
-    "inset": 18.0,      # nine-slice cut from each edge; a floor, not a fixed size
-    "radius": 9.0,      # outer corner radius; the curvature that must fit
-    "border": 5.0,      # width of the frame band
-    "bevel": 2.5,       # width of the rounded moulding on that band
-    "rule": 1.2,        # inner rule line width; 0 disables it
-    "rule_gap": 2.6,    # gap between the band and the rule
-    "gradient": 0.55,   # how far the body falls from `body` to `body_low`
-    "alpha": 1.0,       # body opacity, so a style can be glass
-    "boss": 1.5,        # corner ornament size, as a multiple of 0.40 * border
+    "inset": 18.0,
+    "radius": 9.0,
+    "border": 5.0,
+    "bevel": 2.5,
+    "rule": 1.2,
+    "rule_gap": 2.6,
+    "gradient": 0.55,
+    "alpha": 1.0,
+    "boss": 1.5,
     "boss_harmonics": 7,
-    "boss_amp": 0.12,   # how scalloped the ornament's radius function is
+    "boss_amp": 0.12,
     "body": _c(0.34, 0.030, 0.090),
     "body_low": _c(0.22, 0.035, 0.090),
     "edge": _c(0.56, 0.055, 0.095),
     "ink": _c(0.15, 0.030, 0.090),
     "accent": _c(0.74, 0.110, 0.110),
-    **material.DEFAULTS,   # the body's material, if it has one (see :mod:`gen.ui.material`)
+    **material.DEFAULTS,
 }
 
 
 def _preset(**over) -> dict:
     return {**DEFAULTS, **over}
 
-
-#: Named kits.  Each is a whole look: colour scheme plus the proportions that go
-#: with it -- a parchment window has a wider, softer frame than a brass one.
 STYLES = {
     "parchment": _preset(
         body=_c(0.80, 0.045, 0.130), body_low=_c(0.70, 0.060, 0.120),
@@ -158,9 +131,7 @@ STYLES = {
         radius=9.0, border=3.0, bevel=1.6, gradient=0.80, alpha=0.42,
         boss=0.0,
     ),
-    # The two material kits.  A material is a body, so both keep a low `gradient`:
-    # the ramp is still there underneath, but the light on the grain is what you
-    # are meant to see, and two gradients fighting over one panel read as neither.
+
     "timber": _preset(
         body=_c(0.46, 0.055, 0.075), body_low=_c(0.30, 0.060, 0.070),
         edge=_c(0.64, 0.075, 0.080), ink=_c(0.20, 0.045, 0.075),
@@ -239,8 +210,7 @@ def clamp(spec: dict, size=None) -> dict:
     cap = None
     if size is not None:
         w, h = _size(size)
-        # Each pair of corner boxes on an axis shares that axis' pixels, and has to
-        # leave at least one for the stretchable middle.
+
         lim_x = max(4.0, 0.5 * (w - 1.0))
         lim_y = max(4.0, 0.5 * (h - 1.0))
         cap = (lim_x, lim_y, lim_x, lim_y)
@@ -251,12 +221,7 @@ def clamp(spec: dict, size=None) -> dict:
     bevel = float(np.clip(s["bevel"], 0.0, max(room - radius, 0.0)))
     rule = float(np.clip(s["rule"], 0.0, room))
     rule_gap = float(np.clip(s["rule_gap"], 0.0, room))
-    # The corner box has to hold the *whole* frame, rule included, and this is the
-    # second thing that can push an inset outwards.  The rule is design, not body: a
-    # rule that crossed out of the corner box would lie in the strip that gets
-    # stretched sideways and break in two at the first resize.  When there is not
-    # room for it -- only ever at a size too small for the frame it was drawn for --
-    # the *rule* is what gives way, thinning rather than spilling.
+
     avail = min(lim - b for lim, b in zip(limit, border))
     span = rule_gap + rule
     if span > avail + 1e-9 and span > 1e-9:
@@ -266,9 +231,7 @@ def clamp(spec: dict, size=None) -> dict:
     request = tuple(max(min(f, lim), b + rule_gap + rule)
                     for f, lim, b in zip(floor, limit, border))
     amp = float(np.clip(s["boss_amp"], 0.0, 0.30))
-    # The ornament yields to the frame, not the other way round: a thinner frame
-    # would change what the whole kit looks like, a smaller rivet would not.  One
-    # size for four corners means the tightest of them has the last word.
+
     cornices = tuple(_corner(i, request, border) for i in range(4))
     reach = min(boss_limit(ixy, bxy, amp) for ixy, bxy in cornices)
     boss = float(np.clip(s["boss"], 0.0, min(BOSS_MAX, reach)))
@@ -284,10 +247,7 @@ def clamp(spec: dict, size=None) -> dict:
     s["boss"] = boss
     s["boss_harmonics"] = int(np.clip(round(s["boss_harmonics"]), 3, 12))
     s["boss_amp"] = amp
-    # A material is a body, so none of it is geometric: the numbers are clipped
-    # into the range the recipes can draw and the *name* is left exactly as it
-    # came, because a name that is wrong is a mistake to report rather than a
-    # number to repair.  `validate` reports it; `material.kind` raises on it.
+
     s["material"] = str(s["material"])
     s["material_scale"] = float(np.clip(s["material_scale"], 1.0, 512.0))
     s["material_seed"] = int(np.clip(round(s["material_seed"]), 0, 2 ** 31 - 1))
@@ -453,8 +413,7 @@ def random_style(seed: int, name: str | None = None) -> dict:
     inset = float(rng.uniform(13.0, 22.0))
     border = float(rng.uniform(3.5, 6.5))
     radius = float(rng.uniform(4.0, 11.0))
-    # Order the jitter so the clamp never has to repair it: bevel <= border <=
-    # inset, and radius inside the corner box with the bevel accounted for.
+
     bevel = float(rng.uniform(0.35, 0.55)) * border
     radius = min(radius, inset - bevel)
 
@@ -475,10 +434,7 @@ def random_style(seed: int, name: str | None = None) -> dict:
         boss_amp=float(rng.uniform(0.06, 0.20)),
         boss_harmonics=int(rng.integers(5, 10)),
     )
-    # Three kits in ten are given a material body -- the one look in this package
-    # that trades stretchability for surface -- and a named material kit keeps the
-    # material it was authored with.  The draw happens either way so that a base
-    # style does not shift the seed's later decisions.
+
     wants_material = rng.random() < 0.3
     if s["material"] == "none" and wants_material:
         s["material"] = ("wood", "stone")[int(rng.integers(0, 2))]
@@ -487,8 +443,7 @@ def random_style(seed: int, name: str | None = None) -> dict:
         s["material_relief"] = float(rng.uniform(0.35, 0.75))
         s["material_tone"] = float(rng.uniform(0.15, 0.40))
     s = clamp(s)
-    # One kit in five is a *window*, with a title bar: the asymmetry a UI actually
-    # needs, drawn from the same seed and legally, rather than a second code path.
+
     if rng.random() < 0.2:
         edge = "top" if rng.random() < 0.75 else "bottom"
         s = title_bar(s, float(rng.uniform(1.8, 3.2)) * border, edge=edge)

@@ -28,7 +28,6 @@ from . import cel, demography, ink
 
 __all__ = ["Hues", "from_genes", "SCLERA_TINT"]
 
-#: How much skin bleeds into the eye whites; 0 gives a doll's cut-out eyes.
 SCLERA_TINT = 0.12
 
 
@@ -56,10 +55,6 @@ class Hues:
     def as_dict(self) -> dict:
         return {k: palette.srgb_to_hex(getattr(self, k)) for k in self.__slots__}
 
-
-#: Dress accents are a property of a culture, not of a face.  They are broad,
-#: readable colours rather than flags: a game can rename the table without having
-#: to repaint the portraits.
 _CULTURE_ACCENT = {
     "north": (0.56, 0.105, 0.615),
     "river": (0.57, 0.095, 0.515),
@@ -69,10 +64,6 @@ _CULTURE_ACCENT = {
     "highland": (0.49, 0.090, 0.315),
 }
 
-#: Climate is an adaptation, so it has to survive a pinned skin or hair gene.
-#: The shifts are small in OKLCH but they are the difference between a lineage
-#: and a label: a cool, low-chroma north; a warm, sun-weathered dryland; a deep,
-#: rich tropics; a windburnt highland.
 _CLIMATE_SKIN = {
     "arctic": (0.010, 0.94, -0.006),
     "temperate": (0.0, 1.0, 0.0),
@@ -88,9 +79,6 @@ _CLIMATE_HAIR = {
     "highland": (0.004, 1.03, 0.003),
 }
 
-#: How much grey a life stage has earned.  Hair does not *become* a different
-#: colour gene; the colour script mixes the gene towards grey so the DNA remains
-#: the same person at every age.
 _AGE_GREY = {"child": 0.0, "youth": 0.0, "adult": 0.0, "middle": 0.16, "elder": 0.62}
 
 
@@ -162,10 +150,7 @@ def from_genes(genes: dict) -> Hues:
     age = demography.stage(genes)
     culture = str(genes.get("culture", demography.DEFAULTS["culture"]))
     accent = palette.oklch_to_srgb(_CULTURE_ACCENT.get(culture, _CULTURE_ACCENT["river"]))
-    # The cloth gene is a *pinned* colour.  Mixing a culture accent into the
-    # body of the garment meant that choosing black produced brown, and the
-    # colour widget looked broken.  The accent now lives only on the trim,
-    # where it belongs; the base cloth is exactly the value the genome carries.
+
     cloth = palette.hex_to_srgb(genes["cloth"])
     gloss = _g(genes, "hair_gloss")
     hair = palette.mix(raw_hair, (0.78, 0.79, 0.82), _AGE_GREY.get(age, 0.0))
@@ -208,15 +193,8 @@ def from_genes(genes: dict) -> Hues:
     cloth_trim = palette.mix(cloth, accent, 0.66)
     metal = palette.oklch_to_srgb((0.72, 0.105, 0.125 if culture in ("steppe", "desert") else 0.62))
 
-    # Cel shading spends lightness to buy a terminator, and a deep base has very
-    # little of it to spend: the same absolute drop that reads as shade on light
-    # skin reads as soot on dark skin.  So the drop is scaled by how much headroom
-    # the base actually has, and the chroma takes up the difference -- a shadow on
-    # dark skin should be a *richer* brown, not a blacker one.
     head_room = float(np.clip(float(palette.srgb_to_oklch(skin)[0]) / 0.70, 0.50, 1.0))
-    # A dark skin has less lightness to spend, but the old compensation bought
-    # all of it back as chroma and turned a brown shadow into a red mask.  Keep
-    # it a little richer than the base, not a different pigment.
+
     deep_chroma = 1.15 + 0.22 * (1.0 - head_room)
 
     return Hues(

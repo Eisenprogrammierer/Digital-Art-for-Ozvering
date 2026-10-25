@@ -41,11 +41,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.canvas import Canvas  # noqa: E402
-from gen.text import kern, pen, skeleton, typeset  # noqa: E402
+from core.canvas import Canvas
+from gen.text import kern, pen, skeleton, typeset
 
-
-# ------------------------------------------------------------------- helpers
 _EM = 200.0
 
 
@@ -91,7 +89,6 @@ def _bottom(ch: str, spec=None) -> float:
     return _extent(ch, spec)[1]
 
 
-# --------------------------------------------------------------------- guides
 def test_the_guides_are_where_the_file_says_they_are():
     """A stem's ink overshoots its centreline by exactly half a stem.
 
@@ -127,7 +124,6 @@ def test_the_ink_box_contains_the_ink():
             assert got[1] >= y0 - 0.006 and got[3] <= y1 + 0.006, (name, ch, got, (y0, y1))
 
 
-# -------------------------------------------------------------------- metrics
 def test_every_advance_holds_its_ink_plus_a_sidebearing():
     """The spacing system, measured at both ends of every number the pen allows.
 
@@ -178,7 +174,7 @@ def test_a_serif_hangs_into_the_sidebearing_rather_than_widening_its_letter():
             design = skeleton.advance(ch) * spec["width"]
             assert adv >= (core[2] - core[0]) + 2 * pen.SIDEBEARING - 1e-9, (name, ch)
             assert adv <= max(design, (full[2] - full[0]) + 2 * pen.SIDEBEARING) + 1e-9, (name, ch)
-    # the letter both bugs landed on: a stem, its feet, and no hole beside it
+
     for name in ("text", "display"):
         spec = pen.get(name)
         assert pen.overhang("i", spec)[0] > 0.0, "the foot grew nowhere"
@@ -202,7 +198,7 @@ def test_measure_is_the_advances_the_kerns_and_the_tracking_between_them():
     assert abs(typeset.measure(text, spec) - want) < 1e-9
     assert typeset.measure("", spec) == 0.0
     assert abs(typeset.measure("a", spec) - typeset.advance("a", spec)) < 1e-9
-    # with the rule off it is the sum of the advances, which is what the sidecar lists
+
     bare = {**spec, "kern": 0.0}
     assert abs(typeset.measure(text, bare)
                - (sum(typeset.advance(ch, bare) for ch in text) + 0.04 * (len(text) - 1))) < 1e-9
@@ -216,8 +212,7 @@ def test_place_never_steps_backwards_and_the_last_pen_position_is_the_measure():
     assert [ch for ch, _ in spots] == list(text)
     xs = [x for _, x in spots]
     assert all(b > a for a, b in zip(xs, xs[1:])), xs
-    # every step is the pair's own distance, and the pen after the last letter is the
-    # measure: no trailing kern, no trailing tracking
+
     for i, (a, b) in enumerate(zip(text, text[1:])):
         step = xs[i + 1] - xs[i]
         assert abs(step - (typeset.pair(a, b, spec)
@@ -247,7 +242,6 @@ def test_a_line_with_no_ink_has_no_box():
     assert typeset.measure("   ") > 0.0
 
 
-# --------------------------------------------------------------------- serifs
 def test_a_serif_grows_on_a_guide_and_nowhere_else():
     """The serif rule, as a difference between two pens.
 
@@ -261,8 +255,7 @@ def test_a_serif_grows_on_a_guide_and_nowhere_else():
         a, _ = _ink(ch, plain)
         b, _ = _ink(ch, serifed)
         assert b.sum() > a.sum(), ch
-    # the x-height is the one horizontal an arm may not be serifed on, so a bowl's
-    # springing point must be identical under both pens
+
     a, _ = _ink("o", plain)
     b, _ = _ink("o", serifed)
     assert np.array_equal(a, b), "a round letter grew a serif"
@@ -290,7 +283,6 @@ def test_a_serif_is_perpendicular_to_its_stroke():
         assert hh > hw, "a beak on a horizontal arm is taller than it is thick"
 
 
-# ---------------------------------------------------------------------- marks
 def test_no_accent_widens_the_letter_it_is_over():
     """The advance is the letter's; the mark is fitted into it, not paid for.
 
@@ -326,11 +318,10 @@ def test_a_mark_keeps_a_daylight_between_itself_and_the_letter():
                 run = 0 if mask[row].any() else run + 1
                 best = max(best, run)
             assert best >= pen.MARK_GAP * _EM - 2, (name, ch, best)
-            # and the mark is above (or below) the letter, not inside it
+
             assert rows[-1] - rows[0] > 2 * best, (name, ch)
 
 
-# ------------------------------------------------------------------ refusals
 def test_a_character_the_face_does_not_have_is_refused():
     """A missing glyph is an error with a name in it, not a box.
 
@@ -383,11 +374,10 @@ def test_the_face_is_printable_ascii_plus_the_two_alphabets_it_promises():
     assert len(ascii_) == 95 and len(cyrillic) == 66 and len(accented) == 53
     assert ascii_ | cyrillic | accented == set(skeleton.names())
     assert len(skeleton.names()) == 214
-    # and the three have nothing in common, so the count is a sum and not a guess
+
     assert not (ascii_ & cyrillic) and not (ascii_ & accented) and not (cyrillic & accented)
 
 
-# ------------------------------------------------------------ the second alphabet
 def test_a_letter_that_is_the_same_shape_is_the_same_letter():
     """Seventeen Cyrillic letters are the Latin ones, aliased rather than copied.
 
@@ -439,7 +429,7 @@ def test_an_accent_takes_the_dot_s_place_on_an_i():
     assert len(pen.strokes("í", spec)) == 2, "an i with an acute is a stem and an acute"
     assert len(pen.strokes("í", spec, marks=False)) == 1
     assert pen.ink_box("í", spec)[3] > pen.ink_box("i", spec)[3], "the acute is above the dot"
-    # ... and it is the same stem the accent is measured from
+
     assert pen.core_box("í", spec)[0::2] == pen.core_box("i", spec)[0::2]
 
 
@@ -458,21 +448,20 @@ def test_the_cyrillic_alphabet_stands_on_the_same_guides_as_the_latin():
     lows = "абвгдежзийклмнопрстуфхцчшщъыьэюя" + "ё"
     assert len(caps) == 33 and len(lows) == 33
     for ch in caps:
-        if ch in "ЁЙ":                      # a diaeresis and a breve stand above
+        if ch in "ЁЙ":
             continue
         assert abs(pen.ink_box(ch, spec)[3] - (skeleton.CAP_HEIGHT + half)) < 0.004, ch
     for ch in lows:
-        if ch in "бёйф":                    # an ascender, two marks, one tall stem
+        if ch in "бёйф":
             continue
         assert abs(pen.ink_box(ch, spec)[3] - (skeleton.X_HEIGHT + half)) < 0.004, ch
-    # the tails that are meant to leave the line, and the letters that are not
+
     for ch in "ДЦЩУдруфцщ":
         assert pen.ink_box(ch, spec)[1] < -half - 0.01, ch
     for ch in "АБВГЕЖЗИЙКЛМНОПРСТФХЧШЪЫЬЭЮЯ" + "абвгежзийклмнопстхчшъыьэюяё":
         assert pen.ink_box(ch, spec)[1] >= -half - 0.004, ch
 
 
-# --------------------------------------------------------------------- drawing
 def test_a_drawn_line_is_as_wide_as_its_own_ink():
     """The canvas is sized by the ink, not by the advances.
 
@@ -548,8 +537,6 @@ def test_the_emboss_lights_the_letters_with_the_one_light():
     assert not np.array_equal(flat.rgb, lit.rgb), "the emboss changed nothing"
     assert np.allclose(flat.a, lit.a), "the emboss moved the coverage"
 
-
-# --------------------------------------------------------------- determinism
 _SCRIPT = """
 import sys
 sys.path.insert(0, %r)
@@ -580,7 +567,6 @@ def test_a_canvas_the_drawing_returns_is_a_canvas():
     assert np.isfinite(c.rgb).all() and np.isfinite(c.a).all()
 
 
-# ------------------------------------------------------------------- kerning
 def test_a_kern_only_closes_and_never_further_than_a_twelfth():
     """The direction is a decision: the advances already keep the pen's daylight.
 
@@ -609,8 +595,7 @@ def test_a_round_pair_closes_and_the_pair_it_is_measured_against_does_not():
     spec = pen.get("text")
     assert kern.kern("o", "o", spec) < 0.0
     assert kern.kern("T", "o", spec) < 0.0
-    # the clamp is what a designer's restraint looks like in code: these are the pairs
-    # whose white is far over the reference and whose shapes would close further
+
     assert abs(kern.kern("L", "T", spec) + kern.CLOSE_MAX) < 1e-9
     assert abs(kern.kern("r", ".", spec) + kern.CLOSE_MAX) < 1e-9
 
@@ -630,8 +615,7 @@ def test_no_pair_comes_closer_than_the_daylight_it_was_promised():
             if got is None:
                 continue
             after = got[0] + kern.kern(a, b, spec)
-            # a pair may already be closer than its floor -- the pen drew it that way and
-            # a kern may not *open* a pair, so the promise is "no closer than it was"
+
             assert after >= min(got[0], kern.floor(a, b, spec)) - 1e-9, (a + b, got, after)
 
 
@@ -658,8 +642,7 @@ def test_a_mark_is_not_a_stem_and_keeps_a_mark_s_daylight():
                 continue
             after = got[0] + kern.kern(a, b, s)
             assert after >= min(got[0], kern.MARK_FLOOR) - 1e-9, (face, a + b, got, after)
-    # and the bodies of two marked letters are still measured as bodies: the spacing
-    # question does not see the accent at all
+
     bare = kern.air("A", "A", spec)
     marked = kern.air("À", "Á", spec)
     assert abs(bare[1] - marked[1]) < 1e-9
@@ -723,7 +706,7 @@ def test_profiles_are_cached_and_the_cache_is_bounded():
     assert first["misses"] >= 2
     kern.kern("f", "i", spec)
     again = kern.stats()
-    assert again["misses"] == first["misses"]      # the pair's own answer is cached
+    assert again["misses"] == first["misses"]
     assert again["hits"] >= 2
     assert again["profiles"] <= kern.CACHE_MAX
     kern.clear()
@@ -749,7 +732,6 @@ def test_a_kerned_line_is_narrower_by_its_kerns_and_still_inside_its_measure():
     assert kerned[2] <= typeset.measure(line, {**spec, "kern": 1.0}) + 1e-9
 
 
-# ------------------------------------------------------------------- ligatures
 def _pieces(canvas, cut: float = 0.5) -> int:
     """How many separate pieces of ink a drawing has.
 
@@ -790,12 +772,12 @@ def test_a_join_is_one_glyph_where_the_line_had_two():
 
 def test_the_longest_join_wins_and_the_rest_is_untouched():
     """``ffi`` is one glyph and not ``ff`` followed by an ``i``."""
-    assert typeset.JOINS[0][0] == "ffi"      # longest first is what makes the rest work
+    assert typeset.JOINS[0][0] == "ffi"
     assert typeset.glyphs("ffi") == ["\ufb03"]
     assert typeset.glyphs("ffl") == ["\ufb04"]
     assert typeset.glyphs("ff") == ["\ufb00"]
     assert typeset.glyphs("fi fl") == ["\ufb01", " ", "\ufb02"]
-    # nothing else is joined: no capitals, no f followed by anything but f, i or l
+
     assert typeset.glyphs("FI Fa fe") == list("FI Fa fe")
     assert typeset.glyphs("f") == ["f"]
 
@@ -849,16 +831,15 @@ def test_a_joined_stem_has_no_head_and_the_hook_stays_above_it():
     bar -- and the hook has to stay well above the stem's top, or the arch closes.
     """
     spec = pen.get("text")
-    # the joins whose last letter is an i: an l brings its own ascender, and its stem
-    # passes the bar as an *interior* point, so it has no head to lose
+
     for ch in ("\ufb01", "\ufb03"):
         pts = skeleton.strokes(ch)
         stroke = pts[-1]
         x, top = float(stroke[0][0]), float(stroke[1][1])
         assert abs(top - skeleton.X_HEIGHT) < 1e-12, ch
-        # nothing to the right of the stem at the x-height: no head, just the pen
+
         assert pen.glyph_field(ch, spec, np.array([x + 0.06]), np.array([top]))[0] > 0.0, ch
-        # and the hook is a shoulder's height above the stem, not on it
+
         hook = pts[0][0]
         assert top + 0.10 < float(hook[1]), ch
 
@@ -872,8 +853,7 @@ def test_an_i_gives_up_its_dot_where_it_joins():
     assert any(len(p) == 1 for p in skeleton.strokes("i")), "an i wears a dot"
     for ch in skeleton.LIGATURES:
         assert not any(len(p) == 1 for p in skeleton.strokes(ch)), ch
-    # and the stem turns into the crossbar rather than ending under it: the stroke's
-    # last point is on the bar, to the left of the stem, at the same height
+
     stem = skeleton.strokes("\ufb01")[-1]
     assert abs(float(stem[1][1]) - skeleton.X_HEIGHT) < 1e-12
     assert abs(float(stem[-1][1]) - skeleton.X_HEIGHT) < 1e-12
@@ -887,7 +867,7 @@ def test_ligatures_are_a_switch_and_not_a_strength():
     assert typeset.glyphs("fi", {**spec, "liga": 0.5}) == ["\ufb01"]
     assert typeset.glyphs("fi", {**spec, "liga": True}) == ["\ufb01"]
     assert typeset.glyphs("fi", {**spec, "liga": False}) == ["f", "i"]
-    # and with the switch off, a line is its characters, so a caller can count them
+
     assert [ch for ch, _ in typeset.place("office", {**spec, "liga": 0.0})] == list("office")
 
 
@@ -927,9 +907,8 @@ def test_every_face_draws_the_join_and_gives_up_the_dot():
         joined = _pieces(typeset.draw("\ufb01", spec, em=64))
         apart = _pieces(typeset.draw("fi", {**spec, "liga": 0.0}, em=64))
         assert 1 <= joined <= 2, (face, joined)
-        assert apart == 3, (face, apart)          # the f, the stem, and the dot
-        assert apart > joined, (face, joined, apart)   # the dot is the difference
-
+        assert apart == 3, (face, apart)
+        assert apart > joined, (face, joined, apart)
 
 if __name__ == "__main__":
     import traceback
@@ -940,7 +919,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

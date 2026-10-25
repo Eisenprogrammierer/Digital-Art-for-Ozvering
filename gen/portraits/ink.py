@@ -23,7 +23,6 @@ from .shape import Shape, as_shape, pad_bbox
 
 __all__ = ["INK", "stroke", "paint", "line_colour", "shade_line"]
 
-#: Default ink for lashes and pupils: near-black with a violet cast.
 INK = (0.105, 0.090, 0.115)
 
 

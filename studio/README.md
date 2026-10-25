@@ -69,7 +69,7 @@ root defaults to `out/studio`; `--root` changes it.
     "base": ["myasset"],          # fixed argv after cli.py
     "out": "myasset.png",         # primary file, relative to --out
     "slow": True,                 # optional; the page warns
-    "timeout": 240,               # optional; seconds, default 120
+    "timeout": 900,               # optional; seconds, default 3600
     "fields": [
         _int("seed", "Seed", 7, 0, 2**31 - 1),
         _choice("mode", "Mode", "a", ["a", "b"]),
@@ -87,7 +87,9 @@ root defaults to `out/studio`; `--root` changes it.
    form splits on commas and newlines.
 5. Run `python tests/test_studio.py` and, if you changed an option, its own suite.
 
-The public catalog deliberately drops `base`, `out`, `timeout` and each field's
+The default timeout is 3600 seconds and can be overridden with the
+`OZART_TIMEOUT` environment variable. The public catalog deliberately drops
+`base`, `out`, `timeout` and each field's
 `flag`; the browser has no business naming an argv. `catalog.public()` is the only
 shape the page sees.
 

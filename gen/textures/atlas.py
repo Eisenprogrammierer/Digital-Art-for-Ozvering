@@ -53,7 +53,6 @@ from export import atlas as packing
 
 __all__ = ["bleed", "build", "mips", "reduce"]
 
-#: Pixels of a tile's own continuation on every side of it in the sheet.
 MARGIN = 2
 
 

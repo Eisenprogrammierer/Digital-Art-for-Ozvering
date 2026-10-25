@@ -28,13 +28,9 @@ from . import motifs
 __all__ = ["MAX", "LEVELS", "clamp_level", "stage", "stages", "field",
            "chip_field", "paint"]
 
-#: 1..10 are the ten wear stages; 0 is the undamaged icon.
 MAX = 10
 LEVELS = tuple(range(1, MAX + 1))
 
-#: Spec keys that determine the damage.  The badge is deliberately not in this
-#: list: changing a count on the corner must not redraw the scratches on the
-#: plate, because the plate is the same plate.
 _KEYS = ("kind", "plate", "hue", "chroma", "light", "plate_light",
          "plate_chroma", "detail", "weight", "aspect", "rotation", "margin",
          "bevel", "radius")
@@ -86,14 +82,10 @@ def _plan(key: tuple) -> dict:
     spec = dict(key)
     rng = np.random.default_rng(_seed(spec))
     m = float(spec.get("margin", 0.75))
-    # Damage starts on the plate, not in its transparent margin.  The round
-    # plate is the square of half-extent m; the other plates are within that
-    # bound, and the painter clips to the real field anyway.
+
     reach = m * 0.94
     scuffs, gouges, cracks, chips, stains = [], [], [], [], []
 
-    # The first cut appears at stage 1.  A scuff is a groove plus the lit lip
-    # beside it; a line alone reads as a decoration painted on the plate.
     for i in range(7):
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         radius = reach * float(rng.uniform(0.18, 0.86))
@@ -104,8 +96,6 @@ def _plan(key: tuple) -> dict:
         width = float(rng.uniform(0.018, 0.030))
         scuffs.append({"birth": i + 1, "path": path, "width": width, "kind": "scuff"})
 
-    # A gouge is shorter, deeper and wider: the kind of wound that takes a piece
-    # out of the paint rather than a hairline scratch across it.
     for i in range(4):
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         radius = reach * float(rng.uniform(0.35, 0.90))
@@ -117,8 +107,6 @@ def _plan(key: tuple) -> dict:
         gouges.append({"birth": 2 + 2 * i, "path": path, "width": width,
                        "kind": "gouge"})
 
-    # Cracks arrive later and walk in from the rim.  Their first segment is
-    # longest, so the eye reads a break starting at the edge.
     for i in range(6):
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         start = (np.cos(angle) * reach, np.sin(angle) * reach)
@@ -127,7 +115,7 @@ def _plan(key: tuple) -> dict:
         cracks.append({"birth": 4 + i, "path": path, "width": 0.022,
                        "kind": "crack"})
         if i >= 2:
-            # One branch per later crack, leaving the main path partway down.
+
             root = path[2]
             branch_angle = heading + float(rng.choice((-1.0, 1.0))) * float(rng.uniform(0.45, 1.0))
             cracks.append({"birth": 5 + i,
@@ -135,7 +123,6 @@ def _plan(key: tuple) -> dict:
                                          reach * 0.11, 0.65),
                            "width": 0.015, "kind": "crack"})
 
-    # Chips are alpha erosion, not paint.  They take bites out of the plate rim.
     for i in range(6):
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         radius = reach * float(rng.uniform(0.94, 1.02))
@@ -144,8 +131,6 @@ def _plan(key: tuple) -> dict:
                       "y": float(np.sin(angle) * radius),
                       "r": float(rng.uniform(0.055, 0.095))})
 
-    # Stains are broad and soft; they suggest rust and old blood without drawing
-    # a second symbol on the plate.
     for i in range(3):
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
         radius = reach * float(rng.uniform(0.20, 0.70))
@@ -229,15 +214,10 @@ def paint(canvas, spec: dict, level: int, X, Y, dx: float, t: dict) -> None:
     if float(plate.max()) <= 0.0:
         return
 
-    # 1. chips -- remove alpha at the rim.  This is the only pass that changes the
-    #    silhouette, and it is why a high-stage icon looks worn even in a contact
-    #    sheet where the tiny scratches have blurred away.
     chips = render.coverage(chip_field(spec, n, X, Y), dx * 0.85) * plate
     if float(chips.max()) > 0.0:
         canvas.a *= 1.0 - np.clip(chips * 0.86, 0.0, 0.86)
 
-    # 2. stains -- broad, soft, and under the hard marks so they do not tint the
-    #    bright lips.
     d_stain = np.full(np.shape(X), np.inf, dtype=np.float64)
     for item in _plan_for(spec)["stains"]:
         if item["birth"] <= n:
@@ -248,11 +228,6 @@ def paint(canvas, spec: dict, level: int, X, Y, dx: float, t: dict) -> None:
         rust = palette.mix(t["recess"], (0.38, 0.14, 0.055), 0.58)
         canvas.over_srgb(rust, stain * 0.24)
 
-    # 3. the grooves -- dark, then a narrow lit centre line.  A dark scratch on a
-    #    dark recess disappears, and a bright scratch on a bright charge does the
-    #    same; the pair is what makes the mark legible on both materials.  Both
-    #    fields are grown by half a pixel so the smallest stages still survive a
-    #    32 px render instead of becoming an invisible subpixel.
     plan = _plan_for(spec)
     marks = _marks(plan, n)
     dmg = render.coverage(field(spec, n, X, Y) - dx * 0.55, dx) * plate

@@ -35,10 +35,6 @@ from . import tile as tiling
 
 __all__ = ["LAPLACIAN", "PRESETS", "preset", "simulate", "texture", "upsample"]
 
-#: The 9-point stencil and the standard coefficients from Pearson's survey of the
-#: model.  The centre weight is negative and the diagonal weights are half the
-#: orthogonal ones, which is what makes the stencil isotropic enough that the grid
-#: does not show through the pattern.
 LAPLACIAN = np.array(
     [[0.05, 0.20, 0.05],
      [0.20, -1.00, 0.20],
@@ -48,9 +44,6 @@ LAPLACIAN = np.array(
 DU, DV = 0.16, 0.08
 DT = 1.0
 
-#: The named corners of the parameter plane, with what each one looks like.  These
-#: are the values everyone uses, and they are worth having as names: the difference
-#: between coral and mitosis is a nudge in ``F`` and a nudge in ``k``.
 PRESETS = {
     "coral": ((0.0545, 0.0620), "branching fingers, like coral or lichen"),
     "mitosis": ((0.0367, 0.0649), "cells that divide and separate"),
@@ -87,10 +80,7 @@ def _seed_field(size: int, seed: int, blobs: int | None = None, radius: int = 3,
     v = np.zeros((size, size), dtype=np.float64)
     rng = np.random.default_rng(int(seed))
     if blobs is None:
-        # A *coverage*, not a count: how much of the tile the pattern has filled when
-        # the run ends depends on how many lumps it started from, and a fixed count
-        # means a different density on every grid size -- saturated on a small one,
-        # barren on a large one.
+
         area = np.pi * (radius + 0.5) ** 2
         blobs = max(4, int(float(coverage) * size * size / area))
     span = np.arange(-radius, radius + 1)
@@ -146,9 +136,7 @@ def simulate(seed: int = 0, size: int = 96, f: float | None = None, k: float | N
         u = u + DT * (DU * lu - uvv + F * (1.0 - u))
         v = v + DT * (DV * lv + uvv - (F + kk) * v)
         if settle and check and (step + 1) % check == 0:
-            # The largest change anywhere since the previous check, not the mean: a
-            # pattern that has almost stopped can still be crawling in one corner,
-            # and the mean would call that settled.
+
             if float(np.abs(v - prev).max()) < tol:
                 break
             prev = v.copy()
@@ -191,20 +179,14 @@ def texture(seed: int = 0, size: int = 384, sim: int = 96, preset_name: str = "c
     size = int(size)
     v = simulate(seed=seed, size=sim, preset_name=preset_name, steps=steps)
     big = upsample(v, size)
-    # The field is bimodal -- a thin pattern standing on an almost-empty ground --
-    # so the ramp is stretched over the *pattern's* range rather than over 0 to 1.
-    # Mapping the whole range would spend most of the ramp on ground that never
-    # varies, and the pattern would come out as a line of white on black.
+
     lo = float(np.quantile(big, 0.10))
     hi = float(np.quantile(big, 0.92))
     t = np.clip((big - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
     colours = np.array([palette.hex_to_srgb(c) for c in ramp])
     srgb = palette.ramp_map(colours, t)
     canvas = Canvas(size, size, scale=1.0, y_up=False)
-    # Colour follows the field closely; the relief is a blurred copy of it, so the
-    # surface is soft where the pattern is noisy -- which is what separates a
-    # material from a picture of one.  The blur is how a two-cell feature stops
-    # reading as two cells.
+
     height = (tiling.smooth(t, float(size) / float(sim) * 0.9) - 0.5) * float(relief)
     canvas.over_srgb(np.clip(tiling.lit(srgb, height, ambient=ambient, diffuse=diffuse,
                                         y_up=False), 0.0, 1.0),

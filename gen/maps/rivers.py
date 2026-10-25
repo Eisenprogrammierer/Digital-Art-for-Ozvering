@@ -50,17 +50,8 @@ __all__ = [
     "river_threshold",
 ]
 
-#: What share of the land carries a drawn river.  A *quantile* of the drainage,
-#: not a drainage value, for the same reason the sea level is a quantile of
-#: elevation: a fixed threshold gives a dense river network on a wet map and an
-#: empty one on a dry map, so the same "--rivers" would mean two different things
-#: on two different seeds.  Taking the top few per cent of the land instead makes
-#: the density of the network a property of the request rather than of the luck.
 RIVER_FRACTION = 0.06
 
-#: The hair added at each step of the flood, so that a filled basin still drains
-#: one way.  Below anything the eye can see, above anything the arithmetic can
-#: lose: the elevation spans [0, 1] in doubles, so 1e-7 is nine digits of headroom.
 _HAIR = 1e-7
 
 
@@ -71,10 +62,7 @@ def fill_depressions(grid: HexGrid, elev, water) -> np.ndarray:
     filled = elev.copy()
     done = np.zeros(elev.shape, dtype=bool)
     heap = []
-    # The sea is the boundary condition: water is already at sea level and is
-    # where everything is trying to get to.  A map with no water at all (a
-    # deliberately continental one) is flooded from its single lowest cell
-    # instead, so that "downhill" still means something.
+
     seeds = np.argwhere(water) if water.any() else np.argwhere(elev == elev.min())[:1]
     for r, c in seeds:
         heapq.heappush(heap, (float(filled[r, c]), int(r), int(c)))
@@ -180,7 +168,7 @@ def courses(grid: HexGrid, f: dict, down, flux, fraction: float = RIVER_FRACTION
             continue
         i = int(flat[r, c])
         if any(river_flat[u] for u in up[i]):
-            continue  # something else is already flowing into here
+            continue
         path = []
         walk = []
         j = i

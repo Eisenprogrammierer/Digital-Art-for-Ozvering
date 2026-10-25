@@ -19,14 +19,12 @@ from __future__ import annotations
 
 from core import palette
 
-from gen.figures import body, figure
+from gen.figures import figure
 
 from . import dna, garments, hues, regalia
 
 __all__ = ["FACINGS", "body_seed", "scene", "render", "frames", "describe"]
 
-#: The four views the figure package draws, re-exported so a caller of this module
-#: does not have to know where they come from.
 FACINGS = figure.FACINGS
 
 
@@ -63,9 +61,7 @@ def _build(genes: dict) -> float:
 def _colours(genes: dict) -> dict:
     """The figure's five materials, taken from the portrait's own colour script."""
     h = hues.from_genes(genes)
-    # Boots and belts are leather, not cloth.  Mixing the cloth's own line with a
-    # neutral dark brown keeps the figure's feet readable on both a black uniform
-    # and a pale one; the cloth itself stays exact.
+
     leather = palette.mix(h.cloth_line, (0.16, 0.095, 0.065), 0.45)
     return {
         "skin": tuple(float(v) for v in h.skin),

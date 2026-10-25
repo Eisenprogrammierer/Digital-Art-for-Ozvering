@@ -44,72 +44,68 @@ from PIL import ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import credits as creditslib  # noqa: E402
-from core import noise, palette, render, sdf  # noqa: E402
-from core.canvas import Canvas  # noqa: E402
-from export import atlas as atlaslib  # noqa: E402
-from export import gallery as gallerylib  # noqa: E402
-from export import png, sheet as sheetlib  # noqa: E402
-from gen.figures import figure as figurelib  # noqa: E402
-from gen.heraldry import blazon as heraldry  # noqa: E402
-from gen.heraldry import crest as crestlib  # noqa: E402
-from gen.heraldry import flags as flaglib  # noqa: E402
-from gen.heraldry import tinctures as tinctureslib  # noqa: E402
-from gen.icons import badge as icon_badge  # noqa: E402
-from gen.icons import livery as icon_livery  # noqa: E402
-from gen.icons import motifs as icon_motifs  # noqa: E402
-from gen.icons import paint as icon_paint  # noqa: E402
-from gen.icons import wear as icon_wear  # noqa: E402
-from gen.wardrobe import awards as wardrobe_awards  # noqa: E402
-from gen.wardrobe import garment as wardrobe_garment  # noqa: E402
-from gen.maps import autotile as map_autotile  # noqa: E402
-from gen.maps import campaign as map_campaign  # noqa: E402
-from gen.maps import grid as map_grid  # noqa: E402
-from gen.maps import iso as map_iso  # noqa: E402
-from gen.maps import labels as map_labels  # noqa: E402
-from gen.maps import paint as map_paint  # noqa: E402
-from gen.maps import politics as map_politics  # noqa: E402
-from gen.maps import region as map_region  # noqa: E402
-from gen.maps import roads as map_roads  # noqa: E402
-from gen.maps import site as map_site  # noqa: E402
-from gen.maps import terrain as map_terrain  # noqa: E402
-from gen.text import pen as text_pen  # noqa: E402
-from gen.text import skeleton as text_skeleton  # noqa: E402
-from gen.text import kern as kernlib  # noqa: E402
-from gen.text import typeset  # noqa: E402
-from gen.textures import atlas as tex_atlas  # noqa: E402
-from gen.textures import boards as tex_boards  # noqa: E402
-from gen.textures import ground as tex_ground  # noqa: E402
-from gen.textures import reaction as tex_reaction  # noqa: E402
-from gen.textures import tile as tilelib  # noqa: E402
-from gen.textures import truchet as tex_truchet  # noqa: E402
-from gen.textures import wang as tex_wang  # noqa: E402
-from gen.portraits import accessories as portrait_accessories  # noqa: E402
-from gen.portraits import character as portrait_character  # noqa: E402
-from gen.portraits import demography as portrait_demography  # noqa: E402
-from gen.portraits import dna as portrait_dna  # noqa: E402
-from gen.portraits import phenotype as portrait_phenotype  # noqa: E402
-from gen.portraits import regalia as portrait_regalia  # noqa: E402
-from gen.portraits import portrait as portraitlib  # noqa: E402
-from gen.portraits import style as portrait_style  # noqa: E402
-from gen.ui import frame as ui_frame  # noqa: E402
-from gen.ui import paint as ui_paint  # noqa: E402
-from gen.ui import slice as ui_slice  # noqa: E402
-from gen.ui import style as ui_style  # noqa: E402
-from gen.ui import vector as ui_vector  # noqa: E402
+from core import credits as creditslib
+from core import noise, palette, render, sdf
+from core.canvas import Canvas
+from export import atlas as atlaslib
+from export import gallery as gallerylib
+from export import png, sheet as sheetlib
+from gen.figures import figure as figurelib
+from gen.heraldry import blazon as heraldry
+from gen.heraldry import crest as crestlib
+from gen.heraldry import flags as flaglib
+from gen.heraldry import tinctures as tinctureslib
+from gen.icons import badge as icon_badge
+from gen.icons import livery as icon_livery
+from gen.icons import motifs as icon_motifs
+from gen.icons import paint as icon_paint
+from gen.icons import wear as icon_wear
+from gen.wardrobe import awards as wardrobe_awards
+from gen.wardrobe import garment as wardrobe_garment
+from gen.maps import autotile as map_autotile
+from gen.maps import campaign as map_campaign
+from gen.maps import grid as map_grid
+from gen.maps import iso as map_iso
+from gen.maps import labels as map_labels
+from gen.maps import paint as map_paint
+from gen.maps import politics as map_politics
+from gen.maps import region as map_region
+from gen.maps import roads as map_roads
+from gen.maps import site as map_site
+from gen.maps import terrain as map_terrain
+from gen.maps import voxel as map_voxel
+from gen.objects import buildings as object_buildings
+from gen.objects import props as object_props
+from gen.text import pen as text_pen
+from gen.text import skeleton as text_skeleton
+from gen.text import kern as kernlib
+from gen.text import typeset
+from gen.textures import atlas as tex_atlas
+from gen.textures import boards as tex_boards
+from gen.textures import ground as tex_ground
+from gen.textures import reaction as tex_reaction
+from gen.textures import tile as tilelib
+from gen.textures import truchet as tex_truchet
+from gen.textures import wang as tex_wang
+from gen.portraits import accessories as portrait_accessories
+from gen.portraits import character as portrait_character
+from gen.portraits import demography as portrait_demography
+from gen.portraits import dna as portrait_dna
+from gen.portraits import phenotype as portrait_phenotype
+from gen.portraits import regalia as portrait_regalia
+from gen.portraits import portrait as portraitlib
+from gen.portraits import style as portrait_style
+from gen.ui import frame as ui_frame
+from gen.ui import paint as ui_paint
+from gen.ui import slice as ui_slice
+from gen.ui import style as ui_style
+from gen.ui import vector as ui_vector
 
-#: A roster of faction names, shared by the heraldry sheet and the icon set -- the
-#: same houses on both, which is the point of a faction owning a coat *and* an icon
-#: set.  A faction's identity is a name and nothing else, so a demo has to be handed
-#: names; pass your own with ``--name`` and the sheets are your game's factions.
 FACTIONS = ("Kingdom of Alder", "The Mirefen League", "Brythmark",
             "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
             "Vale of Craymoor", "House Delvane")
 
 
-# --------------------------------------------------------------------------
-# helpers
-# --------------------------------------------------------------------------
 def _ratio(text) -> tuple:
     """``"3:2"`` (or ``3x2``) into a proportion, for the flag-shaped commands."""
     parts = str(text).replace(":", "x").split("x")
@@ -137,6 +133,14 @@ def _rc(text) -> tuple:
     return parts
 
 
+def _xy(text) -> tuple:
+    """``"12.5,8"`` into a continuous world point."""
+    parts = tuple(float(v) for v in str(text).replace(",", " ").split())
+    if len(parts) != 2:
+        raise ValueError(f"a world point looks like x,y, not {text!r}")
+    return parts
+
+
 def _font(size: int = 13):
     """Pillow's bundled bitmap font, for development previews only.
 
@@ -145,7 +149,7 @@ def _font(size: int = 13):
     """
     try:
         return ImageFont.load_default(size=size)
-    except TypeError:  # Pillow < 10.1
+    except TypeError:
         return ImageFont.load_default()
 
 
@@ -213,11 +217,11 @@ def _wrap_label(img, xy, text, width, font=None, lines=2, dark=(40, 40, 50, 255)
         else:
             rows.append(cur)
             cur = w
-            if len(rows) == lines:
+            if len(rows) >= lines:
                 break
     if cur and len(rows) < lines:
         rows.append(cur)
-    if rows and " ".join(rows) != text:
+    if rows and " ".join(rows) != " ".join(text.split()):
         rows[-1] = rows[-1].rstrip(",.") + "\u2026"
     x, y = xy
     for k, row in enumerate(rows):
@@ -273,9 +277,6 @@ def _unit3(v) -> np.ndarray:
     return v / max(float(np.linalg.norm(v)), 1e-12)
 
 
-# --------------------------------------------------------------------------
-# icons: a plate with a charge on it, and an atlas to ship the set in
-# --------------------------------------------------------------------------
 def make_icon(seed: int, size: int = 192, wear: int | None = None) -> Canvas:
     """One complete icon from a seed -- the CLI's smallest door into `gen.icons`.
 
@@ -357,9 +358,6 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
              wear=list(icon_wear.LEVELS),
              wear_policy="cumulative")
 
-    # The atlas is what a game actually loads: one image and a table of rectangles.
-    # Its density is in the sidecar, because how much of the sheet is sprite rather
-    # than gap is the number that decides whether the padding was worth paying for.
     if atlas:
         image, info = atlaslib.build(set_tiles + seed_tiles, padding=2)
         path = out.with_name(f"{out.stem}-atlas.png")
@@ -367,12 +365,6 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
         _sidecar(path, seed, "procedural:export.atlas", **info)
         _report(path)
 
-    # The wear sheet: every charge in the family at all ten stages.  It is a
-    # separate file because a stage is a variant of an icon, not a second icon on
-    # the design sheet -- and because ten rows of damage would bury the pristine
-    # set the sheet exists to show.  The atlas is the shippable form: its member
-    # names carry both the kind and the stage, so an engine can pick
-    # ``rifle:w07`` without a second table.
     if wear:
         wear_tiles = [(f"{kind}:w{level:02d}",
                        icon_paint.draw(icon_motifs.canonical(kind), wear_size,
@@ -387,9 +379,7 @@ def demo_icons(out: Path, seed: int = 3, count: int = 8, size: int = 192, cols: 
         for i, (label, tile) in enumerate(wear_tiles):
             tx, ty, _, _ = _grid_pos(wear_canvases, len(icon_wear.LEVELS),
                                      wear_gap, i)
-            # The atlas keeps ``kind:w07`` for engines; the review sheet shortens
-            # the caption so it fits under a 48 px tile without touching the row
-            # below.
+
             kind, level = label.split(":")
             _label(wear_img, (tx + 3, ty + tile.h + 1),
                    f"{kind} {level.lstrip('w')}", font=_font(8))
@@ -439,7 +429,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
     def add(canvas, after=gap):
         rows.append((canvas, after))
 
-    # the masthead
     add(typeset.draw("Digital Art for Ozvering", text_pen.get("display"),
                      em=size * 2.15, pad=0.08, colour=ink), after=6)
     add(typeset.draw("an alphabet you can regenerate -- 214 characters, two "
@@ -472,10 +461,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
             add(typeset.draw(row, spec, em=size, pad=0.06, colour=ink), after=1)
         add(Canvas(1, 1), after=18)
 
-    # the kerning specimen: one line with the rule on and the same line with it off.
-    # A kern is a claim about white, and the only way to check a claim about white is
-    # to put the two lines beside each other -- which is also why the pairs here are
-    # the notorious ones and not a sentence that happens to contain them.
     add(Canvas(1, 1), after=14)
     add(typeset.draw("Kerning -- the same line with the rule, and without it",
                      {**text_pen.get("sans"), "weight": 0.052},
@@ -486,8 +471,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
     add(typeset.draw(kerned, {**text_pen.get("text"), "kern": 0.0},
                      em=size * 1.9, pad=0.06, colour=quiet), after=14)
 
-    # the ligature specimen, on the same principle: the words are the ones a text
-    # actually has, and the line is set both ways so the join can be looked at.
     add(Canvas(1, 1), after=10)
     add(typeset.draw("Ligatures -- the same words, joined and apart",
                      {**text_pen.get("sans"), "weight": 0.052},
@@ -498,9 +481,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
     add(typeset.draw(joined, {**text_pen.get("text"), "liga": 0.0},
                      em=size * 1.9, pad=0.06, colour=quiet), after=20)
 
-    # the size sweep: the same sentence, drawn at the size it says it is.  The
-    # monoline, because a size ladder is a question about a UI face -- and because the
-    # honest answer to "does it read at 11 px" is a pen that was *chosen* for 11 px.
     add(typeset.draw("Sizes, each drawn at its own size",
                      {**text_pen.get("sans"), "weight": 0.052},
                      em=size * 0.62, pad=0.06, colour=quiet), after=4)
@@ -509,7 +489,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
                          text_pen.get("sans"), em=float(em), pad=0.05, colour=ink),
             after=max(4, int(em * 0.22)))
 
-    # the paragraph: the case the face is actually for
     add(Canvas(1, 1), after=14)
     add(typeset.block([
         "A letter is a skeleton and a pen: the skeleton says which letter it is,",
@@ -532,7 +511,6 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
         y += canvas.h + after
     sheet.save(out)
 
-    # The metrics: what an engine needs, and what a reader of the sidecar can verify.
     metric = {}
     for name in faces:
         spec = text_pen.get(name)
@@ -551,28 +529,19 @@ def demo_text(out: Path, seed: int = 0, size: int = 20, faces=None,
                      "cap_height": text_skeleton.CAP_HEIGHT,
                      "ascender": text_skeleton.ASCENDER,
                      "descender": text_skeleton.DESCENDER},
-             # Kerning is a rule and not a table, so what a reader of the sidecar gets
-             # is the rule's three numbers and the air each face calls normal -- the
-             # number every pair in that face is measured against.  A foundry would
-             # ship the pairs; a rule that can name its own reference does not need to.
+
              kerning={"air_floor": kernlib.AIR_FLOOR,
                       "close_max": round(kernlib.CLOSE_MAX, 4),
                       "profile_rows": kernlib.PROFILE_ROWS,
                       "reference": {name: round(kernlib.reference(text_pen.get(name)), 4)
                                     for name in faces}},
-             # A ligature is a glyph and not a character, so the sidecar lists the
-             # *sequences* a text is set with -- the join's own advance is in the table
-             # above like every other glyph's, and an engine that lays a line out needs
-             # the substitution and nothing else.
+
              ligatures={"".join(parts): ch
                         for ch, parts in text_skeleton.LIGATURES.items()},
              faces=metric)
     return _report(out)
 
 
-# --------------------------------------------------------------------------
-# wardrobe and decorations: the outfit as an object, not as a bust
-# --------------------------------------------------------------------------
 def _garment_specs(seed: int, count: int, cut=None, pattern=None,
                    cloth=None, trim=None, metal=None) -> list:
     pins = {"pattern": pattern, "cloth": cloth, "trim": trim, "metal": metal}
@@ -612,8 +581,7 @@ def demo_wardrobe(out: Path, seed: int = 3, count: int = 6, size: int = 256,
         label = spec["cut"] if i < canon else f"{spec['cut']} {seed + 101 + (i - canon) * 23}"
         tiles.append((label, wardrobe_garment.render(spec, size)))
     canvases = [c for _, c in tiles]
-    # A caption sits under its tile; the gap has to be tall enough for the
-    # caption or the last row's labels are cut off by the sheet's own margin.
+
     gap = 26
     sheet = render.sheet(canvases, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
     sheet.save(out)
@@ -664,8 +632,7 @@ def demo_decorations(out: Path, seed: int = 3, count: int = 6, size: int = 256,
         label = spec["kind"] if i < canon else f"{spec['kind']} {seed + 211 + (i - canon) * 29}"
         tiles.append((label, wardrobe_awards.render(spec, size)))
     canvases = [c for _, c in tiles]
-    # A caption sits under its tile; the gap has to be tall enough for the
-    # caption or the last row's labels are cut off by the sheet's own margin.
+
     gap = 26
     sheet = render.sheet(canvases, cols=cols, gap=gap, background=(0.94, 0.94, 0.96))
     sheet.save(out)
@@ -683,7 +650,7 @@ def demo_decorations(out: Path, seed: int = 3, count: int = 6, size: int = 256,
 
 def demo_shapes(out: Path, size: int = 160, cols: int = 3) -> Path:
     """Reference sheet of every SDF primitive and operator, shaded identically."""
-    star = lambda x, y: sdf.star(x, y, 5, 0.72, 0.32)  # noqa: E731
+    star = lambda x, y: sdf.star(x, y, 5, 0.72, 0.32)
     fields = [
         ("circle", lambda x, y: sdf.circle(x, y, 0.76)),
         ("box r=0.10", lambda x, y: sdf.box(x, y, 0.68, 0.52, 0.10)),
@@ -762,7 +729,7 @@ def demo_texture(out: Path, seed: int = 3, size: int = 256) -> Path:
     def wood():
         c = Canvas(size, size, scale=1.0, y_up=False)
         X, Y = c.grid()
-        r = np.hypot(X, Y * 2.2 * s)  # elliptical rings = end grain
+        r = np.hypot(X, Y * 2.2 * s)
         swirl = noise.fbm(X, Y, seed=seed + 17, freq=0.012 / s, octaves=3) - 0.5
         t = 0.5 + 0.5 * np.sin((r * 0.020 / s + 4.0 * swirl) * np.pi)
         return t, (t - 0.5) * size * 0.012
@@ -771,9 +738,9 @@ def demo_texture(out: Path, seed: int = 3, size: int = 256) -> Path:
         c = Canvas(size, size, scale=1.0, y_up=False)
         X, Y = c.grid()
         freq = 0.026 / s
-        edge = noise.worley_edges(X, Y, seed=seed + 23, freq=freq)  # 0 on borders
+        edge = noise.worley_edges(X, Y, seed=seed + 23, freq=freq)
         grit = noise.fbm(X, Y, seed=seed + 29, freq=0.09 / s, octaves=4)
-        crack = np.clip(1.0 - edge * 9.0, 0.0, 1.0)  # thin walls, wide cell faces
+        crack = np.clip(1.0 - edge * 9.0, 0.0, 1.0)
         t = np.clip(0.80 - 0.66 * crack + 0.10 * (grit - 0.5), 0.0, 1.0)
         return t, (np.minimum(edge, 0.075) - 0.075) * size * 0.30
 
@@ -910,14 +877,8 @@ def demo_arms(out: Path, seed: int = 7, count: int = 12, size: int = 190, cols: 
     _report(meta)
     return _report(out)
 
-
-#: What a cloth in the flags sheet can hang from, in the order ``mixed`` walks them.
 HANGINGS = ("pole", "bar", "staff")
 
-#: How far the demo's texture mip chain goes.  ``None`` is every level the tiles
-#: support -- the whole chain, down to a sheet of one-texel tiles -- because that is
-#: where the price of the margin rule actually shows, and a chain that stopped before
-#: it would be a chain that stopped before the interesting number.
 TILE_MIPS = None
 
 
@@ -956,8 +917,7 @@ def demo_flags(out: Path, seed: int = 7, count: int = 12, size: int = 200, cols:
     tiles = [flaglib.render(spec, size=size) for spec in specs]
 
     gap = 36
-    # Flags are flat and argent is near-white, so the sheet back is a mid grey
-    # rather than the pale one the shields sit on.
+
     sheet = render.sheet(tiles, cols=cols, gap=gap, background=(0.76, 0.78, 0.83))
     sheet.save(out)
     img = png.to_image(sheet)
@@ -1302,8 +1262,7 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
             seed = portrait_dna.seed_of(genes)
     else:
         genes = portrait_dna.random_genes(0 if seed is None else seed)
-    # Explicit flags win over the genome, which is how a designer pins a style
-    # while keeping everything else random.
+
     if style:
         genes["style"] = style
     if hair:
@@ -1312,7 +1271,7 @@ def portrait_one(out: Path, seed: int | None = None, dna: str | None = None, siz
         genes["expression"] = expression
     _apply_demography(genes, sex=sex, age=age, climate=climate, culture=culture)
     _apply_overrides(genes, overrides)
-    genes = portrait_dna.decode(portrait_dna.encode(genes))  # validate and re-clamp
+    genes = portrait_dna.decode(portrait_dna.encode(genes))
 
     text = portrait_dna.encode(genes)
     print(f"seed {seed}")
@@ -1357,7 +1316,7 @@ def character_one(out: Path, seed: int | None = None, dna: str | None = None,
         genes = portrait_dna.random_genes(seed)
     _apply_demography(genes, sex=sex, age=age, climate=climate, culture=culture)
     _apply_overrides(genes, overrides)
-    genes = portrait_dna.decode(portrait_dna.encode(genes))  # validate and re-clamp
+    genes = portrait_dna.decode(portrait_dna.encode(genes))
 
     text = portrait_dna.encode(genes)
     print(f"seed {seed}")
@@ -1378,9 +1337,6 @@ def character_one(out: Path, seed: int | None = None, dna: str | None = None,
     return _report(out)
 
 
-# --------------------------------------------------------------------------
-# UI kit: panels, frames and buttons, generated as nine-slice assets
-# --------------------------------------------------------------------------
 def _ui_part(spec: dict, size, scale: int = 2, **kw) -> Canvas:
     """Render one part from its *design* size; ``scale`` is the pixel density."""
     return ui_paint.draw(spec, (int(size[0] * scale), int(size[1] * scale)), scale=float(scale), **kw)
@@ -1410,7 +1366,6 @@ def _ui_kit(spec: dict, scale: int = 2) -> tuple:
         bars.append(part)
         win.blit(part.rgb, part.a, 8 * scale, (36 + i * 26) * scale)
 
-    # The nine-slice claim, made once, in one line of code.
     ins = ui_slice.insets(ui_frame.Panel(btn, (100 * scale, 22 * scale), scale))
     wide = ui_slice.stretch(bars[0], ((dw - 16) * scale, 22 * scale), ins)
     win.blit(wide.rgb, wide.a, 8 * scale, 114 * scale)
@@ -1426,8 +1381,6 @@ def _ui_kit(spec: dict, scale: int = 2) -> tuple:
     cuts = [(x0 + cut[0], y0, x0 + cut[0], y1), (x1 - cut[2], y0, x1 - cut[2], y1),
             (x0, y0 + cut[1], x1, y0 + cut[1]), (x0, y1 - cut[3], x1, y1 - cut[3])]
 
-    # Notes are in design pixels, relative to the tile.  Text over a dark body
-    # has to be light, so the colour is decided here, where the style is known.
     body_l = float(palette.srgb_to_oklch(spec["body"])[0])
     ink = (246, 242, 234, 255) if body_l < 0.55 else (26, 26, 32, 255)
     plate = (0, 0, 0, 120) if body_l < 0.55 else (255, 255, 255, 200)
@@ -1473,9 +1426,7 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     for name in ([style] if style else ui_style.names()):
         spec = ui_style.get(name)
         kits.append((name, spec, _ui_kit(spec, scale)))
-    # One window with a title bar, because that is the case the per-side insets
-    # exist for: the corners are blocks instead of squares, and the header has a
-    # carved band to sit in rather than a blitted strip over the body.
+
     titled = ui_style.title_bar(ui_style.get(ui_style.names()[0]), 30.0)
     kits.append(("title bar", titled, _ui_kit(titled, scale)))
     for i in range(count):
@@ -1489,7 +1440,6 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
     img = png.to_image(sheet)
     draw = ImageDraw.Draw(img)
 
-    # Measured once per kit, before anything is drawn with the number.
     errors = [_stretch_check(spec, scale) for _, spec, _ in kits]
 
     canvases = [k[2][0] for k in kits]
@@ -1514,10 +1464,6 @@ def demo_ui(out: Path, seed: int = 7, count: int = 3, scale: int = 2, style: str
                f"{name}   inset {shown} px @ {scale}x   min {lo[0]}x{lo[1]} px{note}")
     img.save(out, "PNG", optimize=True)
 
-    # The sidecar carries both numbers an engine needs and both facts it cannot
-    # guess: the corners, which only the source can state, and whether the middle
-    # survives a resize, which is measured here because it is a property of the
-    # pixels rather than of the spec.
     _sidecar(out, seed, "procedural:gen.ui.style", kits=[
         {"style": name, "insets": info["insets"],
          "design_size": info["design"], "spec": _json_style(spec),
@@ -1629,19 +1575,15 @@ def _realms(res, count: int, seed: int) -> dict | None:
         "record": [_realm_record(name, table[i]) for i, name in enumerate(names)],
     }
 
-
-#: One tile of the maps sheet.  A tuple would do and did, until the file for a
-#: campaign needed the terrain as well -- a name is how a caller says which field
-#: it means instead of counting commas.
 _MapTile = namedtuple("_MapTile",
                       "seed image stats courses res grid realms roads field seas waters")
 
 
-def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
-              size: float = 13.0, sea: float = 0.42, provinces: int = 8,
-              rivers: float = 0.92, names: bool = True, factions: int = 4,
-              road: float = 0.85, sea_provinces: int = 8,
-              faction_fill: float = map_politics.WASH_FILL) -> Path:
+def demo_hex_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: int = 17,
+                   size: float = 13.0, sea: float = 0.42, provinces: int = 8,
+                   rivers: float = 0.92, names: bool = True, factions: int = 4,
+                   road: float = 0.85, sea_provinces: int = 8,
+                   faction_fill: float = map_politics.WASH_FILL) -> Path:
     """Contact sheet of maps: the geography is the seed, and nothing else.
 
     Each tile is labelled with the seed that makes it, the grid it is played on, the
@@ -1758,8 +1700,6 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         for t in tiles
     ])
 
-    # And then the same map as a *campaign*: no pixels, no hex size, nothing that a
-    # client would have to invert.  One file per map, because a campaign is one map.
     for t in tiles:
         doc = map_campaign.campaign(
             t.grid, t.field, t.res, seed=t.seed,
@@ -1770,6 +1710,92 @@ def demo_maps(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: in
         path = out.with_name(f"{out.stem}.campaign.{t.seed}.json")
         path.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
         _report(path)
+    return _report(out)
+
+
+def demo_maps(out: Path, seed: int = 7, count: int = 1, cols: int = 42,
+              rows: int = 30, size: float = 14.0, sea: float = 0.34,
+              rivers: int = 4, roads: int = 2, hero=None, hero_seed: int = 7,
+              no_hero: bool = False, **legacy) -> Path:
+    """Contact sheet of continuous voxel worlds, with free-movement sidecars."""
+    count = max(1, int(count))
+    tiles, scenes = [], []
+    for i in range(count):
+        tile_seed = int(seed) + i
+        chosen = None if no_hero else ("spawn" if hero is None else hero)
+        tile, scene = map_voxel.render(
+            seed=tile_seed, cols=int(cols), rows=int(rows), tile=float(size),
+            sea_fraction=float(sea), rivers=int(rivers), roads=int(roads),
+            hero=chosen, hero_seed=int(hero_seed) + i)
+        tiles.append(tile)
+        scenes.append(scene)
+    gap = 30
+    per_row = min(2, len(tiles))
+    sheet = render.sheet(tiles, cols=per_row, gap=gap,
+                         background=(0.88, 0.90, 0.93))
+    cw = max(t.w for t in tiles)
+    ch = max(t.h for t in tiles)
+    stamp = png.to_image(sheet)
+    for i, (tile, scene) in enumerate(zip(tiles, scenes)):
+        row, col = divmod(i, per_row)
+        x = gap + col * (cw + gap) + (cw - tile.w) // 2
+        y = gap + row * (ch + gap) + tile.h + 4
+        hero_note = " + character" if scene.get("hero") else ""
+        caption = (f"seed {scene.get('seed', seed + i)}   {scene['cols']}x{scene['rows']}"
+                   f"   water {scene['stats']['water'] * 100:.0f}%"
+                   f"   {len(scene['rivers'])} rivers"
+                   f"   {len(scene['roads'])} roads"
+                   f"   free move{hero_note}")
+        _wrap_label(stamp, (x + 3, y), caption, width=max(80, tile.w - 8),
+                    font=_font(11), lines=2, dark=(32, 36, 42, 255))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    stamp.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:gen.maps.voxel", maps=scenes,
+             movement="continuous", projection="isometric-axonometric")
+    return _report(out)
+
+
+def demo_buildings(out: Path, seed: int = 7, count: int = 4, size: int = 160,
+                   kinds=None, gap: int = 22) -> Path:
+    """Five-projection turnaround sheet for seeded isometric buildings."""
+    sheet, records = object_buildings.sheet(seed=seed, count=count, size=size,
+                                            kinds=kinds, gap=gap)
+    cw = size
+    image = png.to_image(sheet)
+    for j, view in enumerate(object_buildings.voxel.VIEWS):
+        x = gap + j * (cw + gap)
+        _label(image, (x + 2, 2), view.upper(), font=_font(10), plate=None,
+               dark=(60, 66, 74, 255))
+    for i, record in enumerate(records):
+        x = gap
+        y = gap + i * (cw + gap) + cw + 3
+        caption = f"seed {record['seed']}   {record['label']}   {record['floors']} floor(s)"
+        _label(image, (x + 2, y), caption, font=_font(11), plate=None,
+               dark=(32, 36, 42, 255))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    image.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:gen.objects.buildings", buildings=records,
+             views=list(object_buildings.voxel.VIEWS))
+    return _report(out)
+
+
+def demo_objects(out: Path, seed: int = 7, count: int = 12, size: int = 128,
+                 cols: int = 6, kinds=None, gap: int = 24) -> Path:
+    """A catalogue of modern objects, one isometric view each and a metadata table."""
+    sheet, records = object_props.sheet(seed=seed, count=count, size=size,
+                                        cols=cols, kinds=kinds, gap=gap)
+    cw = ch = size
+    image = png.to_image(sheet)
+    for i, record in enumerate(records):
+        row, col = divmod(i, max(1, int(cols)))
+        x = gap + col * (cw + gap)
+        y = gap + row * (ch + gap) + ch + 3
+        _label(image, (x + 2, y), f"{record['label']}", font=_font(10),
+               plate=None, dark=(32, 36, 42, 255))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    image.save(out, "PNG", optimize=True)
+    _sidecar(out, seed, "procedural:gen.objects.props", objects=records,
+             views=list(object_props.voxel.VIEWS))
     return _report(out)
 
 
@@ -1816,9 +1842,7 @@ def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: i
         f = map_terrain.fields(g, seed=s, sea_fraction=sea)
         edge = map_autotile.borders((~f["water"]).astype(np.int64), g, outside=0)
         _coast, coast_keys = map_autotile.tiles(edge)
-        # The same arithmetic, a different field: a biome border is an edge between
-        # two land hexes of different ground, so it is asked *within* the land and
-        # the coast keeps the shore to itself.
+
         biome = map_autotile.borders(f["biome"], g, within=~f["water"])
         _inland, inland_keys = map_autotile.tiles(biome)
         worn.append((s, len(coast_keys), len(inland_keys)))
@@ -1852,10 +1876,6 @@ def demo_coast(out: Path, seed: int = 7, count: int = 2, cols: int = 26, rows: i
         "worn": [{"seed": s, "coast": n, "inland": m} for s, n, m in worn],
     })
 
-    # The second use, drawn rather than asserted.  The same map twice: once with the
-    # coastline alone and once with the biome borders as well, and nothing else
-    # differs between the two -- the lattice is off on both, so the only hex-shaped
-    # thing in the picture is the border itself, which is the thing being shown.
     s0, n0, m0 = worn[0]
     variants = [(0.0, "coastline", n0)]
     if inland > 0.0:
@@ -1898,7 +1918,7 @@ def _json_style(spec: dict) -> dict:
         elif k in ui_style.SIDED:
             out[k] = [round(float(x), 4) for x in v]
         elif isinstance(v, str):
-            out[k] = v          # the material's name is an identifier, not a number
+            out[k] = v
         elif isinstance(v, (int, np.integer)):
             out[k] = int(v)
         else:
@@ -2016,22 +2036,10 @@ def demo_tiles(out: Path, seed: int = 7, size: int = 256, sim: int = 80,
         for name, panel, facts in panels
     ])
 
-    # The contact sheet is for a person; this is the sheet a *game* loads.  Same ten
-    # tiles, and the difference is entirely in the margins: a sprite atlas trims its
-    # members and leaves a transparent gap, and for a tile both of those are wrong.  A
-    # tile's edge is its *seam*, so there is nothing to trim, and its margin has to be
-    # more of the tile -- the tile wrapped onto itself -- so that a filtered sample
-    # beside it reads the material rather than a neighbour or a gap.  Above one level,
-    # the same thing is done at every scale: ``mips`` repacks rather than resampling a
-    # sheet, because a margin is two texels at every level and not two pixels at level
-    # zero divided by eight.
     if atlas:
         members = [(name, panel) for name, panel, _f in panels]
         if mips is None or int(mips) > 1:
-            # A chain: level 0 is the single sheet, so the chain does not have a
-            # different head from the sheet it grew out of.  ``None`` is every level
-            # the tiles support, which is the honest version of "how bad does it get":
-            # the answer is at the bottom, where a tile is smaller than its own bleed.
+
             levels = None if mips is None else int(mips)
             for image, info in tex_atlas.mips(members, levels=levels):
                 path = out.with_name(f"{out.stem}-mip{info['level']}.png")
@@ -2119,12 +2127,7 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True,
                      "name": name,
                      "seed": seed,
                      "size": panel.w,
-                     # The whole row, not a selection of it: the docstring above
-                     # promises "every number in the row", and a sidecar that
-                     # dropped the scales could not be fed back to ``texture``.
-                     # ``base`` stays in OKLCH, because that is the parameter the
-                     # painter reads and a hex would round it to 8 bits; ``base_hex``
-                     # is the swatch, for a reader rather than for the code.
+
                      "row": {**g[name]._asdict(), "base": list(g[name].base)},
                      "base_hex": palette.srgb_to_hex(
                          palette.oklch_to_srgb(g[name].base)),
@@ -2136,9 +2139,6 @@ def demo_grounds(out: Path, seed: int = 7, size: int = 256, atlas: bool = True,
                  for name, panel in panels
              ])
 
-    # The same six as one packed sheet, with the bleed a wrapped tile needs: the
-    # margins are more of the tile rather than a transparent gap, because the pixel
-    # beside a tile's edge is its own opposite edge.
     if atlas:
         members = [(name, panel) for name, panel in panels]
         if mips is None or int(mips) > 1:
@@ -2170,10 +2170,7 @@ def demo_site(out: Path, seed: int = 7, size: int = 56, cols: int = 8,
     ``flat`` asks for the left panel alone, which is what a caller comparing a site with
     ``out/maps.png`` wants; the demo ships both because the pair is the argument.
     """
-    # The map's own river quantile leaves a 48-cell site with no river at all; a site
-    # is a *place*, and the demo opens the fraction a little so the picture has the
-    # stream the module can draw.  The sidecar records it, so the number is not hidden.
-    # A caller can ask for another fraction without abandoning the demo's framing.
+
     river = dict(river_fraction=0.90 if river_fraction is None
                  else float(river_fraction))
     flat_panel = map_site.site_image(seed=seed, cols=cols, rows=rows, size=size,
@@ -2248,9 +2245,7 @@ def demo_iso(out: Path, seed: int = 7, cols: int = 11, rows: int = 8,
     head, foot, margin = 96, 62, 34
     page = Canvas(board.w + 2 * margin, board.h + head + foot + margin,
                   scale=1.0, y_up=False, background=(0.90, 0.90, 0.93))
-    # The board is an object on a table, and the shadow is what says so; it belongs
-    # to the page and not to the board, because a transparent margin should stay
-    # transparent in a game.
+
     shadow = render.drop_shadow(board.a, scale=1.0, offset=(3.0, -7.0),
                                 sigma=5.0, opacity=0.30)
     page.over_srgb((0.05, 0.05, 0.07), shadow, margin, head)
@@ -2319,8 +2314,7 @@ def demo_factions(out: Path, names=None, size: int = 168, seed: int = 7,
     sheet.save(out)
     img = png.to_image(sheet)
     for i, f in enumerate(factions):
-        # Two tiles per faction, four to a row, so a faction's caption belongs under
-        # the *pair*, and the gap between rows is what it is drawn in.
+
         x = gap + (2 * i) % 4 * (size + gap)
         y = gap + (i // 2) * (size + gap) + size + 5
         _wrap_label(img, (x, y), f["name"], width=2 * size + gap - 6, font=_font(13))
@@ -2363,7 +2357,10 @@ def demo(out: Path, seed: int = 7) -> None:
     demo_lineage(out / "lineage.png", seed=seed)
     demo_ui(out / "ui.png", seed=seed, count=2, scale=2)
     demo_vectors(out, seed=seed, count=2, scale=2)
-    demo_maps(out / "maps.png", seed=seed, count=2)
+    demo_maps(out / "maps.png", seed=seed, count=2, cols=32, rows=22, size=12.0,
+              hero_seed=seed)
+    demo_buildings(out / "buildings.png", seed=seed, count=3, size=128)
+    demo_objects(out / "objects.png", seed=seed, count=12, size=128, cols=6)
     demo_coast(out / "coast-tiles.png", seed=seed, count=2)
     demo_tiles(out / "tiles.png", seed=seed, mips=TILE_MIPS)
     demo_grounds(out / "grounds.png", seed=seed)
@@ -2377,9 +2374,6 @@ def demo(out: Path, seed: int = 7) -> None:
     print("done.")
 
 
-# --------------------------------------------------------------------------
-# entry point
-# --------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ozart", description="Procedural 2-D asset generator (SDF + OKLab).")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -2634,21 +2628,45 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--svg", action="store_true",
                    help="also write each kit's vector (SVG) form beside the sheet")
 
-    m = sub.add_parser("maps", help="hex maps: terrain, relief and coastline")
+    m = sub.add_parser("maps", help="continuous isometric voxel worlds: no hex lattice")
     m.add_argument("--out", default="out/maps.png", type=Path)
     m.add_argument("--seed", type=int, default=7)
-    m.add_argument("--count", type=int, default=2, help="how many seeded maps")
-    m.add_argument("--cols", type=int, default=26, help="hexes across")
-    m.add_argument("--rows", type=int, default=17, help="hexes down")
-    m.add_argument("--size", type=float, default=13.0, help="hex circumradius in pixels")
-    m.add_argument("--sea", type=float, default=0.42, help="fraction of the map that is water")
-    m.add_argument("--provinces", type=int, default=8, help="provinces per map, 0 for none")
-    m.add_argument("--river", type=float, default=0.92, help="river strength, 0 for none")
-    m.add_argument("--road", type=float, default=0.85, help="road opacity, 0 for none")
-    m.add_argument("--seas", type=int, default=8, help="sea provinces, 0 for none")
-    m.add_argument("--factions", type=int, default=4, help="realms holding the provinces, 0 for none")
-    m.add_argument("--no-names", action="store_true",
-                   help="leave the province names out of the map")
+    m.add_argument("--count", type=int, default=1, help="how many seeded worlds")
+    m.add_argument("--cols", type=int, default=42, help="voxel columns across")
+    m.add_argument("--rows", type=int, default=30, help="voxel rows down")
+    m.add_argument("--size", type=float, default=14.0,
+                   help="voxel tile width in pixels")
+    m.add_argument("--sea", type=float, default=0.34,
+                   help="fraction of the world that is water")
+    m.add_argument("--rivers", type=int, default=4, help="river systems, 0 for none")
+    m.add_argument("--roads", type=int, default=2, help="road routes, 0 for none")
+    m.add_argument("--hero", default=None,
+                   help="free world position x,y; default: the map's spawn")
+    m.add_argument("--hero-seed", type=int, default=7,
+                   help="seed of the figure placed on the map")
+    m.add_argument("--no-hero", action="store_true",
+                   help="do not place a figure on the map")
+
+    b = sub.add_parser("buildings",
+                       help="isometric buildings in five projections")
+    b.add_argument("--out", default="out/buildings.png", type=Path)
+    b.add_argument("--seed", type=int, default=7)
+    b.add_argument("--count", type=int, default=4, help="how many seeded buildings")
+    b.add_argument("--size", type=int, default=160, help="pixels per projection")
+    b.add_argument("--kind", default=None, choices=object_buildings.KINDS,
+                   help="build one named type instead of sampling")
+    b.add_argument("--gap", type=int, default=22)
+
+    ob = sub.add_parser("objects",
+                        help="modern isometric objects: machines, vehicles, furniture")
+    ob.add_argument("--out", default="out/objects.png", type=Path)
+    ob.add_argument("--seed", type=int, default=7)
+    ob.add_argument("--count", type=int, default=12, help="how many seeded objects")
+    ob.add_argument("--size", type=int, default=128, help="pixels per object")
+    ob.add_argument("--cols", type=int, default=6, help="objects per row")
+    ob.add_argument("--kind", default=None, choices=object_props.KINDS,
+                    help="build one named object instead of sampling")
+    ob.add_argument("--gap", type=int, default=24)
 
     co = sub.add_parser("coast", help="the coastline as a tileset: 64 edge tiles in a sheet")
     co.add_argument("--out", default="out/coast-tiles.png", type=Path)
@@ -2754,16 +2772,25 @@ def main(argv=None) -> int:
     elif args.cmd == "maps":
         demo_maps(args.out, seed=args.seed, count=args.count, cols=args.cols,
                   rows=args.rows, size=args.size, sea=args.sea,
-                  provinces=args.provinces, rivers=args.river,
-                  factions=args.factions, road=args.road,
-                  names=not args.no_names, sea_provinces=args.seas)
+                  rivers=args.rivers, roads=args.roads,
+                  hero=None if args.hero is None else _xy(args.hero),
+                  hero_seed=args.hero_seed, no_hero=args.no_hero)
+    elif args.cmd == "buildings":
+        demo_buildings(args.out, seed=args.seed, count=args.count,
+                       size=args.size,
+                       kinds=None if args.kind is None else [args.kind],
+                       gap=args.gap)
+    elif args.cmd == "objects":
+        demo_objects(args.out, seed=args.seed, count=args.count, size=args.size,
+                     cols=args.cols,
+                     kinds=None if args.kind is None else [args.kind],
+                     gap=args.gap)
     elif args.cmd == "coast":
         demo_coast(args.out, seed=args.seed, count=args.count, cols=args.cols,
                    rows=args.rows, hex_size=args.hex_size, sea=args.sea,
                    size=args.size, inland=args.inland)
     elif args.cmd == "text":
-        # a face has no seed: the alphabet and the pen are the whole of it, and the
-        # sidecar says so with a seed of zero rather than inventing one
+
         demo_text(args.out, size=args.size, faces=args.face, width=args.width)
     elif args.cmd == "factions":
         demo_factions(args.out, names=args.name, size=args.size, seed=args.seed,
@@ -2786,8 +2813,7 @@ def main(argv=None) -> int:
                      hero_seed=args.hero_seed, cycle=args.cycle,
                      facing=args.facing)
         except ValueError as exc:
-            # A named hex can be off the board or in the water.  That is a user
-            # mistake with a one-line answer, not a traceback.
+
             raise SystemExit(f"iso: {exc}") from None
     elif args.cmd == "credits":
         if args.out is not None:
@@ -2801,7 +2827,6 @@ def main(argv=None) -> int:
             print(creditslib.credits(args.manifest), end="")
         return 0
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

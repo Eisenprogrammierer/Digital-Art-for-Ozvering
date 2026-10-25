@@ -50,28 +50,15 @@ __all__ = [
     "terrain_layer",
 ]
 
-#: The dark used for coastlines, the map's edge and the lattice (sRGB).
 INK = palette.hex_to_srgb("#16222e")
 
-#: Water is a depth ramp rather than three flat classes.  The biome table still
-#: distinguishes shallows from ocean from deep -- that difference is real, and a
-#: navy needs to know it -- but the picture interpolates between them, because a
-#: hand-drawn sea is a wash and not a mosaic.
 SEA_RAMP = tuple(palette.hex_to_srgb(h) for h in ("#59a3bd", "#2a6a8c", "#122c44"))
 
-#: Rivers are lighter than the sea they empty into: on a map with a coast in ink,
-#: a river in the deep-sea colour reads as a crack rather than as water.
 RIVER = palette.hex_to_srgb("#5f9cc0")
 
-#: A road is two strokes: a pale one for the made surface and a dark one for its
-#: edge.  One colour cannot do it -- a pale line vanishes on a snowcap and a dark
-#: one in forest -- and a road has to be followable across both.
 ROAD = palette.hex_to_srgb("#ecdcb0")
 ROAD_EDGE = palette.hex_to_srgb("#4a3826")
 
-#: Sea provinces are drawn the way a chart draws a maritime boundary: a thin pale
-#: line, because the water it is drawn on is already dark and an ink line over dark
-#: water reads as a crack in it.
 SEA_BORDER = palette.hex_to_srgb("#86b4cd")
 
 _AMBIENT = 0.66
@@ -189,41 +176,29 @@ def terrain_layer(canvas: Canvas, grid: HexGrid, f: dict, seed: int = 0,
     c = np.clip(cell.rc[..., 1], 0, grid.cols - 1)
     water = f["water"][r, c]
 
-    # Land: the flat colour of the cell's biome.
     srgb = terrain.colour_table()[f["biome"][r, c]]
-    # Sea: a wash from the shelf out to the deep, keyed on how far below sea
-    # level the cell is, so the shelf hugs the coast it belongs to.
+
     depth = np.clip((f["sea"] - f["elev"][r, c]) / 0.30, 0.0, 1.0)
     sea = palette.ramp_map(SEA_RAMP, depth)
     srgb = np.where(water[..., None], sea, srgb)
 
-    # Relief: Lambert on the piecewise-linear surface, as a multiplier so the
-    # biome colours survive the shading instead of being washed towards grey.
     h = relief_height(grid, f, cell, relief)
     base_n = render.height_normals(h, canvas.dx, y_up=canvas.y_up)
     n = base_n
     if height_extra is not None:
-        # One light sees the hex's own relief and the material's, so the two cannot
-        # disagree about which way is up.
+
         raised = h + np.where(water, 0.0, height_extra)
         n = render.height_normals(raised, canvas.dx, y_up=canvas.y_up)
-        # A gradient reads its neighbours, so a material on the shore would tilt the sea
-        # one pixel out.  The water keeps the normal it had without a ground: the sea has
-        # no material, and that has to be true at its edge as well.
+
         n = np.where(water[..., None], base_n, n)
     L = np.array([LIGHT[0], LIGHT[1], 0.65])
     L = L / np.linalg.norm(L)
     lam = np.clip(n @ L, 0.0, 1.0)
     srgb = srgb * (_AMBIENT + _DIFFUSE * lam)[..., None]
 
-    # A little grain, at a frequency the hexes cannot produce, so the fields read
-    # as ground rather than as a chart.
     grain = noise.fbm(X / 5.0, Y / 5.0, seed=seed + 404, freq=1.0, octaves=3)
     srgb = srgb * (1.0 - texture + 2.0 * texture * grain)[..., None]
 
-    # The material's own tone modulates the biome's colour -- the colour is the map's
-    # claim about what the hex *is*, the tone is the claim about what it is *like* -- and
-    # water keeps the colour it had, because a sea has no ground.
     if shade is not None:
         srgb = srgb * np.where(water[..., None], 1.0, shade[..., None])
 
@@ -252,8 +227,7 @@ def cliff_alpha(canvas: Canvas, grid: HexGrid, f: dict, cell, strength: float = 
     across = np.where(nr >= 0, f["height"][np.clip(nr, 0, grid.rows - 1),
                                             np.clip(nc, 0, grid.cols - 1)], own)
     drop = np.abs(own - across)
-    # The distribution is the *map's*, not the canvas's: the margin is a page, and a
-    # quantile that counted the pixels outside the map would move when the page did.
+
     inside = drop[cell.ok]
     lo = float(np.quantile(inside, lo_q)) if inside.size else 0.0
     hi = float(np.quantile(inside, hi_q)) if inside.size else 0.0
@@ -400,7 +374,7 @@ def _border_weight(grid: HexGrid, labels, cell, owners, internal: float):
             for rr, cc in grid.nbr[r, c]:
                 rr, cc = int(rr), int(cc)
                 if rr < 0 or cc < 0:
-                    continue            # off the sheet: a map edge is not a border
+                    continue
                 other = int(labels[rr, cc])
                 if other >= 0 and other < n and int(owners[other]) != mine:
                     same = False
@@ -511,8 +485,6 @@ def map_image(
     block = np.ones((rows, cols), dtype=bool)
     cell = grid.cell(*canvas.grid())
 
-    # A shadow under the whole block: the map is a sheet of ground, and the sheet
-    # is on a table.
     if shadow > 0.0:
         canvas.over_srgb((0.04, 0.04, 0.06),
                          render.drop_shadow(cell.ok.astype(np.float64), canvas.scale,
@@ -524,11 +496,6 @@ def map_image(
     if cliff > 0.0:
         canvas.over_srgb(INK, cliff_alpha(canvas, grid, f, cell, strength=cliff))
 
-    # The coast's own arithmetic, asked of a different field.  A biome border is an
-    # edge between two land hexes of different ground, so it is ``within`` the land
-    # -- an edge that reaches the water belongs to the coastline, which is one line
-    # and not a thicker one -- and it is drawn thinner and paler, because the ground
-    # changing is a smaller event than the land ending.
     if inland > 0.0:
         edge = autotile.borders(f["biome"], grid, within=~f["water"])
         autotile.border_layer(canvas, grid, edge, cell, INK, width=0.11, alpha=inland)
@@ -545,8 +512,7 @@ def map_image(
         ink_tints = None
         if province_owners is not None and province_tints is not None:
             held = politics.waters(grid, res, charted, province_owners)
-            # One colour per realm, taken from any province of that realm: an owner
-            # always wears the same wash, so the first province of theirs will do.
+
             realm = {}
             for i, o in enumerate(province_owners):
                 if int(o) >= 0 and int(o) not in realm:
@@ -559,15 +525,9 @@ def map_image(
         courses, threshold = river_courses(grid, f, river_fraction)
         river_layer(canvas, grid, courses, threshold, alpha=river)
 
-    # Roads go on after the rivers and before the capitals: a road crosses a river
-    # at a ford and the ford is where the river is, and a road ends at a capital,
-    # which has a mark of its own sitting on top of it.
     if road > 0.0 and res is not None:
         road_layer(canvas, grid, roads.network(grid, f, res), alpha=road)
 
-    # Names go on after the roads and before the capitals, for the same reason the
-    # roads do: a road is drawn *to* a capital, and a name is the province's, so the
-    # boss sits on top of whatever it lands on and a road is never cut by type.
     if res is not None and names:
         _labels.draw(canvas, grid, _labels.layout(grid, res))
 
@@ -575,20 +535,14 @@ def map_image(
         marks = province_tints if province_owners is not None else None
         capital_marks(canvas, grid, res, size=0.30 * size, colours=marks)
 
-    # The lattice, from the per-pixel distance to the pixel's own hex border --
-    # the one thing a per-hex stroke could not do without seams.
     if lattice > 0.0:
         d_edge = cell.edge_distance()
         a = render.coverage(d_edge - 0.5 * lattice * size, canvas.dx)
-        # A fainter lattice over water: the grid is there to count steps on, and
-        # nobody counts steps on the sea.
+
         weight = np.where(f["water"][np.clip(cell.rc[..., 0], 0, rows - 1),
                                      np.clip(cell.rc[..., 1], 0, cols - 1)], 0.08, 0.20)
         canvas.over_srgb(INK, a * weight * cell.ok)
 
-    # The coast: every hex inks the edges its own key marks, so the picture is a
-    # function of the terrain and not a line walked round it -- and the tiles the
-    # sheet ships are the same function, which is why the two cannot disagree.
     edge = autotile.borders((~f["water"]).astype(np.int64), grid, outside=0)
     autotile.border_layer(canvas, grid, edge, cell, INK, width=0.24, alpha=0.80)
     for loop in coast.boundary_loops(grid, block):

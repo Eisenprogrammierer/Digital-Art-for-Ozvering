@@ -64,27 +64,14 @@ from .grid import HexGrid
 
 __all__ = ["HERO_SIZE", "RISE", "SQUASH", "hero_cell", "iso_image", "terraces"]
 
-#: The vertical squash of the ground plane: the cosine of a camera pitch of about 52
-#: degrees.  A board is read at a glance, so the hexes have to stay wide enough to
-#: count and tall enough to stand a figure on.
 SQUASH = 0.62
 
-#: How far one unit of terrain height lifts the board, as a fraction of the hex size.
-#: The map's land rises only about 0.2 above the sea level it was cut at, so a board
-#: needs a strong vertical scale to show a hill at all: at 4.0 the highest ground stands
-#: about 0.8 of a hex proud of the water, which is the exaggeration a strategy board has
-#: always used.
 RISE = 4.0
 
-#: The sprite box of the hero, as a fraction of the hex size.  The drawn figure fills
-#: about 0.92 of its box, so the hero is about one and a half hexes tall.
 HERO_SIZE = 1.8
 
-#: The lattice's ink and width, as fractions of the hex.  The board shows its hexes;
-#: the line is a ruler, not a cage.
 LATTICE = 0.016
 
-#: How wide the foam is on the water side of a board's coast, as a fraction of the hex.
 FOAM = 0.055
 
 
@@ -251,10 +238,7 @@ def iso_image(
     grid = HexGrid(cols, rows, size)
     f = terrain.fields(grid, seed=seed, **kw)
     z = terraces(f, levels)
-    # ``rise`` is a fraction of the hex size at the API, and a number of pixels per
-    # unit of height inside the projection.  The distinction is the whole difference
-    # between a hill and a wrinkle: the map's heights are fractions, and a fraction
-    # means nothing to a raster until the hex size says what it is a fraction of.
+
     rise = float(rise) * float(size)
 
     if hero is None:
@@ -277,8 +261,6 @@ def iso_image(
         if len(xs):
             sprite_box = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
 
-    # The board's own bounds, plus the hero's head: a hero on the back row must not
-    # lose it to the margin.  Raw screen coordinates first; the offset comes after.
     raw = []
     for r in range(rows):
         for c in range(cols):
@@ -321,21 +303,18 @@ def iso_image(
         for d in range(6):
             nr, nc = int(grid.nbr[r, c, d, 0]), int(grid.nbr[r, c, d, 1])
             if nr < 0 or nc < 0:
-                # Off the board, the slab is cut down to sea level: the south and
-                # west/east edges show a face, the north edge is behind the board.
+
                 nz = 0.0
             else:
                 nz = z[nr, nc]
             drop = (own - nz) * rise
             if drop < 0.55:
                 continue
-            # Only the faces that turn towards the camera: a hex edge whose
-            # neighbour is nearer (smaller world y) is one of the two southern ones.
+
             if nr >= 0 and nc >= 0 and grid.centers[nr, nc, 1] >= grid.centers[r, c, 1]:
                 continue
             if nr < 0 or nc < 0:
-                # The east and west cut edges are seen exactly edge-on with no yaw;
-                # their faces have no width on screen and are not worth drawing.
+
                 (x0, y0) = grid.corners_of(r, c)[d]
                 (x1, y1) = grid.corners_of(r, c)[(d + 1) % 6]
                 if abs(x1 - x0) < 0.5:
@@ -349,17 +328,13 @@ def iso_image(
             if x1 <= x0 or y1 <= y0:
                 continue
             _x, _y, px, py, dinside, cov = _cover(poly, x0, y0, x1, y1)
-            # The material is sampled along the edge: x alone recovers the world x,
-            # because the projection does not turn x; the edge gives the world y.
+
             (ax, ay), (bx, by) = grid.corners_of(r, c)[d], grid.corners_of(r, c)[(d + 1) % 6]
             wx = np.clip(px - ox, min(ax, bx), max(ax, bx))
             wy = np.where(abs(bx - ax) > 1e-9, ay + (wx - ax) * (by - ay) / (bx - ax),
                           (ay + by) * 0.5)
             srgb = cliff_at(wx, wy, f["biome"][r, c])
-            # A vertical gradient: the top lip catches the sky, the base is in its own
-            # shadow.  This is a second light in the sense that it is a gradient, and it
-            # is the only one: the face's horizontal normal is turned away from the
-            # project's light, so it would otherwise be uniformly black.
+
             ytop = np.minimum(top[0][1], top[1][1])
             ybot = np.maximum(bot[0][1], bot[1][1])
             frac = np.clip((py - ytop) / max(ybot - ytop, 1e-9), 0.0, 1.0)
@@ -373,9 +348,7 @@ def iso_image(
         if x1 <= x0 or y1 <= y0:
             return
         _x, _y, px, py, dinside, cov = _cover(poly, x0, y0, x1, y1)
-        # The inverse of the projection at this hex's height: the world point under
-        # every pixel of this top.  This is what makes the material world-sampled
-        # instead of per-tile.
+
         wx = px - ox
         wy = -(py - oy + own * rise) / squash
         if f["water"][r, c]:
@@ -389,9 +362,7 @@ def iso_image(
             s = shade(wx, wy, f["biome"][r, c])
             srgb = base[None, None, :] * s[..., None]
             ink = 0.20
-        # One line at the rim, drawn by darkening the top rather than as a second
-        # pass: the distance is already here, and a stroke would have to be clipped
-        # to the same polygon twice.
+
         edge = np.clip(1.0 - np.maximum(dinside, 0.0) / max(width * 1.4, 1e-9), 0.0, 1.0)
         srgb = srgb * (1.0 - ink * edge)[..., None]
         canvas.over_srgb(np.clip(srgb, 0.0, 1.0), cov, x0, y0)

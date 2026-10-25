@@ -56,8 +56,6 @@ __all__ = [
     "waving",
 ]
 
-#: Flags sit in their frame and are lit like everything else, but they carry no
-#: drop shadow by default: a flag is a plane, not a figurine.
 FLAG_STYLE = {
     "margin": 0.035,
     "shadow": 0.0,
@@ -162,8 +160,6 @@ def bordered(field: str, bordure: str, ratio=(3, 2), shape: str = "rectangle", s
     """A flag with a border along its own edge."""
     return _flag_spec(ratio, shape, {"kind": "plain", "tinctures": [field]}, {"name": "bordure", "tincture": bordure}, style=style)
 
-
-#: Pattern names, for listings and for the Russian description.
 PATTERNS = {
     "plain": ("plain", "одноцветное полотнище"),
     "bicolour": ("bicolour", "двухполосное полотнище"),
@@ -176,7 +172,6 @@ PATTERNS = {
     "bordered": ("bordered", "полотнище с каймой"),
 }
 
-#: Which pattern name an ordinary implies, for the description.
 _ORD_TO_PATTERN = {
     "cross": "cross",
     "saltire": "saltire",
@@ -312,22 +307,18 @@ def render(spec: dict, size=512, background=None, shade=None):
         style["margin"] = float(style.get("margin", FLAG_STYLE["margin"])) + 1.6 * _cloth.reach(wave)
         canvas = _blazon.render({**frame, "style": style}, size=size, background=background,
                                 shade=shade)
-        # The folds are measured against the cloth, which the renderer is the one
-        # that knows: the frame has been widened for the cloth to move into, and a
-        # fold measured against *that* would start at the hoist only by accident.
+
         along_x = wave.get("direction", _cloth.DEFAULTS["direction"]) == "vertical"
         box = (-cloth_hw, cloth_hw) if along_x else (-1.0, 1.0)
         if bar:
-            # A bar hangs the cloth down through its own height, and the cloth is one
-            # unit tall by construction whatever the frame grew to around it.
+
             canvas = _cloth.drape(canvas, wave, box=box, drop=(1.0, -1.0))
         else:
             canvas = _cloth.hang(canvas, wave, box=box)
     else:
         canvas = _blazon.render(frame, size=size, background=background, shade=shade)
     if frame.get("pole"):
-        # A flag's cloth is one unit tall by construction, whatever the frame grew
-        # to around it, and the pole is measured against the cloth.
+
         _pole.paint(canvas, frame["pole"], cloth_hw, 1.0)
     if bar:
         _pole.bar_paint(canvas, bar, cloth_hw, 1.0)
@@ -372,8 +363,6 @@ def waving(spec: dict, count: int = 8, turns: float = 1.0, size=512):
               for phase in phases]
     return frames, phases
 
-
-#: Flag pattern factories, keyed by name, for the generator and the CLIs.
 _FACTORIES = {
     "plain": lambda rng: plain(_pick(rng, _POOL)),
     "bicolour": lambda rng: bicolour(*_pair(rng), direction=str(rng.choice(["horizontal", "vertical"]))),
@@ -386,7 +375,6 @@ _FACTORIES = {
     "bordered": lambda rng: bordered(*_pair_contrast(rng)),
 }
 
-#: Flags are textile and pull from the full classical set, unlike arms.
 _POOL = [t for t in _tinctures.CLASSICAL]
 
 
@@ -407,8 +395,7 @@ def _pair_contrast(rng):
         b = _pick(rng, [t for t in _POOL if _tinctures.is_colour(t)])
     else:
         b = _pick(rng, [t for t in _POOL if _tinctures.is_metal(t)])
-    # Half the time, allow a same-class pair: real flags do it constantly, but
-    # a cross of one colour on a field of another reads badly, so not too often.
+
     if float(rng.random()) < 0.3:
         return a, _pick(rng, [t for t in _POOL if t != a])
     return a, b
@@ -452,21 +439,20 @@ def random_flag(seed: int = 0, ratio=(3, 2), shape: str = "rectangle", style=Non
     spec = _FACTORIES[name](rng)
     spec["shield"] = {"kind": "flag", "ratio": tuple(ratio), "shape": shape}
     spec["style"] = dict(FLAG_STYLE, **(style or {}))
-    # Occasional embellishment: a charge on the field, as many real flags have.
+
     if float(rng.random()) < 0.22:
         pool = [c for c in _charges.names() if c not in _charges.with_tag("stylised")]
         ch = str(rng.choice(pool))
         count = int(rng.choice([1, 1, 3]))
         tincture = _pick(rng, [t for t in _POOL if t != spec["field"].get("tinctures", ["argent"])[0]])
         spec["charges"] = [{"name": ch, "count": count, "arrangement": "one" if count == 1 else "three", "tincture": tincture}]
-    # A pole is not cloth, so it is drawn before the wave and cannot change it.
+
     if pole:
         spec["pole"] = _pole.spec(**(dict(pole) if isinstance(pole, dict) else {}))
-    # A bar is not cloth either, and it is drawn after the pole because it is
-    # mounted on it: a gonfalon on a staff has the crossbar in front of the shaft.
+
     if bar:
         spec["bar"] = _pole.bar(**(dict(bar) if isinstance(bar, dict) else {}))
-    # Drawn last, so that asking for cloth cannot change a flag that does not.
+
     if wave:
         pinned = dict(wave) if isinstance(wave, dict) else {}
         spec["wave"] = _cloth.wave(

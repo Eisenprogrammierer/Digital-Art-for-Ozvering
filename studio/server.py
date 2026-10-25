@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import secrets
 import shlex
@@ -39,25 +40,17 @@ from urllib.parse import unquote, urlparse
 
 from . import catalog
 
-#: The repository root, from this file's location.  The subprocess runs here so
-#: ``cli.py`` and the packages import exactly as they do in a terminal.
 ROOT = Path(__file__).resolve().parents[1]
 
-#: Where a render writes.  A token per render keeps two pictures with the same name
-#: from overwriting each other and makes a download link stable after the request.
+DEFAULT_TIMEOUT = float(os.environ.get("OZART_TIMEOUT", "3600"))
+
 DEFAULT_ROOT = ROOT / "out" / "studio"
 
-#: The page, its stylesheet and its script.  A whitelist rather than ``..`` checks:
-#: a static path is one of three names.
 STATIC = Path(__file__).resolve().parent / "static"
 STATIC_FILES = {"index.html", "app.js", "style.css"}
 
-#: One render at a time: the generators are CPU-bound and a browser can press the
-#: button twice.  A queue is friendlier than two numpy processes fighting for cores.
 RENDER_LOCK = threading.Lock()
 
-#: Tokens are timestamped so the output directory sorts by age.  The random tail is
-#: what makes the URL unguessable; the timestamp is for a human looking at ``out``.
 TOKEN_RE = r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$"
 
 
@@ -213,7 +206,7 @@ def render(gen: dict, values: dict, root: Path) -> dict:
     try:
         with RENDER_LOCK:
             done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
-                                  timeout=int(gen.get("timeout", 120)))
+                                  timeout=float(gen.get("timeout", DEFAULT_TIMEOUT)))
     except subprocess.TimeoutExpired:
         shutil.rmtree(outdir, ignore_errors=True)
         raise ValueError(f"the {gen['title'].lower()} took too long and was stopped")
@@ -253,8 +246,7 @@ class Handler(BaseHTTPRequestHandler):
 
     server_version = "ozart-studio/1"
 
-    # ------------------------------------------------------------- plumbing
-    def log_message(self, fmt, *args):  # noqa: D401 - BaseHTTPRequestHandler API
+    def log_message(self, fmt, *args):
         if not getattr(self.server, "quiet", True):
             sys.stderr.write("studio: " + (fmt % args) + "\n")
 
@@ -336,8 +328,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
         self._send(200, path.read_bytes(), "application/zip")
 
-    # --------------------------------------------------------------- routes
-    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_GET(self):
         path = unquote(urlparse(self.path).path)
         if path in ("/", "/index.html"):
             self._static("index.html")
@@ -354,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._error(404, "no such page")
 
-    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_POST(self):
         if urlparse(self.path).path != "/api/render":
             self._error(404, "no such endpoint")
             return

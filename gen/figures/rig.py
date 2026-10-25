@@ -40,10 +40,6 @@ import numpy as np
 __all__ = ["REST", "SEGMENTS", "PROPORTIONS", "STAND", "joints", "bones",
            "proportions", "pose", "points", "extent"]
 
-#: Every bone, as ``(name, from, to)``.  The order *is* the order of the kinematics
-#: -- a bone is listed after the joint it starts from has been placed -- so
-#: positioning a figure is one pass down this tuple.  A skeleton has no cycles and
-#: a recursion here would be a stack frame per joint bought for nothing.
 SEGMENTS = (
     ("spine", "pelvis", "chest"),
     ("neck", "chest", "neck"),
@@ -64,23 +60,16 @@ SEGMENTS = (
     ("foot_far", "foot_far", "toe_far"),
 )
 
-#: The rest pose: where every bone points when the figure is standing still, in
-#: radians, measured from straight *down* and turning towards ``+x`` -- the way the
-#: figure faces.  So 0 is down, ``+pi/2`` is forward, ``-pi/2`` is back and ``pi``
-#: is up, and a cycle only ever says how far a bone has moved from here.
 REST = {
     "spine": math.pi,
     "neck": math.pi,
     "head": math.pi,
-    # The near arm hangs a little in front of the torso: in a side view the arm is
-    # not beside the body, it is over it, and an arm that hangs through the middle of
-    # the chest looks like a strap.
+
     "upper_arm_near": 0.10,
     "upper_arm_far": -0.02,
     "forearm_near": 0.0,
     "forearm_far": 0.0,
-    # A forearm rests a little forward: arms do not hang straight, and a straight
-    # arm is the pose that reads as a doll.
+
     "hand_near": -math.pi / 8.0,
     "hand_far": -math.pi / 8.0,
     "hip_near": 0.0,
@@ -89,16 +78,11 @@ REST = {
     "thigh_far": 0.0,
     "shin_near": 0.0,
     "shin_far": 0.0,
-    # The foot bone runs from the ankle to the toe, so it points forward at rest,
-    # with the toe a little below the ankle.
+
     "foot_near": math.pi / 2.0 - 0.12,
     "foot_far": math.pi / 2.0 - 0.12,
 }
 
-#: Bone lengths as fractions of the figure's height.  The heights add up on
-#: purpose: hip to sole is 0.48, spine 0.27, neck 0.055, head 0.115, and the skull's
-#: own half-height puts the crown at 1.00 -- which is what makes these numbers a
-#: figure rather than a list, and a test checks that they add up.
 PROPORTIONS = {
     "spine": 0.270,
     "neck": 0.055,
@@ -119,15 +103,8 @@ PROPORTIONS = {
     "foot_far": 0.075,
 }
 
-#: How high the hip stands at rest, in figure units: the lengths of the three bones
-#: below it, added up.  It is written as a number of its own *because* a test can
-#: then check that the table adds up to it -- a hip is where its legs say it is, not
-#: where a drawing happened to put it.
 STAND = 0.48
 
-#: How far a seeded jitter may move each bone, as a fraction of itself.  A *pair* of
-#: bones moves together -- two thighs of different lengths is a limp, not a build --
-#: so a pair is drawn once and used twice.
 _JITTER = {
     "spine": 0.06,
     "neck": 0.10,

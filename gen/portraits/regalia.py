@@ -42,17 +42,14 @@ __all__ = [
     "build", "dress", "random_values", "validate", "paint_bust", "paint_ears",
 ]
 
-#: The dress code.  ``civil`` is ordinary clothing and keeps the shirt collar the
-#: rest of the portrait pipeline already draws; the rest replace it with a
-#: service collar and add the marks that go with it.
 ATTIRE = ("civil", "military", "police", "naval", "ceremonial", "clerical")
-#: Rank marks: collar tabs, shoulder boards, both, or neither.
+
 INSIGNIA = ("none", "collar", "shoulder", "both")
-#: Decorations on the chest, and the one armband.
+
 AWARDS = ("none", "ribbon", "medal", "order", "armband")
-#: Personal ornament, worn over the dress code.
+
 ORNAMENT = ("none", "aiguillette", "chain", "brooch", "earrings")
-#: A pendant, not a religion: the shape is the visible part.
+
 FAITH = ("none", "cross", "amulet")
 
 CATEGORIES = {
@@ -73,25 +70,21 @@ DEFAULTS = {
     "garment": "auto",
 }
 
-#: Branch colours.  A service is one colour; the arm of it is another.  The
-#: mapping is by culture, because a lineage's dress tradition is already a gene.
 _BRANCH = {
-    "north": (0.54, 0.095, 0.600),   # blue
-    "river": (0.51, 0.130, 0.035),   # red
-    "steppe": (0.52, 0.140, 0.030),  # red
-    "coast": (0.48, 0.100, 0.285),   # green
-    "desert": (0.55, 0.120, 0.075),  # ochre red
-    "highland": (0.47, 0.100, 0.305),  # green
+    "north": (0.54, 0.095, 0.600),
+    "river": (0.51, 0.130, 0.035),
+    "steppe": (0.52, 0.140, 0.030),
+    "coast": (0.48, 0.100, 0.285),
+    "desert": (0.55, 0.120, 0.075),
+    "highland": (0.47, 0.100, 0.305),
 }
 
-#: Ribbon faces.  Muted enough to sit under a face, distinct enough to read as a
-#: ribbon bar rather than a coloured strip.
 _RIBBONS = (
-    (0.47, 0.135, 0.030),   # crimson
-    (0.36, 0.080, 0.625),   # blue
-    (0.44, 0.075, 0.300),   # green
-    (0.72, 0.095, 0.145),   # gold
-    (0.90, 0.005, 0.300),   # white
+    (0.47, 0.135, 0.030),
+    (0.36, 0.080, 0.625),
+    (0.44, 0.075, 0.300),
+    (0.72, 0.095, 0.145),
+    (0.90, 0.005, 0.300),
 )
 
 
@@ -139,10 +132,7 @@ def build(genes: dict, h: Hues) -> Kit:
         k.tab_edge = np.asarray(h.metal, dtype=np.float64)
         k.gold = np.asarray(h.metal, dtype=np.float64)
     else:
-        # The sitter's cloth is the material.  Service identity lives only in the
-        # fixed accents, tabs, trim and metal: mixing a service colour into the
-        # body made an explicit black arrive brown, which is the one thing a
-        # colour control may not do.
+
         k.service = np.asarray(h.cloth, dtype=np.float64)
         k.service_hi = np.asarray(h.cloth_hi, dtype=np.float64)
         k.service_light = palette.lighten(h.cloth_hi, 0.040)
@@ -168,7 +158,7 @@ def build(genes: dict, h: Hues) -> Kit:
             k.tab = palette.mix(k.service, branch, 0.40)
             k.tab_edge = palette.oklch_to_srgb((0.78, 0.105, 0.135))
             k.gold = k.tab_edge
-        else:  # military
+        else:
             k.accent = branch
             k.tab = palette.mix(k.service, branch, 0.50)
             k.tab_edge = palette.oklch_to_srgb((0.76, 0.100, 0.135))
@@ -181,15 +171,14 @@ def build(genes: dict, h: Hues) -> Kit:
     k.silver = palette.oklch_to_srgb((0.78, 0.012, 0.620))
     k.silver_hi = palette.lighten(k.silver, 0.080)
     k.silver_shadow = palette.darken(k.silver, 0.100)
-    # The metal a mark is cut from: silver for police and clergy, gold otherwise.
+
     if k.attire in ("police", "clerical"):
         k.metal, k.metal_hi, k.metal_shadow = k.silver, k.silver_hi, k.silver_shadow
     else:
         k.metal, k.metal_hi, k.metal_shadow = k.gold, k.gold_hi, k.gold_shadow
     k.ribbon = palette.oklch_to_srgb(
         _RIBBONS[(ATTIRE.index(k.attire) + list(_BRANCH).index(culture)) % len(_RIBBONS)])
-    # Rank follows the decorations rather than inventing a second axis: an
-    # undecorated service dress has one bar, a decorated one two, an order three.
+
     k.rank = 1 + (k.awards != "none") + (k.awards in ("medal", "order"))
     k.rim = k.metal
     return k
@@ -234,9 +223,6 @@ def validate(genes: dict) -> None:
             raise ValueError(f"unknown {key} {value!r}")
 
 
-# --------------------------------------------------------------------------
-# small geometry helpers
-# --------------------------------------------------------------------------
 def _star(r: float, cx: float, cy: float, points: int = 8) -> S.Shape:
     """A heraldic star: alternating long and short radii, flat shaded later."""
     n = points * 2
@@ -266,22 +252,15 @@ def _normal(spine, t: float):
     return p, n / max(float(np.linalg.norm(n)), 1e-9)
 
 
-# --------------------------------------------------------------------------
-# the bust
-# --------------------------------------------------------------------------
 def paint_bust(canvas, st, h: Hues, genes: dict, kit: Kit, kind: str, clip) -> None:
     """The dress code, its marks and its decorations, over a finished bust."""
     if clip is None:
         return
     collar_clip = clip
     if kit.attire != "civil":
-        # A collar sits around the neck, and the bust's own clip stops at the
-        # neckline.  The neck coverage is added only for the collar pass, so the
-        # threaded edge cannot draw over the jaw.
+
         collar_clip = np.clip(clip + brush.mask(canvas, head.neck(st)), 0.0, 1.0)
-    # The order is the order it is put on: tunic details, then the cut of the
-    # garment over them, then the sash, collar and boards, then the overgarment,
-    # and last the decorations that are pinned on top of everything.
+
     if kit.attire != "civil":
         _tunic(canvas, st, h, kit, clip)
     garments.paint_front(canvas, st, h, kit, clip)
@@ -315,35 +294,30 @@ def _collar(canvas, st, h, kit: Kit, clip) -> None:
         col_sh = palette.darken(col, 0.075)
         edge = kit.service_line
     else:
-        # The band is a slightly lighter plane of the tunic's own cloth.  At
-        # 256 px the same colour as the body disappears and the tabs float: the
-        # collar has to be a *plane* before it can be a collar.
+
         col = kit.service_light
         col_hi = palette.lighten(col, 0.030)
         col_sh = kit.service_shadow
         edge = kit.service_line
 
-    xt = min(nw * 0.72, 0.128)      # half-width at the throat
-    xb = min(nw * 0.98, 0.172)      # half-width at the tunic
-    yt = top + 0.078                # upper edge, under the jaw
-    yb = top - 0.006                # lower edge, on the tunic
+    xt = min(nw * 0.72, 0.128)
+    xb = min(nw * 0.98, 0.172)
+    yt = top + 0.078
+    yb = top - 0.006
     band = S.poly([(-xb, yb), (-xt, yt), (0.0, yt - 0.008), (xt, yt),
                    (xb, yb), (0.0, yb + 0.002)], resample=48)
 
-    # The shadow the collar throws down onto the tunic, painted first.
     brush.paint(canvas, S.box(xb * 1.02, 0.020, 0.0, 0.0, yb - 0.018),
                 kit.service_shadow, clip=clip, alpha=0.20, soft=2.2)
     brush.paint(canvas, band, col, clip=clip, alpha=1.0, soft=0.45)
-    # Two planes: the upper edge is in the jaw's shadow, the lower fold catches
-    # the light.  A flat band is a strip; two planes make it cloth.
+
     brush.paint(canvas, band & S.box(xb * 1.2, 0.018, 0.0, 0.0, yt - 0.008),
                 col_sh, clip=clip, alpha=0.34, soft=0.9)
     brush.paint(canvas, band & S.box(xb * 1.2, 0.014, 0.0, 0.0, yb + 0.012),
                 col_hi, clip=clip, alpha=0.38, soft=0.7)
     brush.paint(canvas, band.outline(lw * 0.55), edge, clip=clip,
                 alpha=0.70, soft=0.24)
-    # A stand collar has a hard fold at the top and a stitched lower edge.  The
-    # old soft band read as a scarf; these two narrow lines restore tailoring.
+
     brush.paint(canvas, band & S.box(xb * 1.22, 0.0032, 0.0, 0.0, yt - 0.004),
                 palette.darken(col, 0.10), clip=clip, alpha=0.46, soft=0.22)
     brush.paint(canvas, band & S.box(xb * 1.22, 0.0024, 0.0, 0.0, yb + 0.008),
@@ -351,19 +325,16 @@ def _collar(canvas, st, h, kit: Kit, clip) -> None:
     brush.paint(canvas, band.outline(lw * 0.24), col_hi, clip=clip,
                 alpha=0.26, soft=0.18)
     if kit.attire in ("naval", "ceremonial"):
-        # A gold lace along the lower edge: the one line that says "dress"
-        # rather than "fatigue" at avatar size.
+
         brush.paint(canvas, band & S.box(xb * 1.2, 0.0032, 0.0, 0.0, yb + 0.026),
                     kit.gold, clip=clip, alpha=0.88, soft=0.35)
 
-    # The centre front: two halves of a stand collar meet in a seam.
     seam = S.lock([(0.0, yb + 0.006), (0.0, yt - 0.006)],
                   w0=0.0022, w1=0.0022, per_segment=3)
     brush.paint(canvas, seam, kit.service_line, clip=clip, alpha=0.42, soft=0.35)
 
     if clerical:
-        # The Roman collar: a white band with a black tab in the notch.  It is the
-        # whole garment in one shape, and it reads at 64 px.
+
         cy = (yt + yb) * 0.5
         tab = S.box(0.016, 0.024, 0.005, 0.0, cy)
         brush.paint(canvas, tab, kit.service, clip=clip, alpha=0.98, soft=0.40)
@@ -382,8 +353,7 @@ def _tunic(canvas, st, h, kit: Kit, clip) -> None:
     sw = float(st.shoulder_w)
 
     if kit.attire == "naval":
-        # Double-breasted: two columns of gold buttons.  The centre placket drawn
-        # by the detail pass is covered by them, which is the point.
+
         for side in (+1, -1):
             for k in range(3):
                 x = side * sw * 0.095
@@ -395,8 +365,7 @@ def _tunic(canvas, st, h, kit: Kit, clip) -> None:
                 brush.paint(canvas, S.circle(0.0035, x - 0.003, y + 0.003),
                             kit.gold_hi, clip=clip, alpha=0.9, soft=0.3)
     elif kit.attire in ("military", "police"):
-        # A breast pocket on the side the decorations do not occupy.  A flap and a
-        # single button are enough; a pocket outline alone reads as a decal.
+
         px = -sw * 0.255
         py = top - 0.150
         pocket = S.box(0.066, 0.044, 0.006, px, py)
@@ -411,9 +380,7 @@ def _tunic(canvas, st, h, kit: Kit, clip) -> None:
         button = S.circle(0.0065, px, py + 0.030)
         brush.paint(canvas, button, kit.metal, clip=clip, alpha=0.90, soft=0.25)
         if kit.attire == "police" and kit.adult:
-            # A shield above the pocket: the one civic mark that is not a rank.
-            # A child in a police tunic is a costume; the badge is what makes it
-            # a false claim, so the age gate lives here as well as in the genome.
+
             bx, by = -sw * 0.235, top - 0.072
             shield = S.poly([(bx - 0.022, by + 0.024), (bx + 0.022, by + 0.024),
                              (bx + 0.019, by - 0.008), (bx, by - 0.030),
@@ -426,9 +393,7 @@ def _tunic(canvas, st, h, kit: Kit, clip) -> None:
 
 
 def _insignia(canvas, st, h, kit: Kit, clip) -> None:
-    # A Roman collar is a complete garment: boards or tabs on it are a contradiction
-    # of the dress code, not a decoration.  This is a painter invariant, so a forced
-    # genome cannot produce it either.
+
     if kit.attire == "clerical":
         return
     if kit.insignia in ("collar", "both"):
@@ -453,15 +418,14 @@ def _collar_tabs(canvas, st, h, kit: Kit, clip) -> None:
                     alpha=0.94, soft=0.16)
         brush.paint(canvas, tab.outline(lw * 0.18), kit.tab_edge, clip=clip,
                     alpha=0.32, soft=0.18)
-        # A tiny button at the outer end is the difference between a tab and a
-        # painted rectangle.
+
         button = S.circle(0.0055, cx + side * 0.018, y)
         brush.paint(canvas, button.offset(0.0009).place(cy=-0.0008),
                     kit.metal_shadow, clip=clip, alpha=0.55, soft=0.16)
         brush.paint(canvas, button, kit.metal, clip=clip, alpha=0.96, soft=0.16)
         brush.paint(canvas, S.circle(0.0018, cx + side * 0.018 - 0.0015, y + 0.0015),
                     kit.metal_hi, clip=clip, alpha=0.92, soft=0.14)
-        # A branch stripe down the middle.
+
         brush.paint(canvas, S.lock([(cx + side * 0.001, y + 0.015),
                                     (cx - side * 0.002, y - 0.015)],
                                    w0=0.0028, w1=0.0022, per_segment=3),
@@ -469,52 +433,39 @@ def _collar_tabs(canvas, st, h, kit: Kit, clip) -> None:
 
 
 def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
-    # A shoulder cape is worn *over* the boards.  Painting them and trusting the
-    # cape's anti-aliased edge to hide them leaves gold arcs on the shoulders, so
-    # the correct thing is not to dress the shoulder at all under a mantle.
+
     if kit.cut in ("mantle", "habit"):
         return
     lw = float(st.ink_w) * float(st.line)
-    top = float(st.neck_y)
     nw = float(st.neck_w)
     sw = float(st.shoulder_w)
     for side in (+1, -1):
-        # A board lies on the *shoulder*, and the shoulder is the top edge of the
-        # bust -- not a horizontal line near the chest.  Sample that edge at four
-        # stations and keep the board's upper half inside the silhouette; the old
-        # fixed anchors put the whole board on the upper chest, which is what made
-        # it look like a lapel that had slipped off the shoulder.
+
         x0 = max(nw * 1.03, 0.185)
         x1 = sw * 0.520
         xs = [x0, x0 + (x1 - x0) * 0.34, x0 + (x1 - x0) * 0.68, x1]
         spine = [(side * x, head.shoulder_edge_y(st, side * x) - 0.034) for x in xs]
         a = spine[0]
         board = S.lock(spine, w0=0.062, w1=0.054, bulge=0.005, per_segment=7)
-        # A shadow under the free end gives the board thickness.  The board sits
-        # fully inside the shoulder silhouette, so the shadow has to be broad
-        # enough to survive the cel shading underneath it.
+
         brush.paint(canvas, S.lock([(p[0], p[1] - 0.020) for p in spine],
                                    w0=0.070, w1=0.062, per_segment=6),
                     kit.service_shadow, clip=clip, alpha=0.34, soft=1.4)
         brush.paint(canvas, S.lock([(p[0], p[1] - 0.010) for p in spine],
                                    w0=0.062, w1=0.054, per_segment=6),
                     kit.service_shadow, clip=clip, alpha=0.34, soft=0.34)
-        # The field is one step lighter than the tunic; without that step the
-        # board disappeared into the shoulder and only its gold piping read.
+
         brush.paint(canvas, board, kit.service_light, clip=clip, alpha=1.0, soft=0.42)
         brush.paint(canvas, board & S.lock([(p[0], p[1] + 0.019) for p in spine],
                                           w0=0.012, w1=0.009, per_segment=5),
                     palette.lighten(kit.service_light, 0.035), clip=clip,
                     alpha=0.30, soft=0.8)
-        # A dark seam outside a gold braid: the two outlines give the board an
-        # edge at avatar size, where a single thin line would alias away.
+
         brush.paint(canvas, board.outline(lw * 0.58), kit.service_line, clip=clip,
                     alpha=0.74, soft=0.24)
         brush.paint(canvas, board.outline(lw * 0.28), kit.metal, clip=clip,
                     alpha=0.94, soft=0.18)
-        # Braid and a burnished top edge.  A board is a piece of metal-cloth
-        # tailoring, not a flat lozenge; the narrow cord and the lit rim are what
-        # keep it from reading as a yellow stripe at 384 px.
+
         for k in (-1, 0, 1):
             cord = S.lock([(px, py + 0.0055 * k) for px, py in spine],
                           w0=0.0050, w1=0.0044, per_segment=6)
@@ -524,7 +475,7 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
             [(px, py + 0.020) for px, py in spine],
             w0=0.0050, w1=0.0040, per_segment=6),
             kit.metal_hi, clip=clip, alpha=0.70, soft=0.22)
-        # Piping along the outer edge, and the button at the inner end.
+
         brush.paint(canvas, S.lock([(p[0], p[1] - 0.029) for p in spine],
                                    w0=0.0042, w1=0.0036, per_segment=5),
                     kit.metal, clip=clip, alpha=0.96, soft=0.22)
@@ -532,7 +483,7 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
                     alpha=0.95, soft=0.25)
         brush.paint(canvas, S.circle(0.012, a[0], a[1]).outline(0.0026),
                     kit.metal_shadow, clip=clip, alpha=0.75, soft=0.2)
-        # Rank: stars along the outer half of the board.
+
         for k in range(kit.rank):
             t = 0.58 + 0.13 * k
             p, n = _normal(spine, t)
@@ -544,9 +495,6 @@ def _epaulettes(canvas, st, h, kit: Kit, clip) -> None:
                         kit.metal_hi, clip=clip, alpha=0.65, soft=0.2)
 
 
-# --------------------------------------------------------------------------
-# awards
-# --------------------------------------------------------------------------
 def _awards(canvas, st, h, kit: Kit, clip) -> None:
     if kit.awards == "none":
         return
@@ -572,7 +520,7 @@ def _ribbon_bar(canvas, st, kit: Kit, ax: float, ay: float, clip) -> None:
         if row == 1:
             base = palette.oklch_to_srgb(_RIBBONS[2])
         brush.paint(canvas, bar, base, clip=clip, alpha=0.96, soft=0.18)
-        # Three vertical stripes: the ribbon's own pattern, not an outline.
+
         for k, col in enumerate((palette.oklch_to_srgb(_RIBBONS[4]), kit.accent,
                                  palette.oklch_to_srgb(_RIBBONS[0]))):
             x = ax - 0.038 + k * 0.038
@@ -601,9 +549,7 @@ def _medals(canvas, st, kit: Kit, ax: float, ay: float, clip) -> None:
         brush.paint(canvas, rib.outline(lw * 0.22), kit.metal_shadow, clip=clip,
                     alpha=0.74, soft=0.16)
         disc = S.circle(0.026, cx, ry - 0.082)
-        # The disc is a struck medal: a cast shadow, a struck rim, a bright
-        # bevel on the lit side, and the star sitting in the field.  Flat gold
-        # was the difference between a medal and a yellow dot.
+
         brush.paint(canvas, S.circle(0.029, cx + 0.002, ry - 0.086),
                     kit.service_shadow, clip=clip, alpha=0.24, soft=1.2)
         brush.paint(canvas, disc, kit.metal, clip=clip, alpha=0.98, soft=0.25)
@@ -632,16 +578,15 @@ def _sash(canvas, st, kit: Kit, clip) -> None:
     spine = [(-sw * 0.29, top - 0.020), (-sw * 0.08, top - 0.210),
              (sw * 0.34, top - 0.480)]
     sash = S.lock(spine, w0=0.062, w1=0.072, bulge=0.008, per_segment=8)
-    # A maroon tunic and a maroon sash are one object.  The ceremonial sash is
-    # therefore blue against the maroon, which is both historical and readable.
+
     col = (palette.oklch_to_srgb((0.39, 0.095, 0.630))
            if kit.attire == "ceremonial" else kit.accent)
     brush.paint(canvas, sash, col, clip=clip, alpha=0.94, soft=0.55)
-    # One broad fold, just off the centre, so the band has a length and a light.
+
     brush.paint(canvas, sash & S.lock([(p[0] - 0.014, p[1] + 0.004) for p in spine],
                                       w0=0.010, w1=0.013, per_segment=7),
                 palette.darken(col, 0.080), clip=clip, alpha=0.24, soft=1.3)
-    # The gold border is the order's own edge, not a second band.
+
     brush.paint(canvas, sash.outline(0.0038), kit.gold, clip=clip,
                 alpha=0.88, soft=0.32)
     brush.paint(canvas, sash.outline(0.0020), kit.gold_hi, clip=clip,
@@ -664,10 +609,7 @@ def _armband(canvas, st, kit: Kit, clip) -> None:
     lw = float(st.ink_w) * float(st.line)
     top = float(st.neck_y)
     sw = float(st.shoulder_w)
-    # The upper arm is at the edge of a headshot, so the brassard is placed on the
-    # visible deltoid, inside the shoulder seam, and follows the sleeve's slope.
-    # A white field on a dark sleeve is the readable version; a dark band on dark
-    # cloth is a smudge.
+
     cx = sw * 0.545
     cy = top - 0.150
     band = S.poly([(cx - 0.028, cy + 0.058), (cx + 0.026, cy + 0.050),
@@ -686,9 +628,6 @@ def _armband(canvas, st, kit: Kit, clip) -> None:
                 alpha=0.88, soft=0.25)
 
 
-# --------------------------------------------------------------------------
-# worn things
-# --------------------------------------------------------------------------
 def _ornament(canvas, st, h, kit: Kit, clip) -> None:
     if kit.ornament == "none":
         return
@@ -721,7 +660,7 @@ def _aiguillette(canvas, st, kit: Kit, clip) -> None:
     brush.paint(canvas, S.lock([(x, y + 0.0066) for x, y in loop],
                                w0=0.0018, w1=0.0016, per_segment=9),
                 kit.gold_hi, clip=clip, alpha=0.85, soft=0.3)
-    # Two metal tips hang from the lowest span of the loop.
+
     for tx, ty in ((-sw * 0.300, top - 0.096), (-sw * 0.262, top - 0.104)):
         tip = S.lock([(tx, ty), (tx - 0.004, ty - 0.042)],
                      w0=0.0072, w1=0.0048, per_segment=3)
@@ -735,8 +674,7 @@ def _aiguillette(canvas, st, kit: Kit, clip) -> None:
 def _watch_chain(canvas, st, kit: Kit, clip) -> None:
     top = float(st.neck_y)
     sw = float(st.shoulder_w)
-    # A pocket-watch chain is a catenary, not a necklace: it belongs to the
-    # waistcoat and the hand, and that is what distinguishes it from the pendant.
+
     spine = [(0.014, top - 0.115), (sw * 0.085, top - 0.155),
              (sw * 0.170, top - 0.155), (sw * 0.205, top - 0.120)]
     cord = S.lock(spine, w0=0.0040, w1=0.0040, bulge=0.0035, per_segment=8)
@@ -744,7 +682,7 @@ def _watch_chain(canvas, st, kit: Kit, clip) -> None:
     brush.paint(canvas, S.lock([(p[0], p[1] + 0.0015) for p in spine],
                                w0=0.0014, w1=0.0014, per_segment=8),
                 kit.gold_hi, clip=clip, alpha=0.8, soft=0.3)
-    # The watch sits at the end of the chain, half turned away.
+
     cx, cy = sw * 0.205, top - 0.120
     watch = S.circle(0.020, cx, cy)
     brush.paint(canvas, watch, kit.gold, clip=clip, alpha=0.96, soft=0.3)
@@ -761,7 +699,7 @@ def _watch_chain(canvas, st, kit: Kit, clip) -> None:
 def _brooch(canvas, st, kit: Kit, clip) -> None:
     top = float(st.neck_y)
     nw = float(st.neck_w)
-    # On the viewer's left lapel, where a brooch is actually pinned.
+
     cx = -min(nw * 1.02, 0.185)
     cy = top + 0.020
     ring = S.circle(0.020, cx, cy)
@@ -780,8 +718,7 @@ def _faith(canvas, st, h, kit: Kit, clip) -> None:
     top = float(st.neck_y)
     nw = float(st.neck_w)
     if kit.faith == "cross":
-        # A fine chain, then a plain Latin cross.  The cross is metal because a
-        # cross is jewellery as often as it is a sign.
+
         chain = S.lock([(-nw * 0.86, top - 0.012), (0.0, top - 0.095),
                         (nw * 0.86, top - 0.012)],
                        w0=0.0032, w1=0.0032, bulge=0.004, per_segment=8)
@@ -799,8 +736,7 @@ def _faith(canvas, st, h, kit: Kit, clip) -> None:
         brush.paint(canvas, S.box(0.0025, 0.020, 0.001, -0.0022, cy + 0.001),
                     kit.gold_hi, clip=clip, alpha=0.55, soft=0.25)
     elif kit.faith == "amulet":
-        # A cord and a bone disc: deliberately not metal, so the two faiths do
-        # not read as the same pendant in a different colour.
+
         cord_col = palette.oklch_to_srgb((0.30, 0.035, 0.075))
         chain = S.lock([(-nw * 0.90, top - 0.014), (0.0, top - 0.092),
                         (nw * 0.90, top - 0.014)],
@@ -818,9 +754,6 @@ def _faith(canvas, st, h, kit: Kit, clip) -> None:
                     palette.lighten(bone, 0.06), clip=clip, alpha=0.75, soft=0.3)
 
 
-# --------------------------------------------------------------------------
-# ears
-# --------------------------------------------------------------------------
 def paint_ears(canvas, st, h: Hues, genes: dict, turn: float, clip) -> None:
     """Earrings, painted on the ear before the hair has its say.
 

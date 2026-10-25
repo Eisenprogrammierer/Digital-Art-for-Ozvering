@@ -35,8 +35,6 @@ __all__ = ["LIGHT", "lit", "luminance", "periodic_noise", "repeat", "seam_error"
            "smooth", "tile_coords"]
 
 
-
-
 def periodic_noise(shape, seed: int = 0, scale: float = 6.0, stretch: float = 1.0):
     """Smooth noise that wraps, in ``[0, 1]``, with features about ``scale`` px wide.
 
@@ -196,7 +194,7 @@ def lit(srgb, height, ambient: float = 0.62, diffuse: float = 0.55,
     the colours of a texture are the point of it, and shading that pulls them
     towards grey loses the thing the texture was for.
     """
-    from core import render  # local: keeps the module's import graph a leaf
+    from core import render
 
     colour = np.asarray(srgb, dtype=np.float64)
     n = render.height_normals(np.asarray(height, dtype=np.float64), dx, y_up=y_up)

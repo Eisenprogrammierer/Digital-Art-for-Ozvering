@@ -28,11 +28,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from export import atlas as atlaslib  # noqa: E402
-from gen.icons import badge, livery, motifs, paint  # noqa: E402
+from export import atlas as atlaslib
+from gen.icons import badge, livery, motifs, paint
 
 
-# ------------------------------------------------------------------- helpers
 def _fields(name, spec=None, n: int = 160):
     """The region a charge covers, as a boolean mask on a fixed design grid."""
     axis = np.linspace(-0.75, 0.75, n)
@@ -89,7 +88,6 @@ def _overlap(a, b) -> bool:
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
-# --------------------------------------------------------------- the charges
 def test_the_plate_is_the_same_plate_for_the_whole_set():
     """One plate, many charges: the property that makes icons look like a set.
 
@@ -175,7 +173,6 @@ def test_an_unknown_charge_is_reported_and_refused():
     raise AssertionError("an unknown charge was drawn")
 
 
-# ---------------------------------------------------------------- the drawing
 def test_an_icon_never_touches_its_own_edge():
     """The tile is bigger than the icon, at every size.
 
@@ -258,7 +255,6 @@ def test_rendering_is_deterministic_across_processes():
     assert len(seen) == 1, seen
 
 
-# ------------------------------------------------------------------- the badge
 def test_a_badge_is_a_count_or_a_tier_and_never_both():
     """The two questions a charge cannot answer, and one badge for either.
 
@@ -350,8 +346,7 @@ def test_a_badge_does_not_recolour_the_icon():
     a = paint.draw(plain, 128).to_uint8()
     b = paint.draw(badged, 128).to_uint8()
     palette_plain = {tuple(c) for c in a[a[..., 3] > 200][:, :3]}
-    # Every *opaque* pixel the badge adds is a shade the plain icon already used --
-    # to within the quantization the transfer function does along an edge.
+
     added = (b[..., 3] > 200) & ~(a[..., 3] > 200)
     if added.any():
         known = np.array(sorted(palette_plain), dtype=np.float64)
@@ -394,9 +389,6 @@ def test_a_badge_breaks_the_silhouette_where_it_should():
         else:
             assert badged > plain, plate
 
-
-# ------------------------------------------------------------------ the livery
-#: The demo's own roster, so the test measures the names the game actually ships.
 _FACTIONS = ["Kingdom of Alder", "The Mirefen League", "Brythmark",
              "Silverreach Compact", "Duchy of Halven", "The Ostmark Freeholds",
              "Vale of Craymoor", "House Delvane"]
@@ -422,10 +414,7 @@ def test_a_faction_s_hue_is_the_hue_its_provinces_are_washed_in():
         if livery.lch(name)[1] < livery.NEUTRAL:
             continue
         washed = float(colours.srgb_to_oklch(politics.wash(name))[2])
-        # Not an exact equality: the wash is an sRGB colour and the hue is read back
-        # out of it, so the round trip through the transfer function costs the last
-        # few digits.  A ten-thousandth of a turn is a thousand times tighter than
-        # the smallest hue a plate could show.
+
         assert abs(livery.hue(name) - washed) < 1e-4, name
         checked += 1
     assert checked >= 2, f"only {checked} chromatic factions in the roster"
@@ -548,13 +537,12 @@ def test_a_badged_livery_icon_is_the_same_in_another_process():
     assert len(seen) == 1, seen
 
 
-# ------------------------------------------------------------------- the atlas
 def test_trim_finds_the_pixels_it_says():
     """Including the faintest edge pixel, which is the whole point of threshold 0."""
     rgba = np.zeros((20, 30, 4), dtype=np.uint8)
     rgba[5:9, 7:13] = 255
     assert atlaslib.trim(rgba) == (7, 5, 13, 9)
-    rgba[2, 29, 3] = 1                      # one alpha level: still content
+    rgba[2, 29, 3] = 1
     assert atlaslib.trim(rgba) == (7, 2, 30, 9)
     assert atlaslib.trim(rgba, threshold=1) == (7, 5, 13, 9)
 
@@ -655,7 +643,7 @@ def test_an_empty_atlas_is_refused():
         return
     raise AssertionError("an empty atlas was written")
 
-# ------------------------------------------------------------------ the wear
+
 def test_wear_is_a_cumulative_history_not_ten_textures():
     """Every stage contains the previous one, by construction.
 
@@ -730,7 +718,6 @@ def test_two_families_share_one_symbol_vocabulary():
     assert {"rifle", "tank", "cannon", "plane", "medical"} <= \
         set(motifs.FAMILIES["nato"]) & set(motifs.FAMILIES["hoi4"])
 
-
 if __name__ == "__main__":
     import traceback
 
@@ -740,7 +727,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  ok    {fn.__name__}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             failures += 1
             print(f"  FAIL  {fn.__name__}")
             traceback.print_exc()

@@ -45,9 +45,6 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------
-# primitives
-# --------------------------------------------------------------------------
 def circle(x, y, r: float = 1.0, cx: float = 0.0, cy: float = 0.0):
     """Disc of radius ``r`` centred at ``(cx, cy)``."""
     return np.hypot(x - cx, y - cy) - r
@@ -162,9 +159,6 @@ def star(x, y, n: int = 5, outer: float = 1.0, inner: float = 0.45, rotation: fl
     return polygon(x, y, pts)
 
 
-# --------------------------------------------------------------------------
-# operators (all take and return fields)
-# --------------------------------------------------------------------------
 def rounded(field, r: float):
     """Round every corner of ``field`` by ``r`` (offset outward by ``r``)."""
     return lambda x, y: field(x, y) - r
@@ -221,9 +215,6 @@ def smooth_difference(d1, d2, k: float = 0.1):
     return smooth_intersection(d1, -d2, k)
 
 
-# --------------------------------------------------------------------------
-# transforms
-# --------------------------------------------------------------------------
 def transformed(field, m):
     """Apply an affine matrix ``m`` to the *shape* (coordinates are inverted)."""
     mi = _mat.invert(m)

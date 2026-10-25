@@ -41,16 +41,10 @@ __all__ = [
     "hairline_y",
 ]
 
-#: Half-extents of the world box a portrait is composed in.  The frame is a
-#: *headshot*: the hair's crown clears the top by a hair's breadth, the chin sits
-#: two thirds down, and the bust has the rest.  Framing it any looser makes the
-#: face small, which is the one thing an avatar cannot afford.
 FRAME = (0.78, 0.825)
-#: Where the head's centre sits inside that box: above the middle, so the room
-#: under the chin goes to the neck and the shoulders.
+
 HEAD_Y = 0.125
-#: The largest turn the model is asked for, in radians.  Past it the near eye's
-#: outer corner reaches the silhouette, and a turn that far is a profile view.
+
 TURN_MAX = 0.55
 
 
@@ -157,10 +151,7 @@ def neck(st, turn: float = 0.0) -> Shape:
     top = st.chin_y + 0.17
     bottom = st.neck_y - 0.20
     tw = float(st.neck_w) * 0.92
-    # A neck is a column with a slight flare into the trapezius, not a cone.
-    # A straight taper from a narrow jaw-width top to a wide base reads as a
-    # stalk once the collar exposes it; the short concave waist below keeps the
-    # visible sides nearly vertical and lets the shoulders carry the flare.
+
     mw = tw * 0.96
     bw = float(st.neck_w) * 1.04
     pts = [(-tw, top), (-tw * 1.01, top - 0.075), (-mw, top - 0.16),
@@ -184,32 +175,19 @@ def shoulders(st) -> Shape:
     bottom = float(st.shoulder_y)
     w = float(st.shoulder_w)
     nw = max(float(st.neck_w) * 1.10, 0.150)
-    # ``shoulder_slope`` is a *drop*: positive lowers the acromion relative to
-    # the neck.  A male shoulder is wider and flatter, a female shoulder is
-    # narrower and slopes more; using the sign the other way round made the
-    # female bust square and the male bust droop.
+
     slope = float(getattr(st, "shoulder_slope", 0.0))
     outer = top - 0.055 - 0.020 * slope
-    # The top edge runs from the side of the neck to the acromion.  It is
-    # sampled as a monotone curve instead of a handful of control points: a
-    # Catmull-Rom through a neck point, a crest point and an outer point
-    # overshot into a pair of peaks beside the throat, which was the coat-hanger
-    # shape the old bust had.  This curve only ever descends outwards.
+
     x0, x1 = nw, w * 0.920
     y0, y1 = top + 0.070, outer
     top_edge = []
     for i in range(19):
         t = i / 18.0
-        # A slight upward bulge through the middle of the trapezius, then a
-        # flat run into the acromion.  A straight ramp reads as a table edge;
-        # a Catmull-Rom through old crest points read as a coat hanger.  This
-        # stays monotone while giving the cloth one broad convex plane.
+
         s = t - 0.14 * float(np.sin(np.pi * t))
         top_edge.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * s))
 
-    # Acromion and upper arm.  The cap turns over the deltoid and then the arm
-    # drops almost vertically; the frame crops it, so the bust has ends inside
-    # the picture rather than becoming a full-width band.
     arm = [
         (w * 0.978, outer - 0.030),
         (w * 1.006, outer - 0.078),
@@ -219,8 +197,7 @@ def shoulders(st) -> Shape:
     pts = [(-w * 1.015, bottom)]
     pts += [(-x, y) for x, y in reversed(arm)]
     pts += [(-x, y) for x, y in reversed(top_edge)]
-    # The centre sits below the throat and is covered by the neck; it keeps the
-    # cloth from arching into a high shelf under the chin.
+
     pts += [(0.0, top + 0.045)]
     pts += top_edge
     pts += arm
@@ -265,9 +242,7 @@ def neckline(st, kind: str = "v", w: float = 0.020) -> Shape:
     """
     nw = max(float(st.neck_w) * 1.22, 0.16)
     top = float(st.neck_y)
-    # A collar that only spans the width of the neck is a necklace; a neckline
-    # has to cross the trapezius.  Keep the endpoints inside the shoulder slope
-    # and let the style's own neck width set the opening.
+
     x0, x1 = min(nw * 2.9, float(st.shoulder_w) * 0.54), float(st.shoulder_w) * 0.70
     edge = (top + 0.075) + (x0 - nw) / max(x1 - nw, 1e-6) * (top - (top + 0.075))
     if kind == "crew":

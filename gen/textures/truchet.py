@@ -34,15 +34,10 @@ from . import tile as tiling
 
 __all__ = ["arrangement", "pattern", "texture"]
 
-#: The two orientations, as the corner each arc is centred on, in tile units with
-#: y pointing up: the first bulges out of the top-left and bottom-right corners,
-#: the second out of the other diagonal.  Neighbouring tiles in an arrangement
-#: meet along an edge, and both arcs that reach a shared edge meet at its middle.
 _ORIENTATIONS = (((0.0, 1.0), (1.0, 0.0)), ((1.0, 1.0), (0.0, 0.0)))
-#: Which two edge midpoints each orientation joins, for the straight-line kind.
+
 _MATCHING = (((0.5, 1.0), (0.0, 0.5)), ((1.0, 0.5), (0.5, 0.0)))
-#: The kinds of path a grain may draw.  Both connect the same edge midpoints, which
-#: is what lets them be mixed in one arrangement without breaking the wrap.
+
 _KINDS = ("arcs", "lines")
 
 
@@ -102,9 +97,7 @@ def pattern(seed: int = 0, size: int = 256, grains: int = 4, kinds=("arcs", "lin
                 mid = (0.5, 0.5)
                 part = np.minimum(sdf.segment(u, v, a, mid), sdf.segment(u, v, mid, b))
             d[y0:y0 + cell, x0:x0 + cell] = part
-    # The paths are carved *in*: a groove of half-width ``width`` is pressed into
-    # the surface, so the relief is negative inside it -- a ridge would be a
-    # different material, and the walls of a groove light each other.
+
     shape = d - 0.5 * float(width)
     return {"distance": shape, "height": np.clip(shape, None, 0.0), "arrangement": arr}
 
@@ -129,23 +122,13 @@ def texture(seed: int = 0, size: int = 256, grains: int = 4, kinds=("arcs", "lin
     ink = palette.hex_to_srgb(ink)
     srgb = np.broadcast_to(base, (size, size, 3)).copy()
 
-    # The surface first, so the carve is cut out of something rather than floated
-    # over it.  The grain is periodic noise, not noise evaluated in pixel
-    # coordinates: a grain that does not wrap breaks the seam that the pattern
-    # itself keeps, which is the one way this texture could still fail.
     speck = tiling.periodic_noise((size, size), seed=int(seed) + 71, scale=2.5)
     srgb *= (1.0 - grain + 2.0 * grain * speck)[..., None]
 
-    # The fields come back in tile units, where a nice round number like 0.16 is a
-    # path width.  Pixels are what the painter wants, so scale once -- and then
-    # ``relief`` is exactly the slope of the groove's wall, which is the number
-    # worth choosing by eye.
     distance = fields["distance"] * cell
     height = fields["height"] * cell * float(relief)
     mask = render.coverage(distance - float(bevel), 1.0)
-    # Both sides are shaded by the same groove height: the rim where the tool went
-    # in and the floor it cut, lit by their own slopes.  That, and not the colour,
-    # is what makes the paths read as grooves instead of as painted lines.
+
     floor = np.broadcast_to(ink, (size, size, 3))
     base_lit = tiling.lit(srgb, height, y_up=False)
     floor_lit = tiling.lit(floor, height, y_up=False, ambient=0.55, diffuse=0.75)
